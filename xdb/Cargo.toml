@@ -1,0 +1,11 @@
+[package]
+name = "xdb"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+log.workspace = true
+
+kspin = "0.1"
