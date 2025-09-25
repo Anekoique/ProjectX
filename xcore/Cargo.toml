@@ -4,3 +4,13 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
+
+[features]
+loongarch64 = []
+riscv64 = []
+default = ["riscv64"]
+
+[dependencies]
+log.workspace = true
+
+memory_addr = "0.4"

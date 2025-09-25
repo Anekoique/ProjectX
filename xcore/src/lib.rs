@@ -1,3 +1,10 @@
+#[macro_use]
+extern crate log;
+
+mod config;
+mod error;
+mod memory;
+
 pub fn hello() {
-    println!("hello xcore");
+    trace!("hello xcore");
 }

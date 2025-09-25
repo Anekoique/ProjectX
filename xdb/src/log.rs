@@ -7,7 +7,6 @@ use core::{
 use std::{sync::OnceLock, time::Instant};
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
-pub use log::{debug, error, info, trace, warn};
 
 macro_rules! with_color {
     ($color_code:expr, $($arg:tt)*) => {
