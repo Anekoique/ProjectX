@@ -4,7 +4,6 @@ use core::fmt;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum XError {
     BadAddress,
-    LockError,
 }
 
 pub type XResult<T = ()> = Result<T, XError>;
@@ -13,7 +12,6 @@ impl XError {
     pub fn as_str(&self) -> &'static str {
         match self {
             XError::BadAddress => "bad address",
-            XError::LockError => "lock error",
         }
     }
 }

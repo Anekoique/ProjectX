@@ -10,7 +10,7 @@ default = []
 
 [dependencies]
 xcore.workspace = true
-xdb.workspace   = true
+xdb.workspace = true
 
 log = "0.4.28"
 
@@ -24,8 +24,7 @@ authors = ["Anekoique <ctolu01@gmail.com>"]
 repository = "https://github.com/Anekoique/Xemu.git"
 
 [workspace.dependencies]
-xcore = { path = "./xcore"}
-xdb   = { path = "./xdb"}
+xcore = { path = "./xcore" }
+xdb = { path = "./xdb" }
 
 log = "0.4.28"
-

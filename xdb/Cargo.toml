@@ -7,3 +7,6 @@ repository.workspace = true
 
 [dependencies]
 log.workspace = true
+
+clap = { version = "4.5", features = ["derive"] }
+shlex = "1.3"

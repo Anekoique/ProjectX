@@ -21,41 +21,36 @@ impl Memory {
     }
 
     fn access(&self, addr: PhysAddr, size: usize) -> XResult<usize> {
-        let offset = addr.as_usize() - crate::config::CONFIG_MBASE as usize;
+        let offset = addr.as_usize() - crate::config::CONFIG_MBASE;
         ensure!(
-            offset + size <= crate::config::CONFIG_MSIZE && addr.is_aligned(size),
+            offset + size <= crate::config::CONFIG_MSIZE
+                && [1, 2, 4, 8].contains(&size)
+                && addr.is_aligned(size),
             Err(XError::BadAddress)
         );
         Ok(offset)
     }
 
     pub fn read(&self, addr: PhysAddr, size: usize) -> XResult<u64> {
-        let offset = self.access(addr, size)?;
-        unsafe {
-            let ptr = self.data.as_ptr().add(offset);
-            match size {
-                1 => Ok(ptr.cast::<u8>().read() as u64),
-                2 => Ok(ptr.cast::<u16>().read() as u64),
-                4 => Ok(ptr.cast::<u32>().read() as u64),
-                8 => Ok(ptr.cast::<u64>().read()),
-                _ => Err(XError::BadAddress),
-            }
-        }
+        self.access(addr, size).map(|offset| unsafe {
+            let mut value = 0u64;
+            std::ptr::copy_nonoverlapping(
+                self.data.as_ptr().add(offset),
+                &mut value as *mut _ as *mut u8,
+                size,
+            );
+            value
+        })
     }
 
-    pub fn write(&mut self, addr: PhysAddr, size: usize, value: u64) -> XResult<()> {
-        let offset = self.access(addr, size)?;
-        unsafe {
-            let ptr = self.data.as_mut_ptr().add(offset);
-            match size {
-                1 => ptr.cast::<u8>().write(value as u8),
-                2 => ptr.cast::<u16>().write(value as u16),
-                4 => ptr.cast::<u32>().write(value as u32),
-                8 => ptr.cast::<u64>().write(value),
-                _ => return Err(XError::BadAddress),
-            }
-        }
-        Ok(())
+    pub fn write(&mut self, addr: PhysAddr, size: usize, value: u64) -> XResult {
+        self.access(addr, size).map(|offset| unsafe {
+            std::ptr::copy_nonoverlapping(
+                &value as *const u64 as *const u8,
+                self.data.as_mut_ptr().add(offset),
+                size,
+            )
+        })
     }
 }
 
@@ -66,7 +61,7 @@ pub fn pmem_read(addr: PhysAddr, size: usize) -> XResult<u64> {
         .read(addr, size)
 }
 
-pub fn pmem_write(addr: PhysAddr, size: usize, value: u64) -> XResult<()> {
+pub fn pmem_write(addr: PhysAddr, size: usize, value: u64) -> XResult {
     MEMORY
         .write()
         .map_err(|_| panic!("Failed to acquire lock"))?
