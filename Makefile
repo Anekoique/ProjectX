@@ -8,7 +8,7 @@ export X_ARCH=$(ARCH)
 all: run
 
 run:
-	cargo run --features $(FEATURES)
+	cargo run
 
 clean:
 	cargo clean

@@ -3,6 +3,7 @@ use std::sync::{LazyLock, RwLock};
 use memory_addr::{MemoryAddr, PhysAddr};
 
 use crate::{
+    config::Word,
     ensure,
     error::{XError, XResult},
 };
@@ -31,9 +32,9 @@ impl Memory {
         Ok(offset)
     }
 
-    pub fn read(&self, addr: PhysAddr, size: usize) -> XResult<u64> {
+    pub fn read(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
         self.access(addr, size).map(|offset| unsafe {
-            let mut value = 0u64;
+            let mut value: Word = 0;
             std::ptr::copy_nonoverlapping(
                 self.data.as_ptr().add(offset),
                 &mut value as *mut _ as *mut u8,
@@ -43,10 +44,10 @@ impl Memory {
         })
     }
 
-    pub fn write(&mut self, addr: PhysAddr, size: usize, value: u64) -> XResult {
+    pub fn write(&mut self, addr: PhysAddr, size: usize, value: Word) -> XResult {
         self.access(addr, size).map(|offset| unsafe {
             std::ptr::copy_nonoverlapping(
-                &value as *const u64 as *const u8,
+                &value as *const _ as *const u8,
                 self.data.as_mut_ptr().add(offset),
                 size,
             )
@@ -54,14 +55,14 @@ impl Memory {
     }
 }
 
-pub fn pmem_read(addr: PhysAddr, size: usize) -> XResult<u64> {
+pub fn pmem_read(addr: PhysAddr, size: usize) -> XResult<Word> {
     MEMORY
         .read()
         .map_err(|_| panic!("Failed to acquire lock"))?
         .read(addr, size)
 }
 
-pub fn pmem_write(addr: PhysAddr, size: usize, value: u64) -> XResult {
+pub fn pmem_write(addr: PhysAddr, size: usize, value: Word) -> XResult {
     MEMORY
         .write()
         .map_err(|_| panic!("Failed to acquire lock"))?

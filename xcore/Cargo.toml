@@ -6,9 +6,7 @@ authors.workspace = true
 repository.workspace = true
 
 [features]
-loongarch64 = []
-riscv64 = []
-default = ["riscv64"]
+default = []
 
 [dependencies]
 log.workspace = true
