@@ -1,23 +1,19 @@
-#[cfg(loongarch)]
-mod loongarch;
-#[cfg(riscv)]
-mod riscv;
+crate::import_modules!(riscv, loongarch);
 
 mod decoder;
 
-use std::sync::LazyLock;
+// FIXME: use macro to reduce code duplication
+#[cfg(loongarch)]
+pub use self::loongarch::IMG;
+#[cfg(riscv)]
+pub use self::riscv::IMG;
 
-static DECODER: LazyLock<decoder::Decoder> = LazyLock::new(|| {
-    match decoder::Decoder::new(&[include_str!("./riscv/rv32.toml").to_string()]) {
-        Ok(decoder) => decoder,
-        Err(errors) => {
-            for error in &errors[0] {
-                println!("\t{error}");
-            }
-            panic!("Errors in ./riscv/rv32.toml:");
-        }
-    }
-});
+crate::define_decoder!(
+    riscv32 => "./instpat/rv32.toml",
+    riscv64 => "./instpat/rv64.toml",
+    loongarch32 => "./instpat/la32.toml",
+    loongarch64 => "./instpat/la64.toml"
+);
 
 pub fn init_decoder() {
     trace!("hello xcore");

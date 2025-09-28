@@ -1,5 +1,3 @@
-use std::sync::{LazyLock, RwLock};
-
 use memory_addr::{MemoryAddr, PhysAddr};
 
 use crate::{
@@ -8,8 +6,7 @@ use crate::{
     error::{XError, XResult},
 };
 
-static MEMORY: LazyLock<RwLock<Memory>> = LazyLock::new(|| RwLock::new(Memory::new()));
-
+#[derive(Debug, Default)]
 pub struct Memory {
     data: Vec<u8>,
 }
@@ -24,24 +21,32 @@ impl Memory {
     fn access(&self, addr: PhysAddr, size: usize) -> XResult<usize> {
         let offset = addr.as_usize() - crate::config::CONFIG_MBASE;
         ensure!(
-            offset + size <= crate::config::CONFIG_MSIZE
-                && [1, 2, 4, 8].contains(&size)
-                && addr.is_aligned(size),
+            offset + size <= crate::config::CONFIG_MSIZE,
             Err(XError::BadAddress)
         );
         Ok(offset)
     }
 
+    fn check_aligned(&self, addr: PhysAddr, size: usize) -> XResult<()> {
+        ensure!(
+            [1, 2, 4, 8].contains(&size) && addr.is_aligned(size),
+            Err(XError::AddrNotAligned)
+        );
+        Ok(())
+    }
+
     pub fn read(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
-        self.access(addr, size).map(|offset| unsafe {
-            let mut value: Word = 0;
-            std::ptr::copy_nonoverlapping(
-                self.data.as_ptr().add(offset),
-                &mut value as *mut _ as *mut u8,
-                size,
-            );
-            value
-        })
+        self.check_aligned(addr, size)
+            .and_then(|_| self.access(addr, size))
+            .map(|offset| unsafe {
+                let mut value: Word = 0;
+                std::ptr::copy_nonoverlapping(
+                    self.data.as_ptr().add(offset),
+                    &mut value as *mut _ as *mut u8,
+                    size,
+                );
+                value
+            })
     }
 
     pub fn write(&mut self, addr: PhysAddr, size: usize, value: Word) -> XResult {
@@ -53,20 +58,13 @@ impl Memory {
             )
         })
     }
-}
 
-pub fn pmem_read(addr: PhysAddr, size: usize) -> XResult<Word> {
-    MEMORY
-        .read()
-        .map_err(|_| panic!("Failed to acquire lock"))?
-        .read(addr, size)
-}
-
-pub fn pmem_write(addr: PhysAddr, size: usize, value: Word) -> XResult {
-    MEMORY
-        .write()
-        .map_err(|_| panic!("Failed to acquire lock"))?
-        .write(addr, size, value)
+    pub fn load(&mut self, addr: PhysAddr, data: &[u8]) -> XResult {
+        let size = data.len();
+        self.access(addr, size).map(|offset| {
+            self.data[offset..offset + size].copy_from_slice(data);
+        })
+    }
 }
 
 #[cfg(test)]
@@ -75,57 +73,56 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_memory_basic() {
-        let base = pa!(crate::config::CONFIG_MBASE);
-        let mut mem = MEMORY.write().unwrap();
-        assert!(mem.write(base, 1, 0xFF).is_ok());
-        assert!(
-            mem.write(pa!(crate::config::CONFIG_MBASE + 2), 2, 0xBEEF)
-                .is_ok()
-        );
-        assert!(
-            mem.write(pa!(crate::config::CONFIG_MBASE + 4), 4, 0xDEADBEEF)
-                .is_ok()
-        );
-        assert!(
-            mem.write(pa!(crate::config::CONFIG_MBASE + 8), 8, 0xCAFEBABEDEADBEEF)
-                .is_ok()
-        );
-        assert_eq!(mem.read(base, 1).unwrap(), 0xFF);
-        assert_eq!(
-            mem.read(pa!(crate::config::CONFIG_MBASE + 2), 2).unwrap(),
-            0xBEEF
-        );
-        assert_eq!(
-            mem.read(pa!(crate::config::CONFIG_MBASE + 4), 4).unwrap(),
-            0xDEADBEEF
-        );
-        assert_eq!(
-            mem.read(pa!(crate::config::CONFIG_MBASE + 8), 8).unwrap(),
-            0xCAFEBABEDEADBEEF
-        );
-        drop(mem);
+    // Helper function to get the memory base address.
+    fn mbase() -> PhysAddr {
+        pa!(crate::config::CONFIG_MBASE)
+    }
 
-        let addr = pa!(crate::config::CONFIG_MBASE + 0x100);
-        assert!(pmem_write(addr, 4, 0xABCDEF00).is_ok());
-        assert_eq!(pmem_read(addr, 4).unwrap(), 0xABCDEF00);
+    #[test]
+    #[cfg(any(isa32, isa64))]
+    fn test_memory_read_write_common() {
+        let base = mbase();
+        let mut mem = Memory::new();
+
+        // Test 1, 2, and 4-byte reads/writes which are common to both isa32 and isa64.
+        assert!(mem.write(base, 1, 0xFF).is_ok());
+        assert_eq!(mem.read(base, 1).unwrap(), 0xFF);
+
+        assert!(mem.write(base + 2, 2, 0xBEEF).is_ok());
+        assert_eq!(mem.read(base + 2, 2).unwrap(), 0xBEEF);
+
+        assert!(mem.write(base + 4, 4, 0xDEADBEEF).is_ok());
+        assert_eq!(mem.read(base + 4, 4).unwrap(), 0xDEADBEEF);
+    }
+
+    #[test]
+    #[cfg(isa64)]
+    fn test_memory_read_write_64bit() {
+        let base = mbase();
+        let mut mem = Memory::new();
+
+        // Test 8-byte read/write specific to isa64.
+        assert!(mem.write(base + 8, 8, 0xCAFEBABEDEADBEEF).is_ok());
+        assert_eq!(mem.read(base + 8, 8).unwrap(), 0xCAFEBABEDEADBEEF);
     }
 
     #[test]
     fn test_memory_bounds() {
-        let mem = MEMORY.read().unwrap();
+        let mem = Memory::new();
 
-        let out_of_bounds = pa!(crate::config::CONFIG_MBASE + crate::config::CONFIG_MSIZE);
+        // Test reading from an out-of-bounds address.
+        let out_of_bounds = mbase() + crate::config::CONFIG_MSIZE;
         assert!(matches!(
             mem.read(out_of_bounds, 1),
             Err(XError::BadAddress)
         ));
 
-        let near_end = pa!(crate::config::CONFIG_MBASE + crate::config::CONFIG_MSIZE - 4);
+        // Test reading where the access would go out of bounds.
+        let near_end = mbase() + crate::config::CONFIG_MSIZE - 4;
         assert!(matches!(mem.read(near_end, 8), Err(XError::BadAddress)));
 
-        let addr = pa!(crate::config::CONFIG_MBASE);
+        // Test reading with an unsupported access size.
+        let addr = mbase();
         assert!(matches!(mem.read(addr, 3), Err(XError::BadAddress)));
         assert!(matches!(mem.read(addr, 16), Err(XError::BadAddress)));
     }

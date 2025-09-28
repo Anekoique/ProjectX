@@ -10,6 +10,12 @@ all: run
 run:
 	cargo run
 
+clippy:
+	cargo clippy
+
+fmt:
+	cargo fmt --all
+
 clean:
 	cargo clean
 

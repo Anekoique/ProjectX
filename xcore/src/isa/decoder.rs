@@ -31,18 +31,18 @@ fn parse_usize(s: &str) -> usize {
     .unwrap()
 }
 
-fn parse_u128(s: &str) -> u128 {
-    if let Some(s) = s.strip_prefix("0x") {
-        u128::from_str_radix(s, 16)
-    } else if let Some(s) = s.strip_prefix("0o") {
-        u128::from_str_radix(s, 8)
-    } else if let Some(s) = s.strip_prefix("0b") {
-        u128::from_str_radix(s, 2)
-    } else {
-        s.parse::<u128>()
-    }
-    .unwrap()
-}
+// fn parse_u128(s: &str) -> u128 {
+//     if let Some(s) = s.strip_prefix("0x") {
+//         u128::from_str_radix(s, 16)
+//     } else if let Some(s) = s.strip_prefix("0o") {
+//         u128::from_str_radix(s, 8)
+//     } else if let Some(s) = s.strip_prefix("0b") {
+//         u128::from_str_radix(s, 2)
+//     } else {
+//         s.parse::<u128>()
+//     }
+//     .unwrap()
+// }
 
 fn handle_err_get(
     table: &Table,
@@ -1054,45 +1054,45 @@ impl Decoder {
         }
     }
 
-    pub fn new_from_table(instruction_sets: Vec<Table>) -> Result<Self, Vec<Vec<String>>> {
-        let mut error_stacks = Vec::new();
-        let decoder = Decoder {
-            instruction_sets: instruction_sets
-                .iter()
-                .filter_map(|x| {
-                    let mut error_stack = Vec::new();
-                    let instruction_set = InstructionSet::new(x, &mut error_stack);
-                    error_stacks.push(error_stack);
-                    if error_stacks.last()?.is_empty() {
-                        Some(instruction_set)
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        };
+    // pub fn new_from_table(instruction_sets: Vec<Table>) -> Result<Self,
+    // Vec<Vec<String>>> {     let mut error_stacks = Vec::new();
+    //     let decoder = Decoder {
+    //         instruction_sets: instruction_sets
+    //             .iter()
+    //             .filter_map(|x| {
+    //                 let mut error_stack = Vec::new();
+    //                 let instruction_set = InstructionSet::new(x, &mut
+    // error_stack);                 error_stacks.push(error_stack);
+    //                 if error_stacks.last()?.is_empty() {
+    //                     Some(instruction_set)
+    //                 } else {
+    //                     None
+    //                 }
+    //             })
+    //             .collect(),
+    //     };
 
-        let mut failed = false;
-        for error_stack in &error_stacks {
-            if !error_stack.is_empty() {
-                failed = true;
-                break;
-            }
-        }
-        if failed {
-            Err(error_stacks)
-        } else {
-            Ok(decoder)
-        }
-    }
+    //     let mut failed = false;
+    //     for error_stack in &error_stacks {
+    //         if !error_stack.is_empty() {
+    //             failed = true;
+    //             break;
+    //         }
+    //     }
+    //     if failed {
+    //         Err(error_stacks)
+    //     } else {
+    //         Ok(decoder)
+    //     }
+    // }
 
-    pub fn decode_from_string(
-        &self,
-        instruction: &str,
-        bit_width: usize,
-    ) -> Result<String, String> {
-        self.decode(parse_u128(instruction), bit_width)
-    }
+    // pub fn decode_from_string(
+    //     &self,
+    //     instruction: &str,
+    //     bit_width: usize,
+    // ) -> Result<String, String> {
+    //     self.decode(parse_u128(instruction), bit_width)
+    // }
 
     pub fn decode(&self, instruction: u128, bit_width: usize) -> Result<String, String> {
         let finds = self.decode_all(instruction, bit_width);
@@ -1131,41 +1131,49 @@ impl Decoder {
         finds
     }
 
-    pub fn decode_from_u32(&self, instruction: u32, bit_width: usize) -> Result<String, String> {
-        self.decode(instruction as u128, bit_width)
-    }
-
-    pub fn decode_all_from_u32(&self, instruction: u32, bit_width: usize) -> Vec<String> {
-        self.decode_all(instruction as u128, bit_width)
-    }
-
-    pub fn decode_from_i64(&self, instruction: i64, bit_width: usize) -> Result<String, String> {
-        self.decode(instruction as u128, bit_width)
-    }
-
-    pub fn decode_all_from_i64(&self, instruction: i64, bit_width: usize) -> Vec<String> {
-        self.decode_all(instruction as u128, bit_width)
-    }
-
-    pub fn decode_from_bytes(
+    pub fn decode_from_word(
         &self,
-        instruction: Vec<u8>,
+        instruction: crate::config::Word,
         bit_width: usize,
     ) -> Result<String, String> {
-        let mut tmp = 0;
-        for ib in instruction {
-            tmp <<= 8;
-            tmp |= ib as u128;
-        }
-        self.decode(tmp, bit_width)
+        self.decode(instruction as u128, bit_width)
     }
 
-    pub fn decode_all_from_bytes(&self, instruction: Vec<u8>, bit_width: usize) -> Vec<String> {
-        let mut tmp = 0;
-        for ib in instruction {
-            tmp <<= 8;
-            tmp |= ib as u128;
-        }
-        self.decode_all(tmp, bit_width)
-    }
+    // pub fn decode_from_u32(&self, instruction: u32, bit_width: usize) ->
+    // Result<String, String> {     self.decode(instruction as u128, bit_width)
+    // }
+
+    // pub fn decode_all_from_u32(&self, instruction: u32, bit_width: usize) ->
+    // Vec<String> {     self.decode_all(instruction as u128, bit_width)
+    // }
+
+    // pub fn decode_from_i64(&self, instruction: i64, bit_width: usize) ->
+    // Result<String, String> {     self.decode(instruction as u128, bit_width)
+    // }
+
+    // pub fn decode_all_from_i64(&self, instruction: i64, bit_width: usize) ->
+    // Vec<String> {     self.decode_all(instruction as u128, bit_width)
+    // }
+
+    // pub fn decode_from_bytes(
+    //     &self,
+    //     instruction: Vec<u8>,
+    //     bit_width: usize,
+    // ) -> Result<String, String> {
+    //     let mut tmp = 0;
+    //     for ib in instruction {
+    //         tmp <<= 8;
+    //         tmp |= ib as u128;
+    //     }
+    //     self.decode(tmp, bit_width)
+    // }
+
+    // pub fn decode_all_from_bytes(&self, instruction: Vec<u8>, bit_width: usize)
+    // -> Vec<String> {     let mut tmp = 0;
+    //     for ib in instruction {
+    //         tmp <<= 8;
+    //         tmp |= ib as u128;
+    //     }
+    //     self.decode_all(tmp, bit_width)
+    // }
 }

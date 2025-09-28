@@ -23,6 +23,12 @@ enum Commands {
     /// Continue execution
     #[command(alias = "c")]
     Continue,
+    /// Load a elf file into memory
+    #[command(alias = "l")]
+    Load {
+        /// Path to the binary file
+        file: String,
+    },
     /// Exit the xdb
     #[command(aliases = ["quit", "q", "e"])]
     Exit,
@@ -32,8 +38,9 @@ pub fn respond(line: &str) -> Result<bool, String> {
     let args = shlex::split(line).ok_or("error: Invalid quoting")?;
     let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
     match cli.command {
-        Commands::Step { count } => cmd_step(count as i32),
+        Commands::Step { count } => cmd_step(count),
         Commands::Continue => cmd_continue(),
+        Commands::Load { file } => cmd_load(file),
         Commands::Exit => {
             println!("Exiting ...");
             return Ok(true);

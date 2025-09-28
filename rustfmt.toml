@@ -8,7 +8,7 @@ imports_granularity = "Crate"
 normalize_comments = true
 wrap_comments = true
 
-reorder_impl_items = true
+# reorder_impl_items = true
 condense_wildcard_suffixes = true
 enum_discrim_align_threshold = 20
 use_field_init_shorthand = true
