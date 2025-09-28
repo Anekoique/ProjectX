@@ -9,5 +9,5 @@ mod memory;
 
 pub fn init_xcore() {
     trace!("hello xcore");
-    isa::hello();
+    isa::init_decoder();
 }
