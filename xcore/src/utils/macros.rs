@@ -26,24 +26,3 @@ macro_rules! define_cpu {
         )*
     };
 }
-
-#[macro_export]
-macro_rules! define_decoder {
-    ($($cfg_flag:ident => $toml_path:literal),* $(,)?) => {
-        $(
-            #[cfg($cfg_flag)]
-            pub static DECODER: std::sync::LazyLock<decoder::Decoder> = std::sync::LazyLock::new(|| {
-                match decoder::Decoder::new(&[include_str!($toml_path).to_string()]) {
-                    Ok(decoder) => decoder,
-                    Err(errors) => {
-                        eprintln!("Error parsing decoder definition file: {}", $toml_path);
-                        for error in &errors[0] {
-                            eprintln!("\t{error}");
-                        }
-                        panic!("Fatal errors in TOML file: {}", $toml_path);
-                    }
-                }
-            });
-        )*
-    };
-}

@@ -11,5 +11,5 @@ pub type Word = u32;
 // #[cfg(isa32)]
 // pub type SWord = i32;
 
-pub const WSIZE: usize = std::mem::size_of::<Word>();
-pub const XLEN: usize = WSIZE * 8;
+// pub const WSIZE: usize = std::mem::size_of::<Word>();
+// pub const XLEN: usize = WSIZE * 8;

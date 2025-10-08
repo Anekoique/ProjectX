@@ -1,4 +1,4 @@
-// build.rs (简洁版)
+// build.rs
 use std::env;
 
 fn main() {
@@ -16,7 +16,8 @@ fn main() {
         println!("cargo:rustc-check-cfg=cfg({})", cfg);
     }
 
-    let arch = detect_arch();
+    println!("cargo:rerun-if-env-changed=X_ARCH");
+    let arch = env::var("X_ARCH").unwrap_or_else(|_| "riscv32".to_string());
     println!("cargo:rustc-cfg={}", arch);
 
     if arch.ends_with("64") {
@@ -30,25 +31,4 @@ fn main() {
     } else if arch.starts_with("loongarch") {
         println!("cargo:rustc-cfg=loongarch");
     }
-}
-
-fn detect_arch() -> String {
-    println!("cargo:rerun-if-env-changed=X_ARCH");
-    if let Ok(arch) = env::var("X_ARCH") {
-        return arch;
-    }
-
-    const FEATURES: &[(&str, &str)] = &[
-        ("CARGO_FEATURE_LOONGARCH64", "loongarch64"),
-        ("CARGO_FEATURE_LOONGARCH32", "loongarch32"),
-        ("CARGO_FEATURE_RISCV64", "riscv64"),
-        ("CARGO_FEATURE_RISCV32", "riscv32"),
-    ];
-    for (env_var, arch_name) in FEATURES {
-        if env::var(env_var).is_ok() {
-            return arch_name.to_string();
-        }
-    }
-
-    "riscv32".to_string()
 }

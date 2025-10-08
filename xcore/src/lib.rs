@@ -8,17 +8,12 @@ mod isa;
 mod memory;
 mod utils;
 
-pub use cpu::XCPU;
-
-use crate::error::XResult;
+pub use cpu::{State, XCPU};
+pub use error::{XError, XResult};
+pub use memory::MEMORY;
 
 pub fn init_xcore() -> XResult {
     trace!("hello xcore");
-    isa::init_decoder();
-    XCPU.lock()
-        .map_err(|e| {
-            panic!("Failed to lock CPU mutex: {}", e);
-        })?
-        .reset();
+    XCPU.lock().expect("Posisoned lock on CPU mutex").reset()?;
     Ok(())
 }

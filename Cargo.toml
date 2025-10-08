@@ -1,21 +1,6 @@
-[package]
-name = "xemu"
-version.workspace = true
-edition.workspace = true
-authors.workspace = true
-repository.workspace = true
-
-[features]
-default = []
-
-[dependencies]
-xcore.workspace = true
-xdb.workspace = true
-
-log = "0.4.28"
-
 [workspace]
 members = ["xcore", "xdb"]
+resolver = "3"
 
 [workspace.package]
 version = "0.1.0"

@@ -1,24 +1,29 @@
+mod inst;
 mod mem;
 
 use memory_addr::VirtAddr;
 
 use super::CoreOps;
 use crate::{
-    config::{WSIZE, Word, XLEN},
-    error::{XError, XResult},
-    isa::DECODER,
-    memory::Memory,
+    config::Word,
+    error::XResult,
+    isa::{DECODER, DecodedInst, RVReg},
+    with_mem,
 };
 
 const RESET_VECTOR: usize = 0x80000000;
 
 pub struct RVCore {
     gpr: [Word; 32],
+    pub pc: VirtAddr,
 }
 
 impl RVCore {
     pub fn new() -> Self {
-        Self { gpr: [0; 32] }
+        Self {
+            gpr: [0; 32],
+            pc: VirtAddr::from(0),
+        }
     }
 }
 
@@ -29,26 +34,33 @@ impl Default for RVCore {
 }
 
 impl CoreOps for RVCore {
-    fn reset(&mut self, memory: &mut Memory) -> VirtAddr {
+    fn pc(&self) -> VirtAddr {
+        self.pc
+    }
+    
+    fn reset(&mut self) -> XResult {
         self.gpr.fill(0);
-        self.init_memory(memory);
-        VirtAddr::from(RESET_VECTOR)
-    }
-
-    fn fetch(&self, mem: &Memory, addr: VirtAddr) -> XResult<Word> {
-        mem.read(self.virt_to_phys(addr), WSIZE)
-    }
-
-    fn decode(&self, instr: Word) -> XResult<String> {
-        DECODER
-            .decode_from_word(instr, XLEN)
-            .inspect(|s| trace!("Decoded instruction: {}", s))
-            .map_err(|_| XError::DecodeError)
-    }
-
-    fn execute(&mut self, pc: &mut VirtAddr, instr: String) -> XResult<()> {
-        trace!("Executing instruction: {}", instr);
-        *pc += 4;
+        self.init_memory(self.virt_to_phys(VirtAddr::from(RESET_VECTOR)))?;
+        self.pc = VirtAddr::from(RESET_VECTOR);
         Ok(())
+    }
+
+    fn fetch(&self) -> XResult<u32> {
+        with_mem!(read(self.virt_to_phys(self.pc), 4))
+    }
+
+    fn decode(&self, instr: u32) -> XResult<DecodedInst> {
+        DECODER.decode(instr)
+    }
+
+    fn execute(&mut self, inst: DecodedInst) -> XResult {
+        trace!("Executing instruction: {:?}", inst);
+        self.dispatch(inst)?;
+        self.pc += 4;
+        Ok(())
+    }
+
+    fn halt_ret(&self) -> Word {
+        self.gpr[RVReg::a0]
     }
 }

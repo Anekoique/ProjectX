@@ -1,3 +1,5 @@
+use std::sync::{LazyLock, Mutex};
+
 use memory_addr::{MemoryAddr, PhysAddr};
 
 use crate::{
@@ -5,6 +7,17 @@ use crate::{
     ensure,
     error::{XError, XResult},
 };
+
+pub static MEMORY: LazyLock<Mutex<Memory>> = LazyLock::new(|| Mutex::new(Memory::new()));
+
+#[macro_export]
+macro_rules! with_mem {
+    ($method:ident($($arg:expr),* $(,)?)) => {{
+        $crate::MEMORY.lock()
+            .expect("Poisoned lock on MEMORY mutex")
+            .$method($($arg),*)
+    }};
+}
 
 #[derive(Debug, Default)]
 pub struct Memory {
@@ -119,11 +132,11 @@ mod tests {
 
         // Test reading where the access would go out of bounds.
         let near_end = mbase() + crate::config::CONFIG_MSIZE - 4;
-        assert!(matches!(mem.read(near_end, 8), Err(XError::BadAddress)));
+        assert!(matches!(mem.read(near_end, 8), Err(XError::AddrNotAligned)));
 
         // Test reading with an unsupported access size.
         let addr = mbase();
-        assert!(matches!(mem.read(addr, 3), Err(XError::BadAddress)));
-        assert!(matches!(mem.read(addr, 16), Err(XError::BadAddress)));
+        assert!(matches!(mem.read(addr, 3), Err(XError::AddrNotAligned)));
+        assert!(matches!(mem.read(addr, 16), Err(XError::AddrNotAligned)));
     }
 }

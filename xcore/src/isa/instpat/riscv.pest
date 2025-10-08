@@ -1,0 +1,12 @@
+// riscv.pest
+WHITESPACE = _{ " " | "\t" }
+
+file = { SOI ~ instpat_line* ~ EOI }
+
+instpat_line = {
+    "INSTPAT(\"" ~ pattern ~ "\", " ~ name ~ ", " ~ inst_type ~ ")" ~ ";"? ~ NEWLINE?
+}
+
+pattern   = @{ (!"\"" ~ ANY)* }
+name      = @{ ASCII_ALPHANUMERIC+ }
+inst_type = @{ "R" | "I" | "S" | "B" | "U" | "J" }

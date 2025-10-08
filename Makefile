@@ -16,6 +16,9 @@ clippy:
 fmt:
 	cargo fmt --all
 
+test:
+	cargo test -p xcore
+
 clean:
 	cargo clean
 

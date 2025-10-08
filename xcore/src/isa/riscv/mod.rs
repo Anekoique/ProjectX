@@ -1,6 +1,7 @@
 crate::import_modules!(riscv32 => rv32, riscv64 => rv64);
 
-mod reg;
+pub mod decoder;
+pub mod reg;
 
 #[cfg(isa32)]
 pub use self::rv32::IMG;

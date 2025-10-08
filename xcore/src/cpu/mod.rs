@@ -3,8 +3,8 @@ mod core;
 
 use memory_addr::VirtAddr;
 
-use self::core::{Core, CoreOps};
-use crate::{error::XResult, memory::Memory};
+use self::core::CoreOps;
+use crate::{config::Word, error::XResult};
 
 crate::define_cpu!(
     riscv => self::riscv::RVCore,
@@ -20,11 +20,11 @@ pub enum State {
 }
 
 impl State {
-    fn is_terminal(self) -> bool {
+    pub fn is_terminated(self) -> bool {
         matches!(self, State::HALTED | State::ABORT)
     }
 
-    fn message(self) -> &'static str {
+    pub fn message(self) -> &'static str {
         match self {
             State::HALTED => "Halted",
             State::ABORT => "Aborted",
@@ -35,28 +35,26 @@ impl State {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-pub struct CPU<C: CoreOps> {
-    core: Core<C>,
-    memory: Memory,
-
+pub struct CPU<Core: CoreOps> {
+    core: Core,
     state: State,
     halt_pc: VirtAddr,
-    halt_ret: u32,
+    halt_ret: Word,
 }
 
-impl<C: CoreOps> CPU<C> {
-    pub fn new(inner: C) -> Self {
+impl<Core: CoreOps> CPU<Core> {
+    pub fn new(core: Core) -> Self {
         Self {
-            core: Core::new(inner),
-            memory: Memory::new(),
+            core,
             state: State::STOP,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
         }
     }
 
-    pub fn reset(&mut self) {
-        self.core.reset(&mut self.memory);
+    pub fn reset(&mut self) -> XResult {
+        self.state = State::STOP;
+        self.core.reset()
     }
 
     pub fn load(&mut self, file: String) -> XResult {
@@ -64,30 +62,89 @@ impl<C: CoreOps> CPU<C> {
         Ok(())
     }
 
+    pub fn step(&mut self) -> XResult {
+        let instr = self.core.fetch()?;
+        let decoded = self.core.decode(instr)?;
+        self.core.execute(decoded)?;
+        Ok(())
+    }
+
     pub fn run(&mut self, count: u32) -> XResult {
-        if self.state.is_terminal() {
-            println!("CPU is not running. Please reset or load a program first.");
+        if self.state.is_terminated() {
+            info!("CPU is not running. Please reset or load a program first.");
             return Ok(());
         }
 
         self.state = State::RUNNING;
-        self.core.execute(&mut self.memory, count)?;
-
-        match self.state {
-            State::RUNNING => self.state = State::STOP,
-            _ => {
-                info!(
-                    "XEMU: {} at pc = {:#x}, return code = {}",
-                    self.state.message(),
-                    self.halt_pc.as_usize(),
-                    self.halt_ret
-                );
-            }
+        for _ in 0..count {
+            self.step()?;
         }
         Ok(())
     }
 
-    pub fn is_exit_status_bad(&self) -> bool {
-        self.state == State::HALTED && self.halt_ret != 0
+    pub fn terminate(&mut self, state: State, error_msg: &str) {
+        self.set_terminated(state).log_termination(error_msg);
     }
+
+    pub fn set_terminated(&mut self, state: State) -> &Self {
+        self.state = state;
+        self.halt_pc = self.core.pc();
+        self.halt_ret = self.core.halt_ret();
+        self
+    }
+
+    pub fn is_exit_normal(&self) -> bool {
+        self.state == State::HALTED && self.halt_ret == 0
+    }
+
+    pub fn log_termination(&self, error_msg: &str) {
+        if !self.is_exit_normal() {
+            eprintln!(
+                "Program {} with error: {} (exit code: {})",
+                self.state.message(),
+                error_msg,
+                self.halt_ret
+            );
+        } else {
+            println!("Program terminated with exit code {}", self.halt_ret);
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! with_xcpu {
+    ($method:ident($($arg:expr),* $(,)?)) => {{
+        $crate::XCPU.lock()
+            .expect("Poisoned lock on CPU mutex")
+            .$method($($arg),*)
+    }};
+}
+
+#[macro_export]
+macro_rules! terminate {
+    ($e:expr) => {{
+        match &$e {
+            $crate::XError::ToTerminate => {
+                $crate::XCPU
+                    .lock()
+                    .expect("Poisoned lock on CPU mutex")
+                    .set_terminated($crate::State::HALTED)
+                    .log_termination("No error message provided");
+            }
+            _ => {
+                $crate::XCPU
+                    .lock()
+                    .expect("Poisoned lock on CPU mutex")
+                    .set_terminated($crate::State::ABORT)
+                    .log_termination(&$e.to_string());
+            }
+        }
+    }};
+    () => {{
+        $crate::XCPU
+            .lock()
+            .expect("Posisoned lock on CPU mutex")
+            .set_terminated($crate::State::HALTED)
+            .log_termination("No error message provided");
+    }};
 }

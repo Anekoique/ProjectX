@@ -1,23 +1,17 @@
-use xcore::XCPU;
+use xcore::{XResult, with_xcpu};
 
-pub fn cmd_continue() {
+pub fn cmd_continue() -> XResult {
     cmd_step(u32::MAX)
 }
 
-pub fn cmd_step(count: u32) {
-    XCPU.lock()
-        .map_err(|e| {
-            panic!("Failed to lock CPU mutex: {}", e);
-        })
-        .and_then(|mut cpu| cpu.run(count))
-        .unwrap_or_else(|e| eprintln!("Error: {}", e));
+pub fn cmd_step(count: u32) -> XResult {
+    with_xcpu!(run(count))
 }
 
-pub fn cmd_load(file: String) {
-    XCPU.lock()
-        .map_err(|e| {
-            panic!("Failed to lock CPU mutex: {}", e);
-        })
-        .and_then(|mut cpu| cpu.load(file))
-        .unwrap_or_else(|e| eprintln!("Error: {}", e));
+pub fn cmd_load(file: String) -> XResult {
+    with_xcpu!(load(file))
+}
+
+pub fn cmd_reset() -> XResult {
+    with_xcpu!(reset())
 }

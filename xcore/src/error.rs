@@ -5,7 +5,16 @@ use core::fmt;
 pub enum XError {
     BadAddress,
     AddrNotAligned,
+
+    InvalidInstType,
+    PatternError,
+    ParseError,
     DecodeError,
+    InvalidInst,
+
+    ToTerminate,
+
+    Unimplemented,
 }
 
 pub type XResult<T = ()> = Result<T, XError>;
@@ -15,7 +24,13 @@ impl XError {
         match self {
             XError::BadAddress => "bad address",
             XError::AddrNotAligned => "address not aligned",
+            XError::InvalidInstType => "invalid instruction type",
+            XError::PatternError => "pattern error",
+            XError::ParseError => "parse error",
             XError::DecodeError => "decode error",
+            XError::InvalidInst => "invalid instruction",
+            XError::ToTerminate => "to be terminated",
+            XError::Unimplemented => "unimplemented",
         }
     }
 }

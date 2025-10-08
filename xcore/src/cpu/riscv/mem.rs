@@ -1,6 +1,7 @@
 use memory_addr::{PhysAddr, VirtAddr};
 
 use super::RVCore;
+use crate::{XResult, with_mem};
 
 impl RVCore {
     pub(super) fn virt_to_phys(&self, vaddr: VirtAddr) -> PhysAddr {
@@ -8,12 +9,10 @@ impl RVCore {
         PhysAddr::from(vaddr.as_usize())
     }
 
-    pub(super) fn init_memory(&self, memory: &mut crate::memory::Memory) {
+    pub(super) fn init_memory(&self, start_addr: PhysAddr) -> XResult {
         // Initialize memory with some data if needed
         // For example, load a bootloader or kernel image
         let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-        memory
-            .load(PhysAddr::from(0x80000000), image_bytes)
-            .expect("Failed to load dummy image")
+        with_mem!(load(start_addr, image_bytes))
     }
 }

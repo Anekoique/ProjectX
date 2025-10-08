@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use clap::{Parser, Subcommand};
+use xcore::terminate;
 
 use crate::cmd::*;
 
@@ -29,6 +30,9 @@ enum Commands {
         /// Path to the binary file
         file: String,
     },
+    /// Reset
+    #[command(alias = "r")]
+    Reset,
     /// Exit the xdb
     #[command(aliases = ["quit", "q", "e"])]
     Exit,
@@ -41,12 +45,17 @@ pub fn respond(line: &str) -> Result<bool, String> {
         Commands::Step { count } => cmd_step(count),
         Commands::Continue => cmd_continue(),
         Commands::Load { file } => cmd_load(file),
+        Commands::Reset => cmd_reset(),
         Commands::Exit => {
             println!("Exiting ...");
-            return Ok(true);
+            return Ok(false);
         }
     }
-    Ok(false)
+    .map(|_| true)
+    .or_else(|e| {
+        terminate!(e);
+        Ok(true)
+    })
 }
 
 pub fn readline() -> Result<String, String> {

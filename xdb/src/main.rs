@@ -5,6 +5,21 @@ mod cli;
 mod cmd;
 mod logger;
 
+pub fn main() {
+    crate::init_xdb();
+    xcore::init_xcore()
+        .map_err(|e| error!("XCore Error: {e}"))
+        .ok();
+    crate::xdb_mainloop()
+        .map_err(|e| error!("XDB Error: {e}"))
+        .ok();
+    xcore::XCPU
+        .lock()
+        .map(|cpu| !cpu.is_exit_normal())
+        .unwrap_or(false)
+        .then(|| std::process::exit(1));
+}
+
 pub fn init_xdb() {
     crate::logger::init();
     crate::logger::set_max_level(option_env!("X_LOG").unwrap_or(""));
@@ -20,8 +35,8 @@ pub fn xdb_mainloop() -> Result<(), String> {
         }
 
         match cli::respond(line) {
-            Ok(quit) => {
-                if quit {
+            Ok(_continue) => {
+                if !_continue {
                     return Ok(());
                 }
             }
