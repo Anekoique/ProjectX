@@ -1,12 +1,22 @@
 use std::sync::LazyLock;
 
+use itertools::Itertools;
 use pest::Parser;
 use pest_derive::Parser;
 
-use crate::error::{XError, XResult};
+use crate::{
+    config::SWord,
+    error::{XError, XResult},
+    isa::{
+        riscv::util::{bit_slice_u32, sign_extend_u32},
+        RVReg,
+    },
+};
 
-pub static DECODER: LazyLock<RVDecoder> =
-    LazyLock::new(|| RVDecoder::from_instpat(include_str!("../instpat/riscv.instpat")).unwrap());
+pub static DECODER: LazyLock<RVDecoder> = LazyLock::new(|| {
+    RVDecoder::from_instpat(include_str!("../instpat/riscv.instpat"))
+        .expect("Failed to load instruction patterns")
+});
 
 #[derive(Parser)]
 #[grammar = "src/isa/instpat/riscv.pest"]
@@ -63,24 +73,28 @@ pub struct RVDecoder {
 
 impl RVDecoder {
     pub fn from_instpat(instpat_code: &str) -> XResult<RVDecoder> {
-        let patterns = RVParser::parse(Rule::file, instpat_code)
-            .map_err(|_| XError::ParseError)?
-            .next()
-            .unwrap()
-            .into_inner()
-            .filter(|pair| pair.as_rule() == Rule::instpat_line)
-            .map(|pair| -> XResult<InstPattern> {
-                let mut inner_rules = pair.into_inner();
-                let pattern_str = inner_rules.next().unwrap().as_str();
-                let name = inner_rules.next().unwrap().as_str().to_string();
-                let inst_type = inner_rules.next().unwrap().as_str().to_string();
-
-                let pattern = InstPattern::from_pattern(pattern_str, name, inst_type)?;
-                Ok(pattern)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(Self { patterns })
+        Ok(Self {
+            patterns: RVParser::parse(Rule::file, instpat_code)
+                .map_err(|_| XError::ParseError)?
+                .next()
+                .ok_or(XError::ParseError)?
+                .into_inner()
+                .filter(|p| p.as_rule() == Rule::instpat_line)
+                .map(|pair| {
+                    pair.into_inner()
+                        .map(|p| p.as_str())
+                        .collect_tuple::<(&str, &str, &str)>()
+                        .ok_or(XError::ParseError)
+                        .and_then(|(pattern, name, inst_type)| {
+                            InstPattern::from_pattern(
+                                pattern,
+                                name.to_string(),
+                                inst_type.to_string(),
+                            )
+                        })
+                })
+                .collect::<Result<_, _>>()?,
+        })
     }
 
     pub fn decode(&self, instruction: u32) -> XResult<DecodedInst> {
@@ -97,84 +111,134 @@ impl RVDecoder {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum DecodedInst {
-    R { inst: String, rd: u8, rs1: u8, rs2: u8 },
-    I { inst: String, rd: u8, rs1: u8, imm: i32 },
-    S { inst: String, rs1: u8, rs2: u8, imm: i32 },
-    B { inst: String, rs1: u8, rs2: u8, imm: i32 },
-    U { inst: String, rd: u8, imm: i32 },
-    J { inst: String, rd: u8, imm: i32 },
+    R { inst: String, rd: RVReg, rs1: RVReg, rs2: RVReg },
+    I { inst: String, rd: RVReg, rs1: RVReg, imm: SWord },
+    S { inst: String, rs1: RVReg, rs2: RVReg, imm: SWord },
+    B { inst: String, rs1: RVReg, rs2: RVReg, imm: SWord },
+    U { inst: String, rd: RVReg, imm: SWord },
+    J { inst: String, rd: RVReg, imm: SWord },
 }
 
 impl DecodedInst {
     fn decoded_from(inst_type: &str, inst: u32, name: String) -> XResult<Self> {
-        let rd = ((inst >> 7) & 0x1F) as u8;
-        let rs1 = ((inst >> 15) & 0x1F) as u8;
-        let rs2 = ((inst >> 20) & 0x1F) as u8;
+        let bits = |hi: u8, lo: u8| bit_slice_u32(inst, hi, lo);
+        let sext = |value: u32, width: u8| sign_extend_u32(value, width) as SWord;
 
-        match inst_type {
-            "R" => Ok(DecodedInst::R {
+        let rd = bits(11, 7)
+            .try_into()
+            .map_err(|_| XError::DecodeError)?;
+        let rs1 = bits(19, 15)
+            .try_into()
+            .map_err(|_| XError::DecodeError)?;
+        let rs2 = bits(24, 20)
+            .try_into()
+            .map_err(|_| XError::DecodeError)?;
+
+        use DecodedInst::*;
+        let decoded = match inst_type {
+            "R" => R {
                 inst: name,
                 rd,
                 rs1,
                 rs2,
-            }),
-            "I" => {
-                let imm = (inst as i32) >> 20;
-                Ok(DecodedInst::I {
-                    inst: name,
-                    rd,
-                    rs1,
-                    imm,
-                })
+            },
+
+            "I" => I {
+                inst: name,
+                rd,
+                rs1,
+                imm: sext(bits(31, 20), 12),
+            },
+
+            "S" => S {
+                inst: name,
+                rs1,
+                rs2,
+                imm: sext((bits(31, 25) << 5) | bits(11, 7), 12),
+            },
+
+            "B" => B {
+                inst: name,
+                rs1,
+                rs2,
+                imm: sext(
+                    (bits(31, 31) << 12)
+                        | (bits(7, 7) << 11)
+                        | (bits(30, 25) << 5)
+                        | (bits(11, 8) << 1),
+                    13,
+                ),
+            },
+
+            "U" => U {
+                inst: name,
+                rd,
+                imm: ((bits(31, 12) as i32) << 12) as SWord,
+            },
+
+            "J" => J {
+                inst: name,
+                rd,
+                imm: sext(
+                    (bits(31, 31) << 20)
+                        | (bits(19, 12) << 12)
+                        | (bits(20, 20) << 11)
+                        | (bits(30, 21) << 1),
+                    21,
+                ),
+            },
+
+            _ => return Err(XError::DecodeError),
+        };
+
+        Ok(decoded)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_basic_instructions() {
+        let decoder = &*DECODER;
+
+        // add x1, x2, x3
+        let add = 0b0000000_00011_00010_000_00001_0110011_u32;
+        match decoder.decode(add).unwrap() {
+            DecodedInst::R { inst, rd, rs1, rs2 } => {
+                assert_eq!(inst, "add");
+                assert_eq!(rd, RVReg::ra);
+                assert_eq!(rs1, RVReg::sp);
+                assert_eq!(rs2, RVReg::gp);
             }
-            "S" => {
-                let imm_11_5 = (inst >> 25) & 0x7F;
-                let imm_4_0 = (inst >> 7) & 0x1F;
-                let imm = (imm_11_5 << 5) | imm_4_0;
-                let imm = ((imm as i32) << 20) >> 20;
-                Ok(DecodedInst::S {
-                    inst: name,
-                    rs2,
-                    rs1,
-                    imm,
-                })
-            }
-            "B" => {
-                let imm_12 = (inst >> 31) & 1;
-                let imm_10_5 = (inst >> 25) & 0x3F;
-                let imm_4_1 = (inst >> 8) & 0xF;
-                let imm_11 = (inst >> 7) & 1;
-                let imm = (imm_12 << 12) | (imm_11 << 11) | (imm_10_5 << 5) | (imm_4_1 << 1);
-                let imm = ((imm as i32) << 19) >> 19;
-                Ok(DecodedInst::B {
-                    inst: name,
-                    rs1,
-                    rs2,
-                    imm,
-                })
-            }
-            "U" => {
-                let imm = inst & 0xFFFFF000;
-                Ok(DecodedInst::U {
-                    inst: name,
-                    rd,
-                    imm: (imm as i32) >> 12,
-                })
-            }
-            "J" => {
-                let imm_20 = (inst >> 31) & 1;
-                let imm_10_1 = (inst >> 21) & 0x3FF;
-                let imm_11 = (inst >> 20) & 1;
-                let imm_19_12 = (inst >> 12) & 0xFF;
-                let imm = (imm_20 << 20) | (imm_19_12 << 12) | (imm_11 << 11) | (imm_10_1 << 1);
-                let imm = ((imm as i32) << 11) >> 11;
-                Ok(DecodedInst::J {
-                    inst: name,
-                    rd,
-                    imm,
-                })
-            }
-            _ => Err(XError::DecodeError),
+            _ => panic!("expected R-type add"),
         }
+
+        // addi x5, x0, -1
+        let addi = 0b111111111111_00000_000_00101_0010011_u32;
+        match decoder.decode(addi).unwrap() {
+            DecodedInst::I { inst, rd, rs1, imm } => {
+                assert_eq!(inst, "addi");
+                assert_eq!(rd, RVReg::t0);
+                assert_eq!(rs1, RVReg::zero);
+                assert_eq!(imm, -1);
+            }
+            _ => panic!("expected I-type addi"),
+        }
+
+        // jal x1, 0x20
+        let jal = (0b0000010000 << 21) | ((RVReg::ra as u32) << 7) | 0b1101111;
+        match decoder.decode(jal).unwrap() {
+            DecodedInst::J { inst, rd, imm } => {
+                assert_eq!(inst, "jal");
+                assert_eq!(rd, RVReg::ra);
+                assert_eq!(imm, 0x20);
+            }
+            _ => panic!("expected J-type jal"),
+        }
+
+        let unknown = 0xFFFF_FFFF;
+        assert!(matches!(decoder.decode(unknown), Err(XError::DecodeError)));
     }
 }

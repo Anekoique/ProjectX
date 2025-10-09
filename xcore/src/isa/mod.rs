@@ -8,4 +8,5 @@ pub use self::riscv::{
     IMG,
     decoder::{DECODER, DecodedInst},
     reg::RVReg,
+    util,
 };

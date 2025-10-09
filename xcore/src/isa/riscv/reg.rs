@@ -2,6 +2,10 @@ use std::ops::{Index, IndexMut};
 
 use bitflags::bitflags;
 
+use crate::{XError, XResult};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 #[allow(non_camel_case_types)]
 pub enum RVReg {
     zero = 0,
@@ -36,6 +40,66 @@ pub enum RVReg {
     t4   = 29,
     t5   = 30,
     t6   = 31,
+}
+
+impl RVReg {
+    pub fn from_u8(value: u8) -> XResult<Self> {
+        if value < 32 {
+            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value) })
+        } else {
+            Err(XError::InvalidReg)
+        }
+    }
+
+    pub fn from_u32(value: u32) -> XResult<Self> {
+        if value < 32 {
+            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value as u8) })
+        } else {
+            Err(XError::InvalidReg)
+        }
+    }
+}
+
+impl From<RVReg> for u8 {
+    fn from(reg: RVReg) -> Self {
+        reg as u8
+    }
+}
+
+impl TryFrom<u8> for RVReg {
+    type Error = &'static str;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        if value < 32 {
+            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value) })
+        } else {
+            Err("Invalid register number")
+        }
+    }
+}
+
+impl TryFrom<u32> for RVReg {
+    type Error = &'static str;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        if value < 32 {
+            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value as u8) })
+        } else {
+            Err("Invalid register number")
+        }
+    }
+}
+
+impl PartialEq<u8> for RVReg {
+    fn eq(&self, other: &u8) -> bool {
+        (*self as u8) == *other
+    }
+}
+
+impl PartialEq<RVReg> for u8 {
+    fn eq(&self, other: &RVReg) -> bool {
+        *self == (*other as u8)
+    }
 }
 
 impl Index<RVReg> for [crate::config::Word] {

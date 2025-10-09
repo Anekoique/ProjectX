@@ -11,6 +11,7 @@ pub enum XError {
     ParseError,
     DecodeError,
     InvalidInst,
+    InvalidReg,
 
     ToTerminate,
 
@@ -29,6 +30,7 @@ impl XError {
             XError::ParseError => "parse error",
             XError::DecodeError => "decode error",
             XError::InvalidInst => "invalid instruction",
+            XError::InvalidReg => "invalid register",
             XError::ToTerminate => "to be terminated",
             XError::Unimplemented => "unimplemented",
         }
