@@ -1,4 +1,4 @@
-use xcore::{XResult, with_xcpu};
+use xcore::XResult;
 
 pub fn cmd_continue() -> XResult {
     cmd_step(u32::MAX)

@@ -11,12 +11,7 @@ pub type SWord = i64;
 #[cfg(isa32)]
 pub type SWord = i32;
 
-#[cfg(isa64)]
-pub const XLEN: usize = 64;
-#[cfg(isa32)]
-pub const XLEN: usize = 32;
-
-pub const SHAMT_MASK: Word = (XLEN as Word) - 1;
+pub const SHAMT_MASK: Word = (Word::BITS as Word) - 1;
 
 #[cfg(isa64)]
 #[inline(always)]

@@ -13,4 +13,8 @@ impl RVCore {
     pub(super) fn mret(&mut self, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
         Err(XError::Unimplemented)
     }
+
+    pub(super) fn ecall(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+        Err(XError::Unimplemented)
+    }
 }

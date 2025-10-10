@@ -1,10 +1,11 @@
-crate::import_modules!(riscv32 => rv32, riscv64 => rv64);
+pub(crate) mod decoder;
+pub(crate) mod inst;
+pub(crate) mod reg;
 
-pub mod decoder;
-pub mod reg;
-pub mod util;
-
-#[cfg(isa32)]
-pub use self::rv32::IMG;
-#[cfg(isa64)]
-pub use self::rv64::IMG;
+pub const IMG: [u32; 5] = [
+    0x00000297, // auipc t0,0
+    0x00028823, // sb  zero,16(t0)
+    0x0102c503, // lbu a0,16(t0)
+    0x00100073, // ebreak (used as nemu_trap)
+    0xdeadbeef, // some data
+];

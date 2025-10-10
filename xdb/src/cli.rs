@@ -1,7 +1,6 @@
 use std::io::Write;
 
 use clap::{Parser, Subcommand};
-use xcore::terminate;
 
 use crate::cmd::*;
 
@@ -48,6 +47,7 @@ pub fn respond(line: &str) -> Result<bool, String> {
         Commands::Reset => cmd_reset(),
         Commands::Exit => {
             println!("Exiting ...");
+            terminate!();
             return Ok(false);
         }
     }

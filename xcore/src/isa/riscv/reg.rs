@@ -44,19 +44,11 @@ pub enum RVReg {
 
 impl RVReg {
     pub fn from_u8(value: u8) -> XResult<Self> {
-        if value < 32 {
-            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value) })
-        } else {
-            Err(XError::InvalidReg)
-        }
+        value.try_into().map_err(|_| XError::InvalidReg)
     }
 
     pub fn from_u32(value: u32) -> XResult<Self> {
-        if value < 32 {
-            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value as u8) })
-        } else {
-            Err(XError::InvalidReg)
-        }
+        value.try_into().map_err(|_| XError::InvalidReg)
     }
 }
 

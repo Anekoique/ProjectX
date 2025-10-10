@@ -10,13 +10,13 @@ use super::RVCore;
 use crate::{
     config::Word,
     error::{XError, XResult},
-    isa::{DecodedInst, RVReg},
+    isa::{DecodedInst, InstKind, RVReg},
 };
 
 macro_rules! inst_dispatcher {
     (@inner $self:expr, $inst:expr, $args:tt, $( $f:ident ),* $(,)?) => {
-        match $inst.as_str() {
-            $( stringify!($f) => $self.$f $args, )*
+        match $inst {
+            $( InstKind::$f => $self.$f $args, )*
             _ => Err(XError::InvalidInst),
         }
     };
@@ -25,8 +25,8 @@ macro_rules! inst_dispatcher {
         pub fn dispatch(&mut self, decoded: DecodedInst) -> XResult {
             match decoded {
                 $(
-                    DecodedInst::$V { inst, $($arg),* } => {
-                        inst_dispatcher!(@inner self, inst, ( $($arg),* ), $($f),* )
+                    DecodedInst::$V { kind, $($arg),* } => {
+                        inst_dispatcher!(@inner self, kind, ( $($arg),* ), $($f),* )
                     }
                 )*
             }
@@ -34,22 +34,16 @@ macro_rules! inst_dispatcher {
     };
 }
 
+macro_rules! build_dispatch {
+    ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
+        inst_dispatcher!(
+            $( $fmt($($arg),*) { $($name),* } )*
+        );
+    };
+}
+
 impl RVCore {
-    inst_dispatcher!(
-        R(rd, rs1, rs2) {
-            add, sub, sll, slt, sltu, xor, srl, sra, or,
-            and, mul, mulh, mulhu, div, divu, rem, remu, mret,
-        }
-        I(rd, rs1, imm) {
-            addi, slli, slti, sltiu, xori, srli, srla, ori, andi,
-            lb, lh, lw, lbu, lhu, jalr, csrrw, csrrs, csrrc,
-            csrrwi, csrrsi, csrrci, ebreak,
-        }
-        S(rs1, rs2, imm) { sb, sh, sw }
-        B(rs1, rs2, imm) { beq, bne, blt, bge, bltu, bgeu }
-        U(rd, imm) { lui, auipc }
-        J(rd, imm) { jal }
-    );
+    crate::rv_inst_table!(build_dispatch);
 
     #[inline(always)]
     fn set_gpr(&mut self, reg: RVReg, value: Word) {
@@ -70,7 +64,7 @@ mod tests {
         core.gpr[RVReg::t1] = 4;
 
         let inst = DecodedInst::R {
-            inst: "add".into(),
+            kind: InstKind::add,
             rd: RVReg::t2,
             rs1: RVReg::t0,
             rs2: RVReg::t1,
@@ -83,7 +77,7 @@ mod tests {
     fn dispatch_rejects_unknown_instruction() {
         let mut core = RVCore::new();
         let inst = DecodedInst::R {
-            inst: "nope".into(),
+            kind: InstKind::addi,
             rd: RVReg::t0,
             rs1: RVReg::t1,
             rs2: RVReg::t2,
