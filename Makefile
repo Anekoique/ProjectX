@@ -1,5 +1,6 @@
+PROJECT := XEmu
 LOG ?= off
-ARCH ?= riscv64
+ARCH ?= riscv32
 FEATURES ?= $(ARCH)
 
 export X_LOG=$(LOG)
@@ -8,18 +9,18 @@ export X_ARCH=$(ARCH)
 all: run
 
 run:
-	cargo run
+	@cd $(PROJECT) && cargo run
 
 clippy:
-	cargo clippy
+	@cd $(PROJECT) && cargo clippy
 
 fmt:
-	cargo fmt --all
+	@cd $(PROJECT) && cargo fmt --all
 
 test:
-	cargo test -p xcore
+	@cd $(PROJECT) && cargo test -p xcore
 
 clean:
-	cargo clean
+	@cd $(PROJECT) && cargo clean
 
 .PHONY: all run clean

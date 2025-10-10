@@ -47,7 +47,6 @@ pub fn respond(line: &str) -> Result<bool, String> {
         Commands::Reset => cmd_reset(),
         Commands::Exit => {
             println!("Exiting ...");
-            terminate!();
             return Ok(false);
         }
     }

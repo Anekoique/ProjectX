@@ -13,32 +13,22 @@ use crate::{
     isa::{DecodedInst, InstKind, RVReg},
 };
 
-macro_rules! inst_dispatcher {
-    (@inner $self:expr, $inst:expr, $args:tt, $( $f:ident ),* $(,)?) => {
-        match $inst {
-            $( InstKind::$f => $self.$f $args, )*
-            _ => Err(XError::InvalidInst),
-        }
-    };
-
-    ($( $V:ident ( $($arg:ident),* $(,)? ) { $( $f:ident ),* $(,)? } )*) => {
+macro_rules! build_dispatch {
+    ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
+        #[inline(always)]
         pub fn dispatch(&mut self, decoded: DecodedInst) -> XResult {
             match decoded {
                 $(
-                    DecodedInst::$V { kind, $($arg),* } => {
-                        inst_dispatcher!(@inner self, kind, ( $($arg),* ), $($f),* )
+                    DecodedInst::$fmt { kind, $($arg),* } => {
+                        let handler = match kind {
+                            $( InstKind::$name => Self::$name, )*
+                            _ => return Err(XError::InvalidInst),
+                        };
+                        handler(self, $($arg),*)
                     }
                 )*
             }
         }
-    };
-}
-
-macro_rules! build_dispatch {
-    ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
-        inst_dispatcher!(
-            $( $fmt($($arg),*) { $($name),* } )*
-        );
     };
 }
 
