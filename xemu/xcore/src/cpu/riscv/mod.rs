@@ -11,6 +11,8 @@ use crate::{
     with_mem,
 };
 
+pub use self::RVCore as Core;
+
 const RESET_VECTOR: usize = 0x80000000;
 
 pub struct RVCore {

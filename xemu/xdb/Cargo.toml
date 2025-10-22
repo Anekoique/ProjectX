@@ -3,7 +3,7 @@ name = "xdb"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-repository.workspace = true
+repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu/xdb"
 
 [dependencies]
 xcore.workspace = true

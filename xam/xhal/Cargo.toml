@@ -1,0 +1,9 @@
+[package]
+name = "xhal"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository = "https://github.com/Anekoique/ProjectX/tree/main/xam/xhal"
+
+[dependencies]
+cfg-if = "1.0"

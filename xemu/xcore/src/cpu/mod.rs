@@ -1,4 +1,3 @@
-crate::import_modules!(riscv, loongarch);
 mod core;
 
 use memory_addr::VirtAddr;
@@ -6,10 +5,18 @@ use memory_addr::VirtAddr;
 use self::core::CoreOps;
 use crate::{config::Word, error::XResult};
 
-crate::define_cpu!(
-    riscv => self::riscv::RVCore,
-    loongarch => self::loongarch::LACore
-);
+cfg_if::cfg_if! {
+    if #[cfg(riscv)] {
+        mod riscv;
+        pub use self::riscv::*;
+    } else if #[cfg(loongarch)] {
+        mod loongarch;
+        pub use self::loongarch::*;
+    }
+}
+
+pub static XCPU: std::sync::LazyLock<std::sync::Mutex<CPU<Core>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(CPU::new(Core::new())));
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum State {

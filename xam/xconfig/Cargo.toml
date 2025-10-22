@@ -1,0 +1,9 @@
+[package]
+name = "xconfig"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository = "https://github.com/Anekoique/ProjectX/tree/main/xam/xconfig"
+
+[dependencies]
+axconfig-macros = "0.2"
