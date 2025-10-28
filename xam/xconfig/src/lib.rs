@@ -5,5 +5,5 @@
 
 axconfig_macros::include_configs!(
     path_env = "X_CONFIG_PATH",
-    fallback = "../../configs/dummy.toml"
+    fallback = "../configs/dummy.toml"
 );

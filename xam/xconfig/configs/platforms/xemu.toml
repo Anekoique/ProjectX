@@ -1,0 +1,15 @@
+# Architecture identifier.
+arch = "riscv64"                    # str
+# Platform identifier.
+platform = "xemu"      # str
+
+#
+# Platform configs
+#
+[plat]
+kernel-base = 0x80000000      # uint
+
+#
+# Device specifications
+#
+[devices]

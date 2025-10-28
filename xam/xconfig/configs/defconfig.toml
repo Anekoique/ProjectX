@@ -1,0 +1,2 @@
+# Stack size of each task.
+task-stack-size = 0x40000   # uint

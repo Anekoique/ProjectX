@@ -1,6 +1,6 @@
 OUTPUT_ARCH(%ARCH%)
 
-BASE_ADDRESS = %{BASE_ADDRESS}%
+BASE_ADDRESS = %KERNEL_BASE%;
 
 ENTRY(_start)
 SECTIONS
@@ -38,10 +38,20 @@ SECTIONS
         _etbss = .;
     }
 
-    . = ALIGN(4K);
-    _edata = .;
+    .data : ALIGN(4K) {
+        _sdata = .;
+        *(.data .data.*)
+        *(.sdata .sdata.*)
+        . = ALIGN(4K);
+        _edata = .;
+    }
 
     .bss : AT(.) ALIGN(4K) {
+        stack = .;
+        *(.bss.stack)
+        . = ALIGN(4K);
+        stack_top = .;
+
         _sbss = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)

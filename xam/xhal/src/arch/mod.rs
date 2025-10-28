@@ -3,6 +3,7 @@
 cfg_if::cfg_if! {
     if #[cfg(any(target_arch = "riscv32", target_arch = "riscv64"))] {
         mod riscv;
+        #[allow(unused_imports)]
         pub use self::riscv::*;
     } else if #[cfg(any(target_arch = "loongarch32", target_arch = "loongarch64"))] {
         mod loongarch;

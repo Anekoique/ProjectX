@@ -1,6 +1,6 @@
 use std::{io::Result, path::Path};
 
-const BUILTIN_PLATFORMS: &[&str] = &["xemu"];
+const BUILTIN_PLATFORMS: &[&str] = &["xemu", "riscv64-qemu-virt"];
 
 fn make_cfg_values(str_list: &[&str]) -> String {
     str_list
@@ -12,7 +12,7 @@ fn make_cfg_values(str_list: &[&str]) -> String {
 
 fn main() {
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let platform = axconfig::PLATFORM;
+    let platform = xconfig::PLATFORM;
     if platform != "dummy" {
         gen_linker_script(&arch, platform).unwrap();
     }
@@ -27,15 +27,17 @@ fn main() {
 fn gen_linker_script(arch: &str, platform: &str) -> Result<()> {
     let fname = format!("linker_{}.lds", platform);
     let output_arch = if arch.contains("riscv") {
-        "riscv" // OUTPUT_ARCH of both riscv32/riscv64 is "riscv"
+        "riscv"
     } else if arch.contains("loongarch") {
         "loongarch"
+    } else {
+        arch
     };
     let ld_content = std::fs::read_to_string("linker.lds.S")?;
     let ld_content = ld_content.replace("%ARCH%", output_arch);
     let ld_content = ld_content.replace(
         "%KERNEL_BASE%",
-        &format!("{:#x}", axconfig::plat::KERNEL_BASE_VADDR),
+        &format!("{:#x}", xconfig::plat::KERNEL_BASE),
     );
 
     // target/<target_triple>/<mode>/build/axhal-xxxx/out
