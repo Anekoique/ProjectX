@@ -1,7 +1,6 @@
 PROJECT := xemu
-LOG ?= off
+LOG ?= trace
 ARCH ?= riscv32
-FEATURES ?= $(ARCH)
 
 export X_LOG=$(LOG)
 export X_ARCH=$(ARCH)

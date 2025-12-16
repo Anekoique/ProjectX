@@ -3,7 +3,7 @@ use std::sync::{LazyLock, Mutex};
 use memory_addr::{MemoryAddr, PhysAddr};
 
 use crate::{
-    config::Word,
+    config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
     ensure,
     error::{XError, XResult},
 };
@@ -27,16 +27,13 @@ pub struct Memory {
 impl Memory {
     pub fn new() -> Self {
         Self {
-            data: vec![0; crate::config::CONFIG_MSIZE],
+            data: vec![0; CONFIG_MSIZE],
         }
     }
 
     fn access(&self, addr: PhysAddr, size: usize) -> XResult<usize> {
-        let offset = addr.as_usize() - crate::config::CONFIG_MBASE;
-        ensure!(
-            offset + size <= crate::config::CONFIG_MSIZE,
-            Err(XError::BadAddress)
-        );
+        let offset = addr.as_usize() - CONFIG_MBASE;
+        ensure!(offset + size <= CONFIG_MSIZE, Err(XError::BadAddress));
         Ok(offset)
     }
 

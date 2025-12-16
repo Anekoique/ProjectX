@@ -1,3 +1,5 @@
+use crate::{XError, XResult};
+
 macro_rules! define_inst_kind {
     ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
         #[allow(non_camel_case_types)]
@@ -9,10 +11,10 @@ macro_rules! define_inst_kind {
 
         impl InstKind {
             #[inline]
-            pub fn from_name(name: &str) -> Option<Self> {
+            pub fn from_name(name: &str) -> XResult<Self> {
                 match name {
-                    $( $( stringify!($name) => Some(Self::$name), )* )*
-                    _ => None,
+                    $( $( stringify!($name) => Ok(Self::$name), )* )*
+                    _ => Err(XError::ParseError),
                 }
             }
 

@@ -35,7 +35,7 @@ impl InstPattern {
             return Err(XError::PatternError);
         }
 
-        let kind = InstKind::from_name(name).ok_or(XError::ParseError)?;
+        let kind = InstKind::from_name(name)?;
         let format = inst_type.parse::<InstFormat>()?;
 
         let (mask, value) = pattern_str

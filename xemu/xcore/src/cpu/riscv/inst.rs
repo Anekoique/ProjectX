@@ -8,6 +8,7 @@ mod zifence;
 
 use super::RVCore;
 use crate::{
+    ensure,
     config::Word,
     error::{XError, XResult},
     isa::{DecodedInst, InstKind, RVReg},
@@ -36,10 +37,10 @@ impl RVCore {
     crate::rv_inst_table!(build_dispatch);
 
     #[inline(always)]
-    fn set_gpr(&mut self, reg: RVReg, value: Word) {
-        if reg != RVReg::zero {
-            self.gpr[reg] = value;
-        }
+    fn set_gpr(&mut self, reg: RVReg, value: Word) -> XResult {
+        ensure!(reg != RVReg::zero, Err(XError::InvalidReg));
+        self.gpr[reg] = value;
+        Ok(())
     }
 }
 

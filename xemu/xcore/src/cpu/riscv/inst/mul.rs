@@ -8,24 +8,21 @@ use crate::{
 impl RVCore {
     pub(super) fn mul(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let value = self.gpr[rs1].wrapping_mul(self.gpr[rs2]);
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     pub(super) fn mulh(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let lhs = self.gpr[rs1] as SWord as i128;
         let rhs = self.gpr[rs2] as SWord as i128;
         let value = ((lhs * rhs) >> Word::BITS) as SWord as Word;
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     pub(super) fn mulhu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let lhs = self.gpr[rs1] as u128;
         let rhs = self.gpr[rs2] as u128;
         let value = ((lhs * rhs) >> Word::BITS) as Word;
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     pub(super) fn div(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -38,8 +35,7 @@ impl RVCore {
         } else {
             (dividend / divisor) as Word
         };
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     pub(super) fn divu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -50,8 +46,7 @@ impl RVCore {
         } else {
             dividend / divisor
         };
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     pub(super) fn rem(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -64,8 +59,7 @@ impl RVCore {
         } else {
             (dividend % divisor) as Word
         };
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     pub(super) fn remu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -76,8 +70,7 @@ impl RVCore {
         } else {
             dividend % divisor
         };
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 }
 

@@ -1,1 +1,9 @@
-**target
+**/target/
+*.elf
+*.bin
+*.map
+**/.axconfig.*
+**/build/
+/.claude
+.DS_Store
+CLAUDE.md

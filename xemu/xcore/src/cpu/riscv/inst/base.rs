@@ -32,8 +32,7 @@ impl RVCore {
         F: FnOnce(Word, Word) -> Word,
     {
         let value = op(self.gpr[rs1], self.gpr[rs2]);
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     #[inline(always)]
@@ -42,8 +41,7 @@ impl RVCore {
         F: FnOnce(Word, SWord) -> Word,
     {
         let value = op(self.gpr[rs1], imm);
-        self.set_gpr(rd, value);
-        Ok(())
+        self.set_gpr(rd, value)
     }
 
     #[inline(always)]
@@ -53,8 +51,7 @@ impl RVCore {
     {
         let addr = self.eff_addr(rs1, imm);
         let value = with_mem!(read(self.virt_to_phys(addr), size))?;
-        self.set_gpr(rd, extend(value));
-        Ok(())
+        self.set_gpr(rd, extend(value))
     }
 
     #[inline(always)]
@@ -225,28 +222,26 @@ impl RVCore {
 
     pub(super) fn jal(&mut self, rd: RVReg, imm: SWord) -> XResult {
         let link = self.pc.wrapping_add(4);
-        self.set_gpr(rd, link.as_usize() as Word);
+        self.set_gpr(rd, link.as_usize() as Word)?;
         self.npc = self.pc.wrapping_add(imm as _);
         Ok(())
     }
 
     pub(super) fn jalr(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
         let link = self.pc.wrapping_add(4);
-        self.set_gpr(rd, link.as_usize() as Word);
+        self.set_gpr(rd, link.as_usize() as Word)?;
         let target = (self.gpr[rs1].wrapping_add(imm as Word)) & !1;
         self.npc = VirtAddr::from_usize(target as usize);
         Ok(())
     }
 
     pub(super) fn lui(&mut self, rd: RVReg, imm: SWord) -> XResult {
-        self.set_gpr(rd, imm as Word);
-        Ok(())
+        self.set_gpr(rd, imm as Word)
     }
 
     pub(super) fn auipc(&mut self, rd: RVReg, imm: SWord) -> XResult {
         let base = self.pc.as_usize() as Word;
-        self.set_gpr(rd, base.wrapping_add(imm as Word));
-        Ok(())
+        self.set_gpr(rd, base.wrapping_add(imm as Word))
     }
 }
 

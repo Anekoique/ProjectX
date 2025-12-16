@@ -3,18 +3,19 @@ use core::fmt;
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum XError {
+    // Memory management
     BadAddress,
     AddrNotAligned,
-
-    InvalidInstType,
+    // Instruction decoding
     PatternError,
     ParseError,
     DecodeError,
+    InvalidInstType,
     InvalidInst,
     InvalidReg,
-
+    // Control flow
     ToTerminate,
-
+    // Not yet implemented
     Unimplemented,
 }
 

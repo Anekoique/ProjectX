@@ -1,5 +1,7 @@
 mod core;
 
+use std::sync::{LazyLock, Mutex};
+
 use memory_addr::VirtAddr;
 
 use self::core::CoreOps;
@@ -15,8 +17,7 @@ cfg_if::cfg_if! {
     }
 }
 
-pub static XCPU: std::sync::LazyLock<std::sync::Mutex<CPU<Core>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(CPU::new(Core::new())));
+pub static XCPU: LazyLock<Mutex<CPU<Core>>> = LazyLock::new(|| Mutex::new(CPU::new(Core::new())));
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum State {
@@ -70,10 +71,10 @@ impl<Core: CoreOps> CPU<Core> {
     }
 
     pub fn step(&mut self) -> XResult {
-        let instr = self.core.fetch()?;
-        let decoded = self.core.decode(instr)?;
-        self.core.execute(decoded)?;
-        Ok(())
+        self.core
+            .fetch()
+            .and_then(|instr| self.core.decode(instr))
+            .and_then(|decoded| self.core.execute(decoded))
     }
 
     pub fn run(&mut self, count: u32) -> XResult {

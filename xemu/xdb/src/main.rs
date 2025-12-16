@@ -11,10 +11,10 @@ pub fn main() {
     crate::init_xdb();
     xcore::init_xcore()
         .map_err(|e| error!("XCore Error: {e}"))
-        .ok();
+        .unwrap();
     crate::xdb_mainloop()
         .map_err(|e| error!("XDB Error: {e}"))
-        .ok();
+        .unwrap();
     xcore::XCPU
         .lock()
         .map(|cpu| !cpu.is_exit_normal())

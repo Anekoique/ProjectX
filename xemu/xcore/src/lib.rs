@@ -14,6 +14,5 @@ pub use memory::MEMORY;
 
 pub fn init_xcore() -> XResult {
     trace!("hello xcore");
-    XCPU.lock().expect("Posisoned lock on CPU mutex").reset()?;
-    Ok(())
+    with_xcpu!(reset())
 }

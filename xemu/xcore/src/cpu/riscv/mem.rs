@@ -5,7 +5,7 @@ use crate::{XResult, with_mem};
 
 impl RVCore {
     pub(super) fn virt_to_phys(&self, vaddr: VirtAddr) -> PhysAddr {
-        // For simplicity, assume identity mapping for now
+        // HACK: assume identity mapping for now
         PhysAddr::from(vaddr.as_usize())
     }
 
