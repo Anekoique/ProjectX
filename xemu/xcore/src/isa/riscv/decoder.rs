@@ -1,4 +1,7 @@
-use std::sync::LazyLock;
+use std::{
+    fmt::{Debug, Formatter},
+    sync::LazyLock,
+};
 
 use itertools::Itertools;
 use pest::Parser;
@@ -31,10 +34,6 @@ pub struct InstPattern {
 impl InstPattern {
     pub fn from_pattern(pattern_str: &str, name: &str, inst_type: &str) -> XResult<InstPattern> {
         let pattern_str = pattern_str.replace(" ", "");
-        if pattern_str.len() != 32 {
-            return Err(XError::PatternError);
-        }
-
         let kind = InstKind::from_name(name)?;
         let format = inst_type.parse::<InstFormat>()?;
 
@@ -50,6 +49,15 @@ impl InstPattern {
                 Ok((new_mask, new_value))
             })?;
 
+        debug!(
+            "Loaded instruction pattern: {:<32} => kind: {:<11}, format: {:<4}, mask: {:#034b}, \
+             value: {:#034b}",
+            pattern_str,
+            format!("{:?}", kind),
+            format!("{:?}", format),
+            mask,
+            value
+        );
         Ok(InstPattern {
             kind,
             format,
@@ -99,7 +107,7 @@ impl RVDecoder {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum DecodedInst {
     R { kind: InstKind, rd: RVReg, rs1: RVReg, rs2: RVReg },
@@ -108,6 +116,23 @@ pub enum DecodedInst {
     B { kind: InstKind, rs1: RVReg, rs2: RVReg, imm: SWord },
     U { kind: InstKind, rd: RVReg, imm: SWord },
     J { kind: InstKind, rd: RVReg, imm: SWord },
+    C { kind: InstKind, inst: u32 },
+}
+
+#[rustfmt::skip]
+impl Debug for DecodedInst {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use DecodedInst::*;
+        match self {
+            R { kind, rd, rs1, rs2 } => write!(f, "{:?} {:?}, {:?}, {:?}", kind, rd, rs1, rs2),
+            I { kind, rd, rs1, imm } => write!(f, "{:?} {:?}, {:?}, {:#x}", kind, rd, rs1, imm),
+            S { kind, rs1, rs2, imm } => write!(f, "{:?} {:?}, {:?}, {:#x}", kind, rs1, rs2, imm),
+            B { kind, rs1, rs2, imm } => write!(f, "{:?} {:?}, {:?}, {:#x}", kind, rs1, rs2, imm),
+            U { kind, rd, imm } => write!(f, "{:?} {:?}, {:#x}", kind, rd, imm),
+            J { kind, rd, imm } => write!(f, "{:?} {:?}, {:#x}", kind, rd, imm),
+            C { kind, inst } => write!(f, "{:?} {:?}", kind, inst),
+        }
+    }
 }
 
 impl DecodedInst {
@@ -162,6 +187,15 @@ impl DecodedInst {
                     21,
                 ),
             },
+            InstFormat::CR
+            | InstFormat::CI
+            | InstFormat::CSS
+            | InstFormat::CIW
+            | InstFormat::CL
+            | InstFormat::CS
+            | InstFormat::CA
+            | InstFormat::CB
+            | InstFormat::CJ => C { kind, inst },
         };
 
         Ok(decoded)

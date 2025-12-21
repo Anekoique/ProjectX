@@ -3,31 +3,32 @@ use memory_addr::{MemoryAddr, VirtAddr};
 use super::RVCore;
 use crate::{
     config::{SWord, Word, word_to_shamt},
+    cpu::MemOps,
     error::XResult,
     isa::RVReg,
+    memory::with_mem,
     utils::sext_word,
-    with_mem,
 };
 
 impl RVCore {
     #[inline(always)]
-    fn eff_addr(&self, base: RVReg, offset: SWord) -> VirtAddr {
+    pub(super) fn eff_addr(&self, base: RVReg, offset: SWord) -> VirtAddr {
         let addr = self.gpr[base].wrapping_add(offset as Word);
         VirtAddr::from_usize(addr as usize)
     }
 
     #[inline(always)]
-    fn shamt_from_word(value: Word) -> u32 {
+    pub(super) fn shamt_from_word(value: Word) -> u32 {
         word_to_shamt(value)
     }
 
     #[inline(always)]
-    fn shamt_from_imm(imm: SWord) -> u32 {
+    pub(super) fn shamt_from_imm(imm: SWord) -> u32 {
         word_to_shamt(imm as Word)
     }
 
     #[inline(always)]
-    fn binary_op<F>(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, op: F) -> XResult
+    pub(super) fn binary_op<F>(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, op: F) -> XResult
     where
         F: FnOnce(Word, Word) -> Word,
     {
@@ -36,7 +37,7 @@ impl RVCore {
     }
 
     #[inline(always)]
-    fn imm_op<F>(&mut self, rd: RVReg, rs1: RVReg, imm: SWord, op: F) -> XResult
+    pub(super) fn imm_op<F>(&mut self, rd: RVReg, rs1: RVReg, imm: SWord, op: F) -> XResult
     where
         F: FnOnce(Word, SWord) -> Word,
     {
@@ -45,7 +46,14 @@ impl RVCore {
     }
 
     #[inline(always)]
-    fn load_with<F>(&mut self, rd: RVReg, rs1: RVReg, imm: SWord, size: usize, extend: F) -> XResult
+    pub(super) fn load_with<F>(
+        &mut self,
+        rd: RVReg,
+        rs1: RVReg,
+        imm: SWord,
+        size: usize,
+        extend: F,
+    ) -> XResult
     where
         F: FnOnce(Word) -> Word,
     {
@@ -55,7 +63,7 @@ impl RVCore {
     }
 
     #[inline(always)]
-    fn store(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize) -> XResult {
+    pub(super) fn store(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize) -> XResult {
         let addr = self.eff_addr(rs1, imm);
         let mask: Word = match size {
             1 => 0xFF,
@@ -70,7 +78,7 @@ impl RVCore {
     }
 
     #[inline(always)]
-    fn branch<F>(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, cond: F) -> XResult
+    pub(super) fn branch<F>(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, cond: F) -> XResult
     where
         F: FnOnce(Word, Word) -> bool,
     {
@@ -229,8 +237,8 @@ impl RVCore {
 
     pub(super) fn jalr(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
         let link = self.pc.wrapping_add(4);
-        self.set_gpr(rd, link.as_usize() as Word)?;
         let target = (self.gpr[rs1].wrapping_add(imm as Word)) & !1;
+        self.set_gpr(rd, link.as_usize() as Word)?;
         self.npc = VirtAddr::from_usize(target as usize);
         Ok(())
     }

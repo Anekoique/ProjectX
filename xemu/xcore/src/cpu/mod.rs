@@ -1,11 +1,16 @@
 mod core;
+mod mem;
 
 use std::sync::{LazyLock, Mutex};
 
-use memory_addr::VirtAddr;
+use memory_addr::{PhysAddr, VirtAddr};
 
-use self::core::CoreOps;
-use crate::{config::Word, error::XResult};
+use self::{core::CoreOps, mem::MemOps};
+use crate::{
+    config::Word,
+    error::{XError, XResult},
+    memory::with_mem,
+};
 
 cfg_if::cfg_if! {
     if #[cfg(riscv)] {
@@ -42,15 +47,17 @@ impl State {
     }
 }
 
+const RESET_VECTOR: usize = 0x80000000;
+
 #[allow(clippy::upper_case_acronyms)]
-pub struct CPU<Core: CoreOps> {
+pub struct CPU<Core: CoreOps + MemOps> {
     core: Core,
     state: State,
     halt_pc: VirtAddr,
     halt_ret: Word,
 }
 
-impl<Core: CoreOps> CPU<Core> {
+impl<Core: CoreOps + MemOps> CPU<Core> {
     pub fn new(core: Core) -> Self {
         Self {
             core,
@@ -66,7 +73,11 @@ impl<Core: CoreOps> CPU<Core> {
     }
 
     pub fn load(&mut self, file: String) -> XResult {
-        println!("Loading ELF file : {}", file);
+        info!("Loading ELF file : {}", file);
+        let bytes = std::fs::read(file).map_err(|_| XError::FailedToRead)?;
+        let addr = PhysAddr::from(RESET_VECTOR);
+        with_mem!(load(addr, &bytes))?;
+        info!("Loaded {} bytes @ {:#x}", bytes.len(), addr);
         Ok(())
     }
 

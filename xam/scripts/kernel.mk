@@ -1,5 +1,5 @@
 KERNEL        := $(K)
-KERNEL_NAME   := $(shell basename $(KERNEL))
+KERNEL_NAME   := $(basename $(KERNEL))
 KERNEL_DIR    := $(abspath $(KERNEL))
 
 WORK_DIR      := $(shell pwd)
@@ -8,6 +8,7 @@ OUT_DIR       := $(BUILD_DIR)/$(ARCH)-$(PLATFORM)
 OUT_ELF       := $(OUT_DIR)/$(KERNEL_NAME)_$(PLATFORM).elf
 OUT_BIN       := $(patsubst %.elf,%.bin,$(OUT_ELF))
 OUT_MAP       := $(patsubst %.elf,%.map,$(OUT_ELF))
+OUT_TXT       := $(patsubst %.elf,%.txt,$(OUT_ELF))
 
 CROSS_COMPILE ?= $(ARCH)-linux-musl-
 AS            := $(CROSS_COMPILE)gcc
@@ -37,7 +38,10 @@ $(OUT_ELF): $(LINKAGE) $(LD_SCRIPT)
 $(OUT_BIN): $(OUT_ELF)
 	@$(OBJCOPY) --strip-all -O binary $< $@
 
-kernel: $(OUT_BIN)
+disasm: $(OUT_ELF)
+	@$(OBJDUMP) -d $< > $(OUT_TXT)
+
+kernel: $(OUT_BIN) disasm
 
 clean:: 
 	@rm -rf $(BUILD_DIR)

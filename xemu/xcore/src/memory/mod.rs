@@ -10,7 +10,6 @@ use crate::{
 
 pub static MEMORY: LazyLock<Mutex<Memory>> = LazyLock::new(|| Mutex::new(Memory::new()));
 
-#[macro_export]
 macro_rules! with_mem {
     ($method:ident($($arg:expr),* $(,)?)) => {{
         $crate::MEMORY.lock()
@@ -18,6 +17,7 @@ macro_rules! with_mem {
             .$method($($arg),*)
     }};
 }
+pub(crate) use with_mem;
 
 #[derive(Debug, Default)]
 pub struct Memory {

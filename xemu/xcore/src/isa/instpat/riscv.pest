@@ -7,6 +7,6 @@ instpat_line = {
     "INSTPAT(\"" ~ pattern ~ "\", " ~ name ~ ", " ~ inst_type ~ ")" ~ ";"? ~ NEWLINE?
 }
 
-pattern   = @{ (!"\"" ~ ANY)* }
-name      = @{ ASCII_ALPHANUMERIC+ }
-inst_type = @{ "R" | "I" | "S" | "B" | "U" | "J" }
+pattern   = @{ (ASCII_DIGIT | "?" | " ")+ }
+name      = @{ (ASCII_ALPHANUMERIC | "." | "_")+ }
+inst_type = @{ ASCII_ALPHANUMERIC+ }

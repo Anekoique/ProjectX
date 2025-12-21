@@ -13,6 +13,9 @@ pub enum XError {
     InvalidInstType,
     InvalidInst,
     InvalidReg,
+    // IO errors
+    FailedToRead,
+    FailedToWrite,
     // Control flow
     ToTerminate,
     // Not yet implemented
@@ -32,6 +35,8 @@ impl XError {
             XError::DecodeError => "decode error",
             XError::InvalidInst => "invalid instruction",
             XError::InvalidReg => "invalid register",
+            XError::FailedToRead => "failed to read",
+            XError::FailedToWrite => "failed to write",
             XError::ToTerminate => "to be terminated",
             XError::Unimplemented => "unimplemented",
         }

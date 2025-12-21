@@ -3,17 +3,14 @@ mod mem;
 
 use memory_addr::{MemoryAddr, VirtAddr};
 
-use super::CoreOps;
+pub use self::RVCore as Core;
+use super::{CoreOps, MemOps, RESET_VECTOR};
 use crate::{
     config::{Word, word_to_u32},
     error::XResult,
     isa::{DECODER, DecodedInst, RVReg},
-    with_mem,
+    memory::with_mem,
 };
-
-pub use self::RVCore as Core;
-
-const RESET_VECTOR: usize = 0x80000000;
 
 pub struct RVCore {
     gpr: [Word; 32],
@@ -51,8 +48,14 @@ impl CoreOps for RVCore {
     }
 
     fn fetch(&self) -> XResult<u32> {
-        let value = with_mem!(read(self.virt_to_phys(self.pc), 4))?;
-        Ok(word_to_u32(value))
+        let low = with_mem!(read(self.virt_to_phys(self.pc), 2))?;
+        let low_u32 = word_to_u32(low);
+        if (low_u32 & 0b11) != 0b11 {
+            return Ok(low_u32);
+        }
+        let high = with_mem!(read(self.virt_to_phys(self.pc.wrapping_add(2)), 2))?;
+        let high_u32 = word_to_u32(high);
+        Ok((high_u32 << 16) | (low_u32 & 0xFFFF))
     }
 
     fn decode(&self, instr: u32) -> XResult<DecodedInst> {
@@ -60,8 +63,10 @@ impl CoreOps for RVCore {
     }
 
     fn execute(&mut self, inst: DecodedInst) -> XResult {
-        trace!("Executing instruction: {:?}", inst);
-        self.npc = self.pc.wrapping_add(4);
+        trace!("PC: {:?} Executing instruction: {:?}", self.pc, inst);
+        let is_compressed = matches!(&inst, DecodedInst::C { .. });
+        let step = if is_compressed { 2 } else { 4 };
+        self.npc = self.pc.wrapping_add(step);
         self.dispatch(inst)?;
         self.pc = self.npc;
         Ok(())

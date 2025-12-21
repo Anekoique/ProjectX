@@ -38,6 +38,15 @@ pub enum InstFormat {
     B,
     U,
     J,
+    CR,
+    CI,
+    CSS,
+    CIW,
+    CL,
+    CS,
+    CA,
+    CB,
+    CJ,
 }
 
 impl std::str::FromStr for InstFormat {
@@ -51,6 +60,15 @@ impl std::str::FromStr for InstFormat {
             "B" => Ok(Self::B),
             "U" => Ok(Self::U),
             "J" => Ok(Self::J),
+            "CR" => Ok(Self::CR),
+            "CI" => Ok(Self::CI),
+            "CSS" => Ok(Self::CSS),
+            "CIW" => Ok(Self::CIW),
+            "CL" => Ok(Self::CL),
+            "CS" => Ok(Self::CS),
+            "CA" => Ok(Self::CA),
+            "CB" => Ok(Self::CB),
+            "CJ" => Ok(Self::CJ),
             _ => Err(crate::XError::ParseError),
         }
     }
