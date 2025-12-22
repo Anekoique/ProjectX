@@ -49,7 +49,7 @@ impl InstPattern {
                 Ok((new_mask, new_value))
             })?;
 
-        debug!(
+        trace!(
             "Loaded instruction pattern: {:<32} => kind: {:<11}, format: {:<4}, mask: {:#034b}, \
              value: {:#034b}",
             pattern_str,
@@ -137,32 +137,36 @@ impl Debug for DecodedInst {
 
 impl DecodedInst {
     fn decoded_from(format: InstFormat, inst: u32, kind: InstKind) -> XResult<Self> {
+        let reg = |shamt: u32| {
+            RVReg::try_from(((inst >> shamt) & 0x1F) as u8).map_err(|_| XError::InvalidReg)
+        };
         let bits = |hi: u8, lo: u8| bit_u32(inst, hi, lo);
-        let sext = |value: u32, width: u8| sext_u32(value, width) as SWord;
-
-        let rd = bits(11, 7).try_into().map_err(|_| XError::DecodeError)?;
-        let rs1 = bits(19, 15).try_into().map_err(|_| XError::DecodeError)?;
-        let rs2 = bits(24, 20).try_into().map_err(|_| XError::DecodeError)?;
+        let sext = |val: u32, width: u8| sext_u32(val, width) as SWord;
 
         use DecodedInst::*;
         let decoded = match format {
-            InstFormat::R => R { kind, rd, rs1, rs2 },
+            InstFormat::R => R {
+                kind,
+                rd: reg(7)?,
+                rs1: reg(15)?,
+                rs2: reg(20)?,
+            },
             InstFormat::I => I {
                 kind,
-                rd,
-                rs1,
+                rd: reg(7)?,
+                rs1: reg(15)?,
                 imm: sext(bits(31, 20), 12),
             },
             InstFormat::S => S {
                 kind,
-                rs1,
-                rs2,
+                rs1: reg(15)?,
+                rs2: reg(20)?,
                 imm: sext((bits(31, 25) << 5) | bits(11, 7), 12),
             },
             InstFormat::B => B {
                 kind,
-                rs1,
-                rs2,
+                rs1: reg(15)?,
+                rs2: reg(20)?,
                 imm: sext(
                     (bits(31, 31) << 12)
                         | (bits(7, 7) << 11)
@@ -173,12 +177,12 @@ impl DecodedInst {
             },
             InstFormat::U => U {
                 kind,
-                rd,
-                imm: ((bits(31, 12) as i32) << 12) as SWord,
+                rd: reg(7)?,
+                imm: ((inst as i32 & !0xFFF) as SWord),
             },
             InstFormat::J => J {
                 kind,
-                rd,
+                rd: reg(7)?,
                 imm: sext(
                     (bits(31, 31) << 20)
                         | (bits(19, 12) << 12)
@@ -187,15 +191,7 @@ impl DecodedInst {
                     21,
                 ),
             },
-            InstFormat::CR
-            | InstFormat::CI
-            | InstFormat::CSS
-            | InstFormat::CIW
-            | InstFormat::CL
-            | InstFormat::CS
-            | InstFormat::CA
-            | InstFormat::CB
-            | InstFormat::CJ => C { kind, inst },
+            _ => C { kind, inst },
         };
 
         Ok(decoded)

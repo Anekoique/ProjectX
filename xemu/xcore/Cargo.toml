@@ -12,10 +12,12 @@ default = []
 log.workspace = true
 
 memory_addr = "0.4"
+
 bitflags = "2.9"
 bytemuck = "1.14"
 cfg-if = "1.0"
 itertools = "0.14"
+num_enum = "0.7.5"
 pest = "2.8.3"
 pest_derive = "2.8.3"
 toml = "0.9.2"

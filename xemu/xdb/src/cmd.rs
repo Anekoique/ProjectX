@@ -1,4 +1,4 @@
-use xcore::XResult;
+use xcore::{XResult, with_xcpu};
 
 pub fn cmd_continue() -> XResult {
     cmd_step(u32::MAX)
@@ -9,7 +9,7 @@ pub fn cmd_step(count: u32) -> XResult {
 }
 
 pub fn cmd_load(file: String) -> XResult {
-    with_xcpu!(load(file))
+    with_xcpu!(load(Some(file)).map(|_| ()))
 }
 
 pub fn cmd_reset() -> XResult {

@@ -31,6 +31,7 @@ macro_rules! define_inst_kind {
 crate::rv_inst_table!(define_inst_kind);
 
 #[derive(Debug, Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum InstFormat {
     R,
     I,

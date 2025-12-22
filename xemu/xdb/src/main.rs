@@ -29,20 +29,29 @@ pub fn init_xdb() {
 }
 
 pub fn xdb_mainloop() -> Result<(), String> {
-    loop {
-        let line = cli::readline()?;
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        match cli::respond(line) {
-            Ok(_continue) => {
-                if !_continue {
-                    return Ok(());
-                }
+    let file = option_env!("X_FILE")
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    match option_env!("X_MODE") {
+        Some("y") => with_xcpu!(load(file)?.run(u32::MAX)).or_else(|e| {
+            terminate!(e);
+            Ok(())
+        }),
+        _ => loop {
+            let line = cli::readline()?;
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
             }
-            Err(err) => print!("{err}"),
-        }
+
+            match cli::respond(line) {
+                Ok(_continue) => {
+                    if !_continue {
+                        return Ok(());
+                    }
+                }
+                Err(err) => print!("{err}"),
+            }
+        },
     }
 }

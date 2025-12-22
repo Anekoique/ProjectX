@@ -43,6 +43,9 @@ disasm: $(OUT_ELF)
 
 kernel: $(OUT_BIN) disasm
 
+run:
+	@$(MAKE) -C $(XEMU_HOME) run FILE=$(OUT_BIN) BATCH=y
+
 clean:: 
 	@rm -rf $(BUILD_DIR)
 

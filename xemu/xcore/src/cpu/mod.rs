@@ -72,13 +72,22 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
         self.core.reset()
     }
 
-    pub fn load(&mut self, file: String) -> XResult {
-        info!("Loading ELF file : {}", file);
-        let bytes = std::fs::read(file).map_err(|_| XError::FailedToRead)?;
+    pub fn load(&mut self, file: Option<String>) -> XResult<&mut Self> {
         let addr = PhysAddr::from(RESET_VECTOR);
-        with_mem!(load(addr, &bytes))?;
-        info!("Loaded {} bytes @ {:#x}", bytes.len(), addr);
-        Ok(())
+        file.map_or_else(
+            || self.core.init_memory(addr),
+            |path| {
+                std::fs::read(path)
+                    .map_err(|_| XError::FailedToRead)
+                    .and_then(|bytes| {
+                        with_mem!(load(addr, &bytes))?;
+                        info!("Loaded {} bytes @ {:#x}", bytes.len(), addr);
+                        Ok(())
+                    })
+            },
+        )?;
+
+        Ok(self)
     }
 
     pub fn step(&mut self) -> XResult {
@@ -130,12 +139,15 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
     }
 }
 
+pub fn with_xcpu<R>(f: impl FnOnce(&mut CPU<Core>) -> R) -> R {
+    let mut guard = XCPU.lock().expect("Poisoned lock on CPU mutex");
+    f(&mut guard)
+}
+
 #[macro_export]
 macro_rules! with_xcpu {
-    ($method:ident($($arg:expr),* $(,)?)) => {{
-        $crate::XCPU.lock()
-            .expect("Poisoned lock on CPU mutex")
-            .$method($($arg),*)
+    ($($chain:tt)+) => {{
+        $crate::with_xcpu(|__xcpu| __xcpu.$($chain)+)
     }};
 }
 

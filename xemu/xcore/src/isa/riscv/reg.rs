@@ -1,10 +1,11 @@
 use std::ops::{Index, IndexMut};
 
 use bitflags::bitflags;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 use crate::{XError, XResult};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 #[allow(non_camel_case_types)]
 pub enum RVReg {
@@ -43,60 +44,27 @@ pub enum RVReg {
 }
 
 impl RVReg {
+    #[inline]
     pub fn from_u8(value: u8) -> XResult<Self> {
-        value.try_into().map_err(|_| XError::InvalidReg)
+        Self::try_from(value).map_err(|_| XError::InvalidReg)
     }
 
+    #[inline]
     pub fn from_u32(value: u32) -> XResult<Self> {
-        value.try_into().map_err(|_| XError::InvalidReg)
-    }
-}
-
-impl From<RVReg> for u8 {
-    fn from(reg: RVReg) -> Self {
-        reg as u8
-    }
-}
-
-impl TryFrom<u8> for RVReg {
-    type Error = &'static str;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value < 32 {
-            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value) })
-        } else {
-            Err("Invalid register number")
-        }
-    }
-}
-
-impl TryFrom<u32> for RVReg {
-    type Error = &'static str;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        if value < 32 {
-            Ok(unsafe { std::mem::transmute::<u8, RVReg>(value as u8) })
-        } else {
-            Err("Invalid register number")
-        }
+        u8::try_from(value)
+            .map_err(|_| XError::InvalidReg)
+            .and_then(Self::from_u8)
     }
 }
 
 impl PartialEq<u8> for RVReg {
     fn eq(&self, other: &u8) -> bool {
-        (*self as u8) == *other
-    }
-}
-
-impl PartialEq<RVReg> for u8 {
-    fn eq(&self, other: &RVReg) -> bool {
-        *self == (*other as u8)
+        u8::from(*self) == *other
     }
 }
 
 impl Index<RVReg> for [crate::config::Word] {
     type Output = crate::config::Word;
-
     fn index(&self, reg: RVReg) -> &Self::Output {
         &self[reg as usize]
     }
@@ -125,9 +93,6 @@ bitflags! {
         const TVM   = 1 << 20;
         const TW    = 1 << 21;
         const TSR   = 1 << 22;
-        #[cfg(isa64)]
-        const SD    = 1 << 63;
-        #[cfg(isa32)]
-        const SD    = 1 << 31;
+        const SD    = if cfg!(isa64) { 1 << 63 } else { 1 << 31 };
     }
 }

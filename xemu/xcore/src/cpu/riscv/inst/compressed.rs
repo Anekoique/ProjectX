@@ -46,8 +46,7 @@ impl RVCore {
     pub(super) fn c_lw(&mut self, inst: u32) -> XResult {
         let rd = reg_prime(inst, 4, 2)?;
         let rs1 = reg_prime(inst, 9, 7)?;
-        let imm =
-            (bits(inst, 12, 10) << 3) | (bits(inst, 6, 6) << 2) | (bits(inst, 5, 5) << 6);
+        let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 6) << 2) | (bits(inst, 5, 5) << 6);
         self.load_with(rd, rs1, imm as SWord, 4, |value| sext_word(value, 32))
     }
 
@@ -69,8 +68,7 @@ impl RVCore {
     pub(super) fn c_sw(&mut self, inst: u32) -> XResult {
         let rs2 = reg_prime(inst, 4, 2)?;
         let rs1 = reg_prime(inst, 9, 7)?;
-        let imm =
-            (bits(inst, 12, 10) << 3) | (bits(inst, 6, 6) << 2) | (bits(inst, 5, 5) << 6);
+        let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 6) << 2) | (bits(inst, 5, 5) << 6);
         self.store(rs1, rs2, imm as SWord, 4)
     }
 
@@ -276,9 +274,7 @@ impl RVCore {
 
     pub(super) fn c_lwsp(&mut self, inst: u32) -> XResult {
         let rd = reg(inst, 11, 7)?;
-        let imm = (bits(inst, 12, 12) << 5)
-            | (bits(inst, 6, 4) << 2)
-            | (bits(inst, 3, 2) << 6);
+        let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 4) << 2) | (bits(inst, 3, 2) << 6);
         self.load_with(rd, RVReg::sp, imm as SWord, 4, |value| sext_word(value, 32))
     }
 
@@ -291,9 +287,7 @@ impl RVCore {
         #[cfg(isa64)]
         {
             let rd = reg(inst, 11, 7)?;
-            let imm = (bits(inst, 12, 12) << 5)
-                | (bits(inst, 6, 5) << 3)
-                | (bits(inst, 4, 2) << 6);
+            let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 5) << 3) | (bits(inst, 4, 2) << 6);
             self.load_with(rd, RVReg::sp, imm as SWord, 8, |value| value)
         }
     }

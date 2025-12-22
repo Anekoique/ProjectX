@@ -8,7 +8,7 @@ mod isa;
 mod memory;
 mod utils;
 
-pub use cpu::{State, XCPU};
+pub use cpu::{State, XCPU, with_xcpu};
 pub use error::{XError, XResult};
 pub use memory::MEMORY;
 

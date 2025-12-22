@@ -1,9 +1,13 @@
 PROJECT := xemu
 LOG ?= trace
 ARCH ?= riscv64
+BATCH ?= n
+FILE ?=
 
 export X_LOG=$(LOG)
 export X_ARCH=$(ARCH)
+export X_MODE=$(BATCH)
+export X_FILE=$(FILE)
 
 all: run
 
