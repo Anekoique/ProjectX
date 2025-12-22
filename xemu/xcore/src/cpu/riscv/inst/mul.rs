@@ -4,6 +4,8 @@ use crate::{
     error::XResult,
     isa::RVReg,
 };
+#[cfg(isa32)]
+use crate::error::XError;
 
 impl RVCore {
     pub(super) fn mul(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -11,10 +13,32 @@ impl RVCore {
         self.set_gpr(rd, value)
     }
 
+    pub(super) fn mulw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        #[cfg(isa32)]
+        {
+            let _ = (rd, rs1, rs2);
+            return Err(XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let lhs = self.gpr[rs1] as i32;
+            let rhs = self.gpr[rs2] as i32;
+            let value = lhs.wrapping_mul(rhs);
+            self.set_gpr(rd, value as i64 as Word)
+        }
+    }
+
     pub(super) fn mulh(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let lhs = self.gpr[rs1] as SWord as i128;
         let rhs = self.gpr[rs2] as SWord as i128;
         let value = ((lhs * rhs) >> Word::BITS) as SWord as Word;
+        self.set_gpr(rd, value)
+    }
+
+    pub(super) fn mulhsu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        let lhs = self.gpr[rs1] as SWord as i128;
+        let rhs = self.gpr[rs2] as u128;
+        let value = ((lhs * rhs as i128) >> Word::BITS) as SWord as Word;
         self.set_gpr(rd, value)
     }
 
@@ -38,6 +62,27 @@ impl RVCore {
         self.set_gpr(rd, value)
     }
 
+    pub(super) fn divw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        #[cfg(isa32)]
+        {
+            let _ = (rd, rs1, rs2);
+            return Err(XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let dividend = self.gpr[rs1] as i32;
+            let divisor = self.gpr[rs2] as i32;
+            let value = if divisor == 0 {
+                -1
+            } else if dividend == i32::MIN && divisor == -1 {
+                dividend
+            } else {
+                dividend / divisor
+            };
+            self.set_gpr(rd, value as i64 as Word)
+        }
+    }
+
     pub(super) fn divu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let dividend = self.gpr[rs1];
         let divisor = self.gpr[rs2];
@@ -47,6 +92,25 @@ impl RVCore {
             dividend / divisor
         };
         self.set_gpr(rd, value)
+    }
+
+    pub(super) fn divuw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        #[cfg(isa32)]
+        {
+            let _ = (rd, rs1, rs2);
+            return Err(XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let dividend = self.gpr[rs1] as u32;
+            let divisor = self.gpr[rs2] as u32;
+            let value = if divisor == 0 {
+                u32::MAX
+            } else {
+                dividend / divisor
+            };
+            self.set_gpr(rd, (value as i32) as i64 as Word)
+        }
     }
 
     pub(super) fn rem(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -62,6 +126,27 @@ impl RVCore {
         self.set_gpr(rd, value)
     }
 
+    pub(super) fn remw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        #[cfg(isa32)]
+        {
+            let _ = (rd, rs1, rs2);
+            return Err(XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let dividend = self.gpr[rs1] as i32;
+            let divisor = self.gpr[rs2] as i32;
+            let value = if divisor == 0 {
+                dividend
+            } else if dividend == i32::MIN && divisor == -1 {
+                0
+            } else {
+                dividend % divisor
+            };
+            self.set_gpr(rd, value as i64 as Word)
+        }
+    }
+
     pub(super) fn remu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let dividend = self.gpr[rs1];
         let divisor = self.gpr[rs2];
@@ -71,6 +156,25 @@ impl RVCore {
             dividend % divisor
         };
         self.set_gpr(rd, value)
+    }
+
+    pub(super) fn remuw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        #[cfg(isa32)]
+        {
+            let _ = (rd, rs1, rs2);
+            return Err(XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let dividend = self.gpr[rs1] as u32;
+            let divisor = self.gpr[rs2] as u32;
+            let value = if divisor == 0 {
+                dividend
+            } else {
+                dividend % divisor
+            };
+            self.set_gpr(rd, (value as i32) as i64 as Word)
+        }
     }
 }
 

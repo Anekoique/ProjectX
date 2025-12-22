@@ -1,5 +1,5 @@
 // riscv.pest
-WHITESPACE = _{ " " | "\t" }
+WHITESPACE = _{ " " | "\t" | "\n" }
 
 file = { SOI ~ instpat_line* ~ EOI }
 
