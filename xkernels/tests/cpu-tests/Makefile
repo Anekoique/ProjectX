@@ -1,3 +1,33 @@
-K ?= tests/add.c
+.PHONY: all run clean latest $(ALL)
 
-include $(AM_HOME)/Makefile
+RESULT = .result
+$(shell > $(RESULT))
+
+COLOR_RED   = \033[1;31m
+COLOR_GREEN = \033[1;32m
+COLOR_NONE  = \033[0m
+
+ALL = $(basename $(notdir $(shell find tests/. -name "*.c")))
+
+all: $(addprefix Makefile., $(ALL))
+	@echo "test list [$(words $(ALL)) item(s)]:" $(ALL)
+
+$(ALL): %: Makefile.%
+
+Makefile.%: tests/%.c latest
+	@printf "NAME = $*\nK = $<\ninclude $${AM_HOME}/Makefile\n" > $@
+	@if make -s -f $@ run; then \
+		printf "[%14s] $(COLOR_GREEN)PASS$(COLOR_NONE)\n" $* >> $(RESULT); \
+	else \
+		printf "[%14s] $(COLOR_RED)***FAIL***$(COLOR_NONE)\n" $* >> $(RESULT); \
+	fi
+	-@rm -f Makefile.$*
+
+run: all
+	@cat $(RESULT)
+	@grep -q "FAIL" $(RESULT); FAIL=$$?; rm $(RESULT); test $$FAIL -ne 0
+
+clean:
+	rm -rf Makefile.* build/
+
+latest:
