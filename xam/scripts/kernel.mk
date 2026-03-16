@@ -1,7 +1,8 @@
 KERNEL        := $(K)
-KERNEL_NAME   := $(basename $(KERNEL))
-KERNEL_DIR    := $(abspath $(KERNEL))
+KERNEL_NAME   := $(basename $(notdir $(KERNEL)))
+KERNEL_DIR    := $(dir $(abspath $(KERNEL)))
 
+VPATH         += $(KERNEL_DIR)
 WORK_DIR      := $(shell pwd)
 BUILD_DIR     := $(WORK_DIR)/build
 OUT_DIR       := $(BUILD_DIR)/$(ARCH)-$(PLATFORM)
@@ -43,7 +44,7 @@ disasm: $(OUT_ELF)
 
 kernel: $(OUT_BIN) disasm
 
-run:
+run: kernel
 	@$(MAKE) -C $(XEMU_HOME) run FILE=$(OUT_BIN) BATCH=y
 
 clean:: 

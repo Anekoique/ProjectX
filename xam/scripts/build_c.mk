@@ -1,7 +1,7 @@
 OBJS            = $(addprefix $(OUT_DIR)/, $(addsuffix .o, $(KERNEL_NAME)))
 LINKAGE        += $(OBJS) $(LIBXHAL)
 
-INC_PATH       += $(WORK_DIR)/include
+INC_PATH       += $(WORK_DIR)/include $(KERNEL_DIR)/../include
 INCFLAGS       += $(addprefix -I, $(INC_PATH))
 
 CFLAGS         += -Wall -Werror 
