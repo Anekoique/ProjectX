@@ -1,0 +1,11 @@
+[package]
+name = "wanshu"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+xhal = { path = "../../../../xam/xhal" }

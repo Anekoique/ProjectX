@@ -1,8 +1,6 @@
 KERNEL        := $(K)
 KERNEL_NAME   := $(basename $(notdir $(KERNEL)))
-KERNEL_DIR    := $(dir $(abspath $(KERNEL)))
 
-VPATH         += $(KERNEL_DIR)
 WORK_DIR      := $(shell pwd)
 BUILD_DIR     := $(WORK_DIR)/build
 OUT_DIR       := $(BUILD_DIR)/$(ARCH)-$(PLATFORM)
@@ -24,11 +22,14 @@ READELF       := $(CROSS_COMPILE)readelf
 
 LD_SCRIPT     := $(ARTIFACT_DIR)/linker_$(PLATFORM).lds
 LDFLAGS        = -T $(LD_SCRIPT) -Map $(OUT_MAP)
-LINKAGE       := 
+LINKAGE       :=
 
-ifneq ($(wildcard $(KERNEL_DIR)/Cargo.toml),)
+ifneq ($(wildcard $(abspath $(KERNEL))/Cargo.toml),)
+  KERNEL_DIR  := $(abspath $(KERNEL))
   include $(AM_HOME)/scripts/build.mk
 else
+  KERNEL_DIR  := $(dir $(abspath $(KERNEL)))
+  VPATH       += $(KERNEL_DIR)
   include $(AM_HOME)/scripts/build_c.mk
 endif
 
