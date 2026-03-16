@@ -1,0 +1,9 @@
+[package]
+name = "xlogger"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu/tools/xlogger"
+
+[dependencies]
+log.workspace = true

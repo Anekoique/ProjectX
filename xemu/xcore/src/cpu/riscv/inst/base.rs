@@ -1,6 +1,8 @@
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use super::RVCore;
+#[cfg(isa32)]
+use crate::error::XError;
 use crate::{
     config::{SWord, Word, word_to_shamt},
     cpu::MemOps,
@@ -9,8 +11,6 @@ use crate::{
     memory::with_mem,
     utils::sext_word,
 };
-#[cfg(isa32)]
-use crate::error::XError;
 
 impl RVCore {
     #[inline(always)]

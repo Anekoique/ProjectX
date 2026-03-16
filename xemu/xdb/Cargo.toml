@@ -7,6 +7,7 @@ repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu/xdb"
 
 [dependencies]
 xcore.workspace = true
+xlogger.workspace = true
 log.workspace = true
 
 clap = { version = "4.5", features = ["derive"] }

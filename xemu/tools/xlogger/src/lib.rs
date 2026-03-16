@@ -8,15 +8,23 @@ use std::{sync::OnceLock, time::Instant};
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
 
-macro_rules! with_color {
+#[macro_export]
+macro_rules! xprintln {
     ($color_code:expr, $($arg:tt)*) => {
-        format_args!("\u{1B}[{}m{}\u{1B}[m", $color_code as u8, format_args!($($arg)*))
+        format_args!("\x1B[{}m{}\x1B[m\n", $color_code as u8, format_args!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! xprint {
+    ($color_code:expr, $($arg:tt)*) => {
+        format_args!("\x1B[{}m{}\x1B[m", $color_code as u8, format_args!($($arg)*))
     };
 }
 
 #[repr(u8)]
 #[allow(dead_code)]
-enum ColorCode {
+pub enum ColorCode {
     Black         = 30,
     Red           = 31,
     Green         = 32,
@@ -70,13 +78,13 @@ impl Log for Logger {
         };
 
         let boot_time = START_TIME.get().unwrap().elapsed().as_secs_f64();
-        let format = with_color!(
+        let format = xprint!(
             ColorCode::White,
             "[{boot_time:9.6} {path}:{line}] {args}\n",
             boot_time = boot_time,
             path = path,
             line = line,
-            args = with_color!(args_color, "{}", args),
+            args = xprint!(args_color, "{}", args),
         );
         print!("{format}");
     }

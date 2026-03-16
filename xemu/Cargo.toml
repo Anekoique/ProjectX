@@ -1,5 +1,5 @@
 [workspace]
-members = ["xcore", "xdb"]
+members = ["xcore", "xdb", "tools/xlogger"]
 resolver = "2"
 
 [workspace.package]
@@ -11,5 +11,6 @@ repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu"
 [workspace.dependencies]
 xcore = { path = "./xcore" }
 xdb = { path = "./xdb" }
+xlogger = { path = "./tools/xlogger" }
 
 log = "0.4.28"

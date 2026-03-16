@@ -588,6 +588,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "toml",
+ "xlogger",
 ]
 
 [[package]]
@@ -598,4 +599,12 @@ dependencies = [
  "log",
  "shlex",
  "xcore",
+ "xlogger",
+]
+
+[[package]]
+name = "xlogger"
+version = "0.1.0"
+dependencies = [
+ "log",
 ]

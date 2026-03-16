@@ -10,6 +10,7 @@ default = []
 
 [dependencies]
 log.workspace = true
+xlogger.workspace = true
 
 memory_addr = "0.4"
 

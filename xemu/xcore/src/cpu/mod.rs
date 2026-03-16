@@ -4,6 +4,7 @@ mod mem;
 use std::sync::{LazyLock, Mutex};
 
 use memory_addr::{PhysAddr, VirtAddr};
+use xlogger::ColorCode;
 
 use self::{core::CoreOps, mem::MemOps};
 use crate::{
@@ -77,6 +78,7 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
         file.map_or_else(
             || self.core.init_memory(addr),
             |path| {
+                trace!("Loading file: {}", path);
                 std::fs::read(path)
                     .map_err(|_| XError::FailedToRead)
                     .and_then(|bytes| {
@@ -127,14 +129,19 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
 
     pub fn log_termination(&self, error_msg: &str) {
         if !self.is_exit_normal() {
-            eprintln!(
+            xprintln!(
+                ColorCode::Red,
                 "Program {} with error: {} (exit code: {})",
                 self.state.message(),
                 error_msg,
                 self.halt_ret
             );
         } else {
-            println!("Program terminated with exit code {}", self.halt_ret);
+            xprintln!(
+                ColorCode::Green,
+                "Program terminated with exit code {}",
+                self.halt_ret
+            );
         }
     }
 }

@@ -1,11 +1,11 @@
 use super::RVCore;
+#[cfg(isa32)]
+use crate::error::XError;
 use crate::{
     config::{SWord, Word},
     error::XResult,
     isa::RVReg,
 };
-#[cfg(isa32)]
-use crate::error::XError;
 
 impl RVCore {
     pub(super) fn mul(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
@@ -86,11 +86,7 @@ impl RVCore {
     pub(super) fn divu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let dividend = self.gpr[rs1];
         let divisor = self.gpr[rs2];
-        let value = if divisor == 0 {
-            Word::MAX
-        } else {
-            dividend / divisor
-        };
+        let value = dividend.checked_div(divisor).unwrap_or(Word::MAX);
         self.set_gpr(rd, value)
     }
 
@@ -104,11 +100,7 @@ impl RVCore {
         {
             let dividend = self.gpr[rs1] as u32;
             let divisor = self.gpr[rs2] as u32;
-            let value = if divisor == 0 {
-                u32::MAX
-            } else {
-                dividend / divisor
-            };
+            let value = dividend.checked_div(divisor).unwrap_or(u32::MAX);
             self.set_gpr(rd, (value as i32) as i64 as Word)
         }
     }

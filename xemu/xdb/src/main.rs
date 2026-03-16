@@ -5,7 +5,6 @@ extern crate xcore;
 
 mod cli;
 mod cmd;
-mod logger;
 
 pub fn main() {
     crate::init_xdb();
@@ -23,8 +22,8 @@ pub fn main() {
 }
 
 pub fn init_xdb() {
-    crate::logger::init();
-    crate::logger::set_max_level(option_env!("X_LOG").unwrap_or(""));
+    xlogger::init();
+    xlogger::set_max_level(option_env!("X_LOG").unwrap_or(""));
     trace!("Hello, xdb!");
 }
 
