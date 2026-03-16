@@ -1,3 +1,6 @@
 [submodule "xcompiler"]
 	path = xcompiler
 	url = https://github.com/Anekoique/XCompiler
+[submodule "xos"]
+	path = xos
+	url = https://github.com/Anekoique/xark
