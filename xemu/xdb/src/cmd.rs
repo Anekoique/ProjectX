@@ -1,10 +1,10 @@
 use xcore::{XResult, with_xcpu};
 
 pub fn cmd_continue() -> XResult {
-    cmd_step(u32::MAX)
+    cmd_step(u64::MAX)
 }
 
-pub fn cmd_step(count: u32) -> XResult {
+pub fn cmd_step(count: u64) -> XResult {
     with_xcpu!(run(count))
 }
 

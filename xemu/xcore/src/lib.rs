@@ -15,6 +15,6 @@ pub use error::{XError, XResult};
 pub use memory::MEMORY;
 
 pub fn init_xcore() -> XResult {
-    trace!("hello xcore");
+    info!("Hello xcore!");
     with_xcpu!(reset())
 }

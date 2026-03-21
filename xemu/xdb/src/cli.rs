@@ -18,7 +18,7 @@ enum Commands {
     Step {
         /// Number of instructions to step
         #[arg(default_value_t = 1)]
-        count: u32,
+        count: u64,
     },
     /// Continue execution
     #[command(alias = "c")]

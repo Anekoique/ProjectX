@@ -14,7 +14,7 @@ xlogger.workspace = true
 
 memory_addr = "0.4"
 
-bitflags = "2.9"
+
 bytemuck = "1.14"
 cfg-if = "1.0"
 itertools = "0.14"

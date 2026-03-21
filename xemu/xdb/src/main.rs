@@ -8,23 +8,23 @@ mod cmd;
 
 pub fn main() {
     crate::init_xdb();
-    xcore::init_xcore()
-        .map_err(|e| error!("XCore Error: {e}"))
-        .unwrap();
-    crate::xdb_mainloop()
-        .map_err(|e| error!("XDB Error: {e}"))
-        .unwrap();
-    xcore::XCPU
-        .lock()
-        .map(|cpu| !cpu.is_exit_normal())
-        .unwrap_or(false)
-        .then(|| std::process::exit(1));
+    if let Err(e) = xcore::init_xcore() {
+        error!("XCore Error: {e}");
+        std::process::exit(1);
+    }
+    if let Err(e) = crate::xdb_mainloop() {
+        error!("XDB Error: {e}");
+        std::process::exit(1);
+    }
+    if !xcore::with_xcpu(|cpu| cpu.is_exit_normal()) {
+        std::process::exit(1);
+    }
 }
 
 pub fn init_xdb() {
     xlogger::init();
     xlogger::set_max_level(option_env!("X_LOG").unwrap_or(""));
-    trace!("Hello, xdb!");
+    info!("Hello, xdb!");
 }
 
 pub fn xdb_mainloop() -> Result<(), String> {
@@ -32,7 +32,7 @@ pub fn xdb_mainloop() -> Result<(), String> {
         .filter(|s| !s.is_empty())
         .map(String::from);
     match option_env!("X_MODE") {
-        Some("y") => with_xcpu!(load(file)?.run(u32::MAX)).or_else(|e| {
+        Some("y") => with_xcpu!(load(file)?.run(u64::MAX)).or_else(|e| {
             terminate!(e);
             Ok(())
         }),
@@ -44,11 +44,8 @@ pub fn xdb_mainloop() -> Result<(), String> {
             }
 
             match cli::respond(line) {
-                Ok(_continue) => {
-                    if !_continue {
-                        return Ok(());
-                    }
-                }
+                Ok(true) => {}
+                Ok(false) => return Ok(()),
                 Err(err) => print!("{err}"),
             }
         },
