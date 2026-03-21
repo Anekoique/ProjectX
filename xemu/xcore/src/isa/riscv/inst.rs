@@ -50,6 +50,16 @@ pub enum InstFormat {
     CJ,
 }
 
+impl InstFormat {
+    #[inline]
+    pub fn is_compressed(self) -> bool {
+        !matches!(
+            self,
+            Self::R | Self::I | Self::S | Self::B | Self::U | Self::J
+        )
+    }
+}
+
 impl std::str::FromStr for InstFormat {
     type Err = crate::XError;
 
@@ -74,3 +84,4 @@ impl std::str::FromStr for InstFormat {
         }
     }
 }
+

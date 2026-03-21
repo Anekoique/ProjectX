@@ -12,6 +12,22 @@ use crate::{
     utils::sext_word,
 };
 
+/// RV64-only word-width operation. On RV32, returns `InvalidInst`.
+macro_rules! rv64_op {
+    ($self:ident, $rd:ident, |$($param:ident),+| $body:expr) => {{
+        #[cfg(isa32)]
+        {
+            let _ = ($rd, $($param),+);
+            return Err(XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let value = { $body };
+            $self.set_gpr($rd, value as i64 as Word)
+        }
+    }};
+}
+
 impl RVCore {
     #[inline(always)]
     pub(super) fn eff_addr(&self, base: RVReg, offset: SWord) -> VirtAddr {
@@ -34,8 +50,7 @@ impl RVCore {
     where
         F: FnOnce(Word, Word) -> Word,
     {
-        let value = op(self.gpr[rs1], self.gpr[rs2]);
-        self.set_gpr(rd, value)
+        self.set_gpr(rd, op(self.gpr[rs1], self.gpr[rs2]))
     }
 
     #[inline(always)]
@@ -43,8 +58,7 @@ impl RVCore {
     where
         F: FnOnce(Word, SWord) -> Word,
     {
-        let value = op(self.gpr[rs1], imm);
-        self.set_gpr(rd, value)
+        self.set_gpr(rd, op(self.gpr[rs1], imm))
     }
 
     #[inline(always)]
@@ -67,15 +81,12 @@ impl RVCore {
     #[inline(always)]
     pub(super) fn store(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize) -> XResult {
         let addr = self.eff_addr(rs1, imm);
-        let mask: Word = match size {
-            1 => 0xFF,
-            2 => 0xFFFF,
-            4 => 0xFFFF_FFFF,
-            8 => Word::MAX,
-            _ => unreachable!("unsupported store size"),
+        let mask = if size >= std::mem::size_of::<Word>() {
+            Word::MAX
+        } else {
+            (1 as Word).wrapping_shl(size as u32 * 8) - 1
         };
-        let value = self.gpr[rs2] & mask;
-        with_mem!(write(self.virt_to_phys(addr), size, value))?;
+        with_mem!(write(self.virt_to_phys(addr), size, self.gpr[rs2] & mask))?;
         Ok(())
     }
 
@@ -91,240 +102,176 @@ impl RVCore {
     }
 }
 
+// --- R-type ---
+
 impl RVCore {
     pub(super) fn add(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs.wrapping_add(rhs))
+        self.binary_op(rd, rs1, rs2, |a, b| a.wrapping_add(b))
     }
 
     pub(super) fn addw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let lhs = self.gpr[rs1] as i32;
-            let rhs = self.gpr[rs2] as i32;
-            let value = lhs.wrapping_add(rhs);
-            self.set_gpr(rd, value as i64 as Word)
-        }
+        rv64_op!(self, rd, |rs1, rs2| (self.gpr[rs1] as i32)
+            .wrapping_add(self.gpr[rs2] as i32))
     }
 
     pub(super) fn sub(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs.wrapping_sub(rhs))
+        self.binary_op(rd, rs1, rs2, |a, b| a.wrapping_sub(b))
     }
 
     pub(super) fn subw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let lhs = self.gpr[rs1] as i32;
-            let rhs = self.gpr[rs2] as i32;
-            let value = lhs.wrapping_sub(rhs);
-            self.set_gpr(rd, value as i64 as Word)
-        }
+        rv64_op!(self, rd, |rs1, rs2| (self.gpr[rs1] as i32)
+            .wrapping_sub(self.gpr[rs2] as i32))
     }
 
     pub(super) fn sll(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs << Self::shamt_from_word(rhs))
+        self.binary_op(rd, rs1, rs2, |a, b| a << Self::shamt_from_word(b))
     }
 
     pub(super) fn sllw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let shamt = (self.gpr[rs2] & 0x1F) as u32;
-            let value = (self.gpr[rs1] as u32) << shamt;
-            self.set_gpr(rd, (value as i32) as i64 as Word)
-        }
+        rv64_op!(
+            self,
+            rd,
+            |rs1, rs2| ((self.gpr[rs1] as u32) << ((self.gpr[rs2] & 0x1F) as u32)) as i32
+        )
     }
 
     pub(super) fn slt(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| {
-            ((lhs as SWord) < (rhs as SWord)) as Word
-        })
+        self.binary_op(rd, rs1, rs2, |a, b| ((a as SWord) < (b as SWord)) as Word)
     }
 
     pub(super) fn sltu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| (lhs < rhs) as Word)
+        self.binary_op(rd, rs1, rs2, |a, b| (a < b) as Word)
     }
 
     pub(super) fn xor(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs ^ rhs)
+        self.binary_op(rd, rs1, rs2, |a, b| a ^ b)
     }
 
     pub(super) fn srl(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs >> Self::shamt_from_word(rhs))
+        self.binary_op(rd, rs1, rs2, |a, b| a >> Self::shamt_from_word(b))
     }
 
     pub(super) fn srlw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let shamt = (self.gpr[rs2] & 0x1F) as u32;
-            let value = (self.gpr[rs1] as u32) >> shamt;
-            self.set_gpr(rd, (value as i32) as i64 as Word)
-        }
+        rv64_op!(
+            self,
+            rd,
+            |rs1, rs2| ((self.gpr[rs1] as u32) >> ((self.gpr[rs2] & 0x1F) as u32)) as i32
+        )
     }
 
     pub(super) fn sra(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| {
-            ((lhs as SWord) >> Self::shamt_from_word(rhs)) as Word
+        self.binary_op(rd, rs1, rs2, |a, b| {
+            ((a as SWord) >> Self::shamt_from_word(b)) as Word
         })
     }
 
     pub(super) fn sraw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let shamt = (self.gpr[rs2] & 0x1F) as u32;
-            let value = (self.gpr[rs1] as i32) >> shamt;
-            self.set_gpr(rd, value as i64 as Word)
-        }
+        rv64_op!(self, rd, |rs1, rs2| (self.gpr[rs1] as i32)
+            >> ((self.gpr[rs2] & 0x1F) as u32))
     }
 
     pub(super) fn or(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs | rhs)
+        self.binary_op(rd, rs1, rs2, |a, b| a | b)
     }
 
     pub(super) fn and(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        self.binary_op(rd, rs1, rs2, |lhs, rhs| lhs & rhs)
+        self.binary_op(rd, rs1, rs2, |a, b| a & b)
     }
+}
 
+// --- I-type ---
+
+impl RVCore {
     pub(super) fn addi(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| lhs.wrapping_add(imm as Word))
+        self.imm_op(rd, rs1, imm, |a, imm| a.wrapping_add(imm as Word))
     }
 
     pub(super) fn addiw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, imm);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let lhs = self.gpr[rs1] as i32;
-            let rhs = imm as i32;
-            let value = lhs.wrapping_add(rhs);
-            self.set_gpr(rd, value as i64 as Word)
-        }
+        rv64_op!(self, rd, |rs1, imm| (self.gpr[rs1] as i32)
+            .wrapping_add(imm as i32))
     }
 
     pub(super) fn slli(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| lhs << Self::shamt_from_imm(imm))
+        self.imm_op(rd, rs1, imm, |a, imm| a << Self::shamt_from_imm(imm))
     }
 
     pub(super) fn slliw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, imm);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let shamt = (imm as u32) & 0x1F;
-            let value = (self.gpr[rs1] as u32) << shamt;
-            self.set_gpr(rd, (value as i32) as i64 as Word)
-        }
+        rv64_op!(
+            self,
+            rd,
+            |rs1, imm| ((self.gpr[rs1] as u32) << ((imm as u32) & 0x1F)) as i32
+        )
     }
 
     pub(super) fn slti(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| ((lhs as SWord) < imm) as Word)
+        self.imm_op(rd, rs1, imm, |a, imm| ((a as SWord) < imm) as Word)
     }
 
     pub(super) fn sltiu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| (lhs < imm as Word) as Word)
+        self.imm_op(rd, rs1, imm, |a, imm| (a < imm as Word) as Word)
     }
 
     pub(super) fn xori(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| lhs ^ imm as Word)
+        self.imm_op(rd, rs1, imm, |a, imm| a ^ imm as Word)
     }
 
     pub(super) fn srli(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| lhs >> Self::shamt_from_imm(imm))
+        self.imm_op(rd, rs1, imm, |a, imm| a >> Self::shamt_from_imm(imm))
     }
 
     pub(super) fn srliw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, imm);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let shamt = (imm as u32) & 0x1F;
-            let value = (self.gpr[rs1] as u32) >> shamt;
-            self.set_gpr(rd, (value as i32) as i64 as Word)
-        }
+        rv64_op!(
+            self,
+            rd,
+            |rs1, imm| ((self.gpr[rs1] as u32) >> ((imm as u32) & 0x1F)) as i32
+        )
     }
 
     pub(super) fn srai(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| {
-            ((lhs as SWord) >> Self::shamt_from_imm(imm)) as Word
+        self.imm_op(rd, rs1, imm, |a, imm| {
+            ((a as SWord) >> Self::shamt_from_imm(imm)) as Word
         })
     }
 
     pub(super) fn sraiw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, imm);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let shamt = (imm as u32) & 0x1F;
-            let value = (self.gpr[rs1] as i32) >> shamt;
-            self.set_gpr(rd, value as i64 as Word)
-        }
+        rv64_op!(self, rd, |rs1, imm| (self.gpr[rs1] as i32)
+            >> ((imm as u32) & 0x1F))
     }
 
     pub(super) fn ori(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| lhs | imm as Word)
+        self.imm_op(rd, rs1, imm, |a, imm| a | imm as Word)
     }
 
     pub(super) fn andi(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.imm_op(rd, rs1, imm, |lhs, imm| lhs & (imm as Word))
+        self.imm_op(rd, rs1, imm, |a, imm| a & (imm as Word))
     }
+}
 
+// --- Load/Store ---
+
+impl RVCore {
     pub(super) fn lb(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 1, |value| sext_word(value, 8))
+        self.load_with(rd, rs1, imm, 1, |v| sext_word(v, 8))
     }
 
     pub(super) fn lh(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 2, |value| sext_word(value, 16))
+        self.load_with(rd, rs1, imm, 2, |v| sext_word(v, 16))
     }
 
     pub(super) fn lw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 4, |value| sext_word(value, 32))
+        self.load_with(rd, rs1, imm, 4, |v| sext_word(v, 32))
     }
 
     pub(super) fn ld(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 8, |value| value)
+        self.load_with(rd, rs1, imm, 8, |v| v)
     }
 
     pub(super) fn lbu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 1, |value| value & 0xFF)
+        self.load_with(rd, rs1, imm, 1, |v| v & 0xFF)
     }
 
     pub(super) fn lhu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 2, |value| value & 0xFFFF)
+        self.load_with(rd, rs1, imm, 2, |v| v & 0xFFFF)
     }
 
     pub(super) fn lwu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
@@ -334,9 +281,7 @@ impl RVCore {
             return Err(XError::InvalidInst);
         }
         #[cfg(isa64)]
-        {
-            self.load_with(rd, rs1, imm, 4, |value| value & 0xFFFF_FFFF)
-        }
+        self.load_with(rd, rs1, imm, 4, |v| v & 0xFFFF_FFFF)
     }
 
     pub(super) fn sb(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
@@ -358,33 +303,35 @@ impl RVCore {
             return Err(XError::InvalidInst);
         }
         #[cfg(isa64)]
-        {
-            self.store(rs1, rs2, imm, 8)
-        }
+        self.store(rs1, rs2, imm, 8)
     }
+}
 
+// --- Branch/Jump ---
+
+impl RVCore {
     pub(super) fn beq(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |lhs, rhs| lhs == rhs)
+        self.branch(rs1, rs2, imm, |a, b| a == b)
     }
 
     pub(super) fn bne(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |lhs, rhs| lhs != rhs)
+        self.branch(rs1, rs2, imm, |a, b| a != b)
     }
 
     pub(super) fn blt(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |lhs, rhs| (lhs as SWord) < (rhs as SWord))
+        self.branch(rs1, rs2, imm, |a, b| (a as SWord) < (b as SWord))
     }
 
     pub(super) fn bge(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |lhs, rhs| (lhs as SWord) >= (rhs as SWord))
+        self.branch(rs1, rs2, imm, |a, b| (a as SWord) >= (b as SWord))
     }
 
     pub(super) fn bltu(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |lhs, rhs| lhs < rhs)
+        self.branch(rs1, rs2, imm, |a, b| a < b)
     }
 
     pub(super) fn bgeu(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |lhs, rhs| lhs >= rhs)
+        self.branch(rs1, rs2, imm, |a, b| a >= b)
     }
 
     pub(super) fn jal(&mut self, rd: RVReg, imm: SWord) -> XResult {

@@ -99,7 +99,7 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
             .and_then(|decoded| self.core.execute(decoded))
     }
 
-    pub fn run(&mut self, count: u32) -> XResult {
+    pub fn run(&mut self, count: u64) -> XResult {
         if self.state.is_terminated() {
             info!("CPU is not running. Please reset or load a program first.");
             return Ok(());
@@ -128,21 +128,23 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
     }
 
     pub fn log_termination(&self, error_msg: &str) {
-        if !self.is_exit_normal() {
-            xprintln!(
-                ColorCode::Red,
-                "Program {} with error: {} (exit code: {})",
-                self.state.message(),
-                error_msg,
-                self.halt_ret
-            );
-        } else {
-            xprintln!(
+        let (color, msg) = if self.is_exit_normal() {
+            (
                 ColorCode::Green,
-                "Program terminated with exit code {}",
-                self.halt_ret
-            );
-        }
+                format!("Program terminated with exit code {}", self.halt_ret),
+            )
+        } else {
+            (
+                ColorCode::Red,
+                format!(
+                    "Program {} with error: {} (exit code: {})",
+                    self.state.message(),
+                    error_msg,
+                    self.halt_ret
+                ),
+            )
+        };
+        xprintln!(color, "{}", msg);
     }
 }
 
@@ -161,28 +163,22 @@ macro_rules! with_xcpu {
 #[macro_export]
 macro_rules! terminate {
     ($e:expr) => {{
-        match &$e {
+        $crate::with_xcpu(|cpu| match &$e {
             $crate::XError::ToTerminate => {
-                $crate::XCPU
-                    .lock()
-                    .expect("Poisoned lock on CPU mutex")
-                    .set_terminated($crate::State::HALTED)
+                cpu.set_terminated($crate::State::HALTED)
                     .log_termination("No error message provided");
             }
-            _ => {
-                $crate::XCPU
-                    .lock()
-                    .expect("Poisoned lock on CPU mutex")
-                    .set_terminated($crate::State::ABORT)
-                    .log_termination(&$e.to_string());
+            err => {
+                cpu.set_terminated($crate::State::ABORT)
+                    .log_termination(&err.to_string());
             }
-        }
+        });
     }};
     () => {{
-        $crate::XCPU
-            .lock()
-            .expect("Posisoned lock on CPU mutex")
-            .set_terminated($crate::State::HALTED)
-            .log_termination("No error message provided");
+        $crate::with_xcpu(|cpu| {
+            cpu.set_terminated($crate::State::HALTED)
+                .log_termination("No error message provided");
+        });
     }};
 }
+

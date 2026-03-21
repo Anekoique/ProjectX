@@ -1,10 +1,8 @@
-mod atomic;
 mod base;
 mod compressed;
 mod mul;
 mod privileged;
 mod zicsr;
-mod zifence;
 
 use super::RVCore;
 use crate::{
@@ -15,7 +13,7 @@ use crate::{
 
 macro_rules! build_dispatch {
     ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
-        #[inline(always)]
+        #[inline]
         pub fn dispatch(&mut self, decoded: DecodedInst) -> XResult {
             match decoded {
                 $(

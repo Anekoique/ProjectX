@@ -1,16 +1,9 @@
-#![allow(dead_code)]
 use crate::config::{SWord, Word};
 
 #[inline(always)]
 pub fn bit_u32(value: u32, hi: u8, lo: u8) -> u32 {
     assert!(hi < 32 && lo <= hi);
     (value >> lo) & ((1u32 << (hi - lo + 1)) - 1)
-}
-
-#[inline(always)]
-pub fn bit_word(value: Word, hi: u8, lo: u8) -> Word {
-    assert!(hi < Word::BITS as _ && lo <= hi);
-    (value >> lo) & ((1u64 << (hi - lo + 1)) - 1) as Word
 }
 
 #[inline(always)]
@@ -31,8 +24,7 @@ mod tests {
 
     #[test]
     fn bit_slice_extracts_expected_range() {
-        let value = 0b1011_1100;
-        assert_eq!(bit_word(value, 5, 2), 0b1111);
+        assert_eq!(bit_u32(0b1011_1100, 5, 2), 0b1111);
     }
 
     #[test]

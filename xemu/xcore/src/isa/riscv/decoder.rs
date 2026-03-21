@@ -24,7 +24,7 @@ pub static DECODER: LazyLock<RVDecoder> = LazyLock::new(|| {
 struct RVParser;
 
 #[derive(Debug, Clone, Copy)]
-pub struct InstPattern {
+struct InstPattern {
     kind: InstKind,
     format: InstFormat,
     mask: u32,
@@ -32,33 +32,19 @@ pub struct InstPattern {
 }
 
 impl InstPattern {
-    pub fn from_pattern(pattern_str: &str, name: &str, inst_type: &str) -> XResult<InstPattern> {
-        let pattern_str = pattern_str.replace(" ", "");
+    fn parse(pattern_str: &str, name: &str, inst_type: &str) -> XResult<Self> {
         let kind = InstKind::from_name(name)?;
         let format = inst_type.parse::<InstFormat>()?;
-
-        let (mask, value) = pattern_str
-            .chars()
-            .try_fold((0u32, 0u32), |(mask, value), ch| {
-                let (new_mask, new_value) = match ch {
-                    '0' => (mask << 1 | 1, value << 1),
-                    '1' => (mask << 1 | 1, value << 1 | 1),
-                    '?' => (mask << 1, value << 1),
-                    _ => return Err(XError::PatternError),
-                };
-                Ok((new_mask, new_value))
-            })?;
-
-        trace!(
-            "Loaded instruction pattern: {:<32} => kind: {:<11}, format: {:<4}, mask: {:#034b}, \
-             value: {:#034b}",
-            pattern_str,
-            format!("{:?}", kind),
-            format!("{:?}", format),
-            mask,
-            value
-        );
-        Ok(InstPattern {
+        let (mask, value) = pattern_str.bytes().filter(|&b| b != b' ').try_fold(
+            (0u32, 0u32),
+            |(m, v), ch| match ch {
+                b'0' => Ok((m << 1 | 1, v << 1)),
+                b'1' => Ok((m << 1 | 1, v << 1 | 1)),
+                b'?' => Ok((m << 1, v << 1)),
+                _ => Err(XError::PatternError),
+            },
+        )?;
+        Ok(Self {
             kind,
             format,
             mask,
@@ -66,46 +52,105 @@ impl InstPattern {
         })
     }
 
-    pub fn matches(&self, instruction: u32) -> bool {
-        (instruction & self.mask) == self.value
+    #[inline]
+    fn matches(&self, inst: u32) -> bool {
+        (inst & self.mask) == self.value
+    }
+
+    /// Whether funct3 (bits[14:12]) is fully fixed in the mask.
+    fn has_fixed_funct3(&self) -> bool {
+        (self.mask >> 12) & 0x7 == 0x7
     }
 }
 
-#[derive(Debug, Default)]
+// ---------------------------------------------------------------------------
+// Decoder: two-level lookup tables
+//
+// 32-bit instructions:  key = (opcode[6:2] << 3) | funct3   → 256 buckets
+// 16-bit compressed:    key = (funct3 << 2) | quadrant[1:0]  →  32 buckets
+//
+// Most buckets hold 0–1 patterns (O(1) decode). R-type buckets that share
+// opcode+funct3 (add/sub, srl/sra, mul/div) hold 2–3 patterns resolved by
+// a short linear scan on funct7.
+// ---------------------------------------------------------------------------
+
+const TABLE_32_SIZE: usize = 256; // 5-bit opcode[6:2] × 3-bit funct3
+const TABLE_16_SIZE: usize = 32; // 3-bit funct3 × 2-bit quadrant
+
 pub struct RVDecoder {
-    patterns: Vec<InstPattern>,
+    table_32: Box<[Vec<InstPattern>; TABLE_32_SIZE]>,
+    table_16: Box<[Vec<InstPattern>; TABLE_16_SIZE]>,
 }
 
 impl RVDecoder {
-    pub fn from_instpat(instpat_code: &str) -> XResult<RVDecoder> {
-        Ok(Self {
-            patterns: RVParser::parse(Rule::file, instpat_code)
-                .map_err(|_| XError::ParseError)?
-                .next()
-                .ok_or(XError::ParseError)?
+    pub fn from_instpat(instpat_code: &str) -> XResult<Self> {
+        let table_32 = Box::new(std::array::from_fn(|_| Vec::new()));
+        let table_16 = Box::new(std::array::from_fn(|_| Vec::new()));
+        let mut decoder = Self { table_32, table_16 };
+
+        for pair in RVParser::parse(Rule::file, instpat_code)
+            .map_err(|_| XError::ParseError)?
+            .next()
+            .ok_or(XError::ParseError)?
+            .into_inner()
+            .filter(|p| p.as_rule() == Rule::instpat_line)
+        {
+            let (pat, name, fmt) = pair
                 .into_inner()
-                .filter(|p| p.as_rule() == Rule::instpat_line)
-                .map(|pair| {
-                    pair.into_inner()
-                        .map(|p| p.as_str())
-                        .collect_tuple::<(&str, &str, &str)>()
-                        .ok_or(XError::ParseError)
-                        .and_then(|(pattern, name, inst_type)| {
-                            InstPattern::from_pattern(pattern, name, inst_type)
-                        })
-                })
-                .collect::<Result<_, _>>()?,
-        })
+                .map(|p| p.as_str())
+                .collect_tuple()
+                .ok_or(XError::ParseError)?;
+            decoder.insert(InstPattern::parse(pat, name, fmt)?);
+        }
+        Ok(decoder)
     }
 
-    pub fn decode(&self, instruction: u32) -> XResult<DecodedInst> {
-        self.patterns
+    fn insert(&mut self, pat: InstPattern) {
+        if pat.format.is_compressed() {
+            self.table_16[Self::key_16(pat.value)].push(pat);
+        } else if pat.has_fixed_funct3() {
+            self.table_32[Self::key_32(pat.value)].push(pat);
+        } else {
+            // U/J-type: funct3 bits are don't-care, broadcast to all 8 funct3 slots
+            let opcode_hi = (pat.value >> 2) & 0x1F;
+            for funct3 in 0..8u32 {
+                self.table_32[((opcode_hi << 3) | funct3) as usize].push(pat);
+            }
+        }
+    }
+
+    #[inline]
+    pub fn decode(&self, inst: u32) -> XResult<DecodedInst> {
+        let table = if (inst & 0b11) != 0b11 {
+            &self.table_16[Self::key_16(inst)]
+        } else {
+            &self.table_32[Self::key_32(inst)]
+        };
+        table
             .iter()
-            .find(|p| p.matches(instruction))
+            .find(|p| p.matches(inst))
             .ok_or(XError::DecodeError)
-            .map(|pattern| DecodedInst::decoded_from(pattern.format, instruction, pattern.kind))?
+            .and_then(|p| DecodedInst::from_raw(p.format, inst, p.kind))
+    }
+
+    #[inline]
+    fn key_32(inst: u32) -> usize {
+        let opcode_hi = (inst >> 2) & 0x1F; // bits[6:2]
+        let funct3 = (inst >> 12) & 0x7; // bits[14:12]
+        ((opcode_hi << 3) | funct3) as usize
+    }
+
+    #[inline]
+    fn key_16(inst: u32) -> usize {
+        let quadrant = inst & 0b11;
+        let funct3 = (inst >> 13) & 0b111;
+        ((funct3 << 2) | quadrant) as usize
     }
 }
+
+// ---------------------------------------------------------------------------
+// Decoded instruction
+// ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq)]
 #[rustfmt::skip]
@@ -124,46 +169,45 @@ impl Debug for DecodedInst {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use DecodedInst::*;
         match self {
-            R { kind, rd, rs1, rs2 } => write!(f, "{:?} {:?}, {:?}, {:?}", kind, rd, rs1, rs2),
-            I { kind, rd, rs1, imm } => write!(f, "{:?} {:?}, {:?}, {:#x}", kind, rd, rs1, imm),
-            S { kind, rs1, rs2, imm } => write!(f, "{:?} {:?}, {:?}, {:#x}", kind, rs1, rs2, imm),
-            B { kind, rs1, rs2, imm } => write!(f, "{:?} {:?}, {:?}, {:#x}", kind, rs1, rs2, imm),
-            U { kind, rd, imm } => write!(f, "{:?} {:?}, {:#x}", kind, rd, imm),
-            J { kind, rd, imm } => write!(f, "{:?} {:?}, {:#x}", kind, rd, imm),
-            C { kind, inst } => write!(f, "{:?} {:?}", kind, inst),
+            R { kind, rd, rs1, rs2 } => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}"),
+            I { kind, rd, rs1, imm } => write!(f, "{kind:?} {rd:?}, {rs1:?}, {imm:#x}"),
+            S { kind, rs1, rs2, imm } => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
+            B { kind, rs1, rs2, imm } => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
+            U { kind, rd, imm }       => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
+            J { kind, rd, imm }       => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
+            C { kind, inst }          => write!(f, "{kind:?} {inst:?}"),
         }
     }
 }
 
 impl DecodedInst {
-    fn decoded_from(format: InstFormat, inst: u32, kind: InstKind) -> XResult<Self> {
-        let reg = |shamt: u32| {
-            RVReg::try_from(((inst >> shamt) & 0x1F) as u8).map_err(|_| XError::InvalidReg)
+    fn from_raw(format: InstFormat, inst: u32, kind: InstKind) -> XResult<Self> {
+        let reg = |pos: u32| {
+            RVReg::try_from(((inst >> pos) & 0x1F) as u8).map_err(|_| XError::InvalidReg)
         };
         let bits = |hi: u8, lo: u8| bit_u32(inst, hi, lo);
         let sext = |val: u32, width: u8| sext_u32(val, width) as SWord;
 
-        use DecodedInst::*;
-        let decoded = match format {
-            InstFormat::R => R {
+        match format {
+            InstFormat::R => Ok(Self::R {
                 kind,
                 rd: reg(7)?,
                 rs1: reg(15)?,
                 rs2: reg(20)?,
-            },
-            InstFormat::I => I {
+            }),
+            InstFormat::I => Ok(Self::I {
                 kind,
                 rd: reg(7)?,
                 rs1: reg(15)?,
                 imm: sext(bits(31, 20), 12),
-            },
-            InstFormat::S => S {
+            }),
+            InstFormat::S => Ok(Self::S {
                 kind,
                 rs1: reg(15)?,
                 rs2: reg(20)?,
                 imm: sext((bits(31, 25) << 5) | bits(11, 7), 12),
-            },
-            InstFormat::B => B {
+            }),
+            InstFormat::B => Ok(Self::B {
                 kind,
                 rs1: reg(15)?,
                 rs2: reg(20)?,
@@ -174,13 +218,13 @@ impl DecodedInst {
                         | (bits(11, 8) << 1),
                     13,
                 ),
-            },
-            InstFormat::U => U {
+            }),
+            InstFormat::U => Ok(Self::U {
                 kind,
                 rd: reg(7)?,
-                imm: ((inst as i32 & !0xFFF) as SWord),
-            },
-            InstFormat::J => J {
+                imm: sext(inst & 0xFFFFF000, 32),
+            }),
+            InstFormat::J => Ok(Self::J {
                 kind,
                 rd: reg(7)?,
                 imm: sext(
@@ -190,11 +234,9 @@ impl DecodedInst {
                         | (bits(30, 21) << 1),
                     21,
                 ),
-            },
-            _ => C { kind, inst },
-        };
-
-        Ok(decoded)
+            }),
+            _ => Ok(Self::C { kind, inst }),
+        }
     }
 }
 

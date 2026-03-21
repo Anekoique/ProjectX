@@ -13,26 +13,13 @@ pub type SWord = i32;
 
 pub const SHAMT_MASK: Word = (Word::BITS as Word) - 1;
 
-#[cfg(isa64)]
 #[inline(always)]
 pub fn word_to_u32(value: Word) -> u32 {
     value as u32
 }
 
-#[cfg(isa32)]
-#[inline(always)]
-pub fn word_to_u32(value: Word) -> u32 {
-    value
-}
-
-#[cfg(isa64)]
 #[inline(always)]
 pub fn word_to_shamt(value: Word) -> u32 {
     (value & SHAMT_MASK) as u32
 }
 
-#[cfg(isa32)]
-#[inline(always)]
-pub fn word_to_shamt(value: Word) -> u32 {
-    value & SHAMT_MASK
-}

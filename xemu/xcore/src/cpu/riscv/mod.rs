@@ -28,12 +28,6 @@ impl RVCore {
     }
 }
 
-impl Default for RVCore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CoreOps for RVCore {
     fn pc(&self) -> VirtAddr {
         self.pc
@@ -41,21 +35,19 @@ impl CoreOps for RVCore {
 
     fn reset(&mut self) -> XResult {
         self.gpr.fill(0);
-        self.init_memory(self.virt_to_phys(VirtAddr::from(RESET_VECTOR)))?;
         self.pc = VirtAddr::from(RESET_VECTOR);
         self.npc = self.pc;
         Ok(())
     }
 
     fn fetch(&self) -> XResult<u32> {
-        let low = with_mem!(read(self.virt_to_phys(self.pc), 2))?;
-        let low_u32 = word_to_u32(low);
-        if (low_u32 & 0b11) != 0b11 {
-            return Ok(low_u32);
+        let word = with_mem!(fetch_u32(self.virt_to_phys(self.pc), 4))?;
+        let inst = word_to_u32(word);
+        if (inst & 0b11) != 0b11 {
+            Ok(inst & 0xFFFF)
+        } else {
+            Ok(inst)
         }
-        let high = with_mem!(read(self.virt_to_phys(self.pc.wrapping_add(2)), 2))?;
-        let high_u32 = word_to_u32(high);
-        Ok((high_u32 << 16) | (low_u32 & 0xFFFF))
     }
 
     fn decode(&self, instr: u32) -> XResult<DecodedInst> {
@@ -83,12 +75,18 @@ mod tests {
     use crate::config::CONFIG_MBASE;
 
     #[test]
-    fn fetch_returns_32bit_value() {
+    fn fetch_distinguishes_standard_and_compressed_instructions() {
         let mut core = RVCore::new();
         core.pc = VirtAddr::from(CONFIG_MBASE);
-        let inst: u32 = 0xCAFEBABE;
-        with_mem!(write(core.virt_to_phys(core.pc), 4, inst as Word)).unwrap();
 
-        assert_eq!(core.fetch().unwrap(), inst);
+        let cases = [
+            (0xCAFEBABF_u32, 0xCAFEBABF_u32),
+            (0xCAFEBABE_u32, 0xBABE_u32),
+        ];
+
+        for (inst, expected) in cases {
+            with_mem!(write(core.virt_to_phys(core.pc), 4, inst as Word)).unwrap();
+            assert_eq!(core.fetch().unwrap(), expected);
+        }
     }
 }

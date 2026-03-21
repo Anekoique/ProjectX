@@ -10,7 +10,6 @@ pub enum XError {
     PatternError,
     ParseError,
     DecodeError,
-    InvalidInstType,
     InvalidInst,
     InvalidReg,
     // IO errors
@@ -29,7 +28,7 @@ impl XError {
         match self {
             XError::BadAddress => "bad address",
             XError::AddrNotAligned => "address not aligned",
-            XError::InvalidInstType => "invalid instruction type",
+
             XError::PatternError => "pattern error",
             XError::ParseError => "parse error",
             XError::DecodeError => "decode error",

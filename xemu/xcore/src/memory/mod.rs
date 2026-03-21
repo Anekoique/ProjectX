@@ -37,35 +37,32 @@ impl Memory {
         Ok(offset)
     }
 
-    fn check_aligned(&self, addr: PhysAddr, size: usize) -> XResult<()> {
+    fn read_at(&self, offset: usize, size: usize) -> Word {
+        let mut buf = [0u8; std::mem::size_of::<Word>()];
+        buf[..size].copy_from_slice(&self.data[offset..offset + size]);
+        Word::from_le_bytes(buf)
+    }
+
+    pub fn read(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
         ensure!(
             [1, 2, 4, 8].contains(&size) && addr.is_aligned(size),
             Err(XError::AddrNotAligned)
         );
-        Ok(())
+        self.access(addr, size).map(|off| self.read_at(off, size))
     }
 
-    pub fn read(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
-        self.check_aligned(addr, size)
-            .and_then(|_| self.access(addr, size))
-            .map(|offset| unsafe {
-                let mut value: Word = 0;
-                std::ptr::copy_nonoverlapping(
-                    self.data.as_ptr().add(offset),
-                    &mut value as *mut _ as *mut u8,
-                    size,
-                );
-                value
-            })
+    /// Read with relaxed alignment (IALIGN=16: 2-byte aligned).
+    /// Used for instruction fetch where 32-bit instructions may start at
+    /// non-4-aligned addresses.
+    pub fn fetch_u32(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
+        ensure!(addr.is_aligned(2_usize), Err(XError::AddrNotAligned));
+        self.access(addr, size).map(|off| self.read_at(off, size))
     }
 
     pub fn write(&mut self, addr: PhysAddr, size: usize, value: Word) -> XResult {
-        self.access(addr, size).map(|offset| unsafe {
-            std::ptr::copy_nonoverlapping(
-                &value as *const _ as *const u8,
-                self.data.as_mut_ptr().add(offset),
-                size,
-            )
+        self.access(addr, size).map(|offset| {
+            let bytes = value.to_le_bytes();
+            self.data[offset..offset + size].copy_from_slice(&bytes[..size]);
         })
     }
 
