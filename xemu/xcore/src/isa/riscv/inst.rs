@@ -85,3 +85,55 @@ impl std::str::FromStr for InstFormat {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inst_kind_from_name_and_roundtrip() {
+        for (name, expected) in [
+            ("add", InstKind::add),
+            ("jal", InstKind::jal),
+            ("c_addi", InstKind::c_addi),
+        ] {
+            let kind = InstKind::from_name(name).unwrap();
+            assert_eq!(kind, expected);
+            assert_eq!(InstKind::from_name(kind.as_str()).unwrap(), kind);
+        }
+        assert!(matches!(
+            InstKind::from_name("nonexistent"),
+            Err(XError::ParseError)
+        ));
+    }
+
+    #[test]
+    fn inst_format_is_compressed() {
+        assert!(!InstFormat::R.is_compressed());
+        assert!(!InstFormat::I.is_compressed());
+        assert!(!InstFormat::S.is_compressed());
+        assert!(!InstFormat::B.is_compressed());
+        assert!(!InstFormat::U.is_compressed());
+        assert!(!InstFormat::J.is_compressed());
+
+        assert!(InstFormat::CR.is_compressed());
+        assert!(InstFormat::CI.is_compressed());
+        assert!(InstFormat::CSS.is_compressed());
+        assert!(InstFormat::CIW.is_compressed());
+        assert!(InstFormat::CL.is_compressed());
+        assert!(InstFormat::CS.is_compressed());
+        assert!(InstFormat::CA.is_compressed());
+        assert!(InstFormat::CB.is_compressed());
+        assert!(InstFormat::CJ.is_compressed());
+    }
+
+    #[test]
+    fn inst_format_from_str() {
+        assert!(matches!("R".parse::<InstFormat>().unwrap(), InstFormat::R));
+        assert!(matches!(
+            "CI".parse::<InstFormat>().unwrap(),
+            InstFormat::CI
+        ));
+        assert!("X".parse::<InstFormat>().is_err());
+        assert!("".parse::<InstFormat>().is_err());
+    }
+}

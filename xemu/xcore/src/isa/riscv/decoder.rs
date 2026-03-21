@@ -286,4 +286,151 @@ mod tests {
         let unknown = 0xFFFF_FFFF;
         assert!(matches!(decoder.decode(unknown), Err(XError::DecodeError)));
     }
+
+    #[test]
+    fn decode_s_type() {
+        let decoder = &*DECODER;
+        // sw x3, 16(x2): imm[11:5]=0, imm[4:0]=10000, rs2=x3, rs1=x2, funct3=010
+        let sw = 0b0000000_00011_00010_010_10000_0100011_u32;
+        match decoder.decode(sw).unwrap() {
+            DecodedInst::S {
+                kind,
+                rs1,
+                rs2,
+                imm,
+            } => {
+                assert_eq!(kind, InstKind::sw);
+                assert_eq!(rs1, RVReg::sp);
+                assert_eq!(rs2, RVReg::gp);
+                assert_eq!(imm, 16);
+            }
+            _ => panic!("expected S-type sw"),
+        }
+    }
+
+    #[test]
+    fn decode_b_type() {
+        let decoder = &*DECODER;
+        // beq x1, x2, +8: imm[12|10:5]=0, rs2=x2, rs1=x1, funct3=000,
+        // imm[4:1|11]=0100_0
+        let beq = 0b0000000_00010_00001_000_01000_1100011_u32;
+        match decoder.decode(beq).unwrap() {
+            DecodedInst::B {
+                kind,
+                rs1,
+                rs2,
+                imm,
+            } => {
+                assert_eq!(kind, InstKind::beq);
+                assert_eq!(rs1, RVReg::ra);
+                assert_eq!(rs2, RVReg::sp);
+                assert_eq!(imm, 8);
+            }
+            _ => panic!("expected B-type beq"),
+        }
+    }
+
+    #[test]
+    fn decode_u_type() {
+        let decoder = &*DECODER;
+        // lui x5, 0x12345
+        let lui = (0x12345 << 12) | ((RVReg::t0 as u32) << 7) | 0b0110111;
+        match decoder.decode(lui).unwrap() {
+            DecodedInst::U { kind, rd, imm } => {
+                assert_eq!(kind, InstKind::lui);
+                assert_eq!(rd, RVReg::t0);
+                assert_eq!(imm, 0x12345000 as SWord);
+            }
+            _ => panic!("expected U-type lui"),
+        }
+
+        // auipc x1, 0
+        let auipc = ((RVReg::ra as u32) << 7) | 0b0010111;
+        match decoder.decode(auipc).unwrap() {
+            DecodedInst::U { kind, rd, imm } => {
+                assert_eq!(kind, InstKind::auipc);
+                assert_eq!(rd, RVReg::ra);
+                assert_eq!(imm, 0);
+            }
+            _ => panic!("expected U-type auipc"),
+        }
+    }
+
+    #[test]
+    fn decode_sub_and_sra() {
+        let decoder = &*DECODER;
+        // sub x3, x1, x2: funct7=0100000
+        let sub = 0b0100000_00010_00001_000_00011_0110011_u32;
+        match decoder.decode(sub).unwrap() {
+            DecodedInst::R { kind, rd, rs1, rs2 } => {
+                assert_eq!(kind, InstKind::sub);
+                assert_eq!(rd, RVReg::gp);
+                assert_eq!(rs1, RVReg::ra);
+                assert_eq!(rs2, RVReg::sp);
+            }
+            _ => panic!("expected R-type sub"),
+        }
+
+        // sra x4, x5, x6: funct7=0100000, funct3=101
+        let sra = 0b0100000_00110_00101_101_00100_0110011_u32;
+        match decoder.decode(sra).unwrap() {
+            DecodedInst::R { kind, .. } => assert_eq!(kind, InstKind::sra),
+            _ => panic!("expected R-type sra"),
+        }
+    }
+
+    #[test]
+    fn decode_compressed_instructions() {
+        let decoder = &*DECODER;
+        let cases: &[(u32, InstKind)] = &[
+            (0b000_0_01010_00101_01, InstKind::c_addi), // c.addi x10, 5
+            (0b010_1_01111_11111_01, InstKind::c_li),   // c.li x15, -1
+            (0b101_0_00000_00000_01, InstKind::c_j),    // c.j +0
+        ];
+        for &(raw, expected_kind) in cases {
+            match decoder.decode(raw).unwrap() {
+                DecodedInst::C { kind, inst } => {
+                    assert_eq!(kind, expected_kind);
+                    assert_eq!(inst, raw);
+                }
+                _ => panic!("expected C-type for {raw:#06x}"),
+            }
+        }
+    }
+
+    #[test]
+    fn decode_ebreak() {
+        let decoder = &*DECODER;
+        let ebreak = 0x00100073_u32;
+        match decoder.decode(ebreak).unwrap() {
+            DecodedInst::I { kind, .. } => assert_eq!(kind, InstKind::ebreak),
+            _ => panic!("expected I-type ebreak"),
+        }
+    }
+
+    #[test]
+    fn decode_b_type_negative_offset() {
+        let decoder = &*DECODER;
+        // bne x0, x1, -4
+        // imm = -4 = 0b1_1111111_1110_0 (13-bit signed, bit[0] always 0)
+        // imm[12]=1, imm[11]=1, imm[10:5]=111111, imm[4:1]=1110
+        // encoding: imm[12|10:5] rs2 rs1 funct3 imm[4:1|11] opcode
+        //   bits[31:25] = 1_111111 (imm[12]=1, imm[10:5]=111111)
+        //   bits[11:7]  = 1110_1   (imm[4:1]=1110, imm[11]=1)
+        let bne = 0b1111111_00001_00000_001_11101_1100011_u32;
+        match decoder.decode(bne).unwrap() {
+            DecodedInst::B {
+                kind,
+                rs1,
+                rs2,
+                imm,
+            } => {
+                assert_eq!(kind, InstKind::bne);
+                assert_eq!(rs1, RVReg::zero);
+                assert_eq!(rs2, RVReg::ra);
+                assert_eq!(imm, -4);
+            }
+            _ => panic!("expected B-type bne"),
+        }
+    }
 }

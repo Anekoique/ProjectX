@@ -75,3 +75,35 @@ impl IndexMut<RVReg> for [crate::config::Word] {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Word;
+
+    #[test]
+    fn from_u8_boundary_and_roundtrip() {
+        assert_eq!(RVReg::from_u8(0).unwrap(), RVReg::zero);
+        assert_eq!(RVReg::from_u8(31).unwrap(), RVReg::t6);
+        assert!(matches!(RVReg::from_u8(32), Err(XError::InvalidReg)));
+
+        for i in 0..32u8 {
+            assert_eq!(u8::from(RVReg::from_u8(i).unwrap()), i);
+        }
+    }
+
+    #[test]
+    fn from_u32_rejects_overflow() {
+        assert_eq!(RVReg::from_u32(5).unwrap(), RVReg::t0);
+        assert!(matches!(RVReg::from_u32(32), Err(XError::InvalidReg)));
+        assert!(matches!(RVReg::from_u32(0x100), Err(XError::InvalidReg)));
+    }
+
+    #[test]
+    fn index_and_partial_eq_u8() {
+        let mut gpr = [0 as Word; 32];
+        gpr[RVReg::t0] = 42;
+        assert_eq!(gpr[RVReg::t0], 42);
+        assert!(RVReg::t0 == 5u8);
+        assert!(!(RVReg::zero == 1u8));
+    }
+}

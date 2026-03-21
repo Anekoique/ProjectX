@@ -62,8 +62,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_xerror() {
-        let err = XError::BadAddress;
-        assert_eq!(err.to_string(), "bad address");
+    fn all_variants_have_distinct_nonempty_messages() {
+        let variants = [
+            XError::BadAddress,
+            XError::AddrNotAligned,
+            XError::PatternError,
+            XError::ParseError,
+            XError::DecodeError,
+            XError::InvalidInst,
+            XError::InvalidReg,
+            XError::FailedToRead,
+            XError::FailedToWrite,
+            XError::ToTerminate,
+            XError::Unimplemented,
+        ];
+        for v in &variants {
+            assert!(!v.as_str().is_empty());
+            assert_eq!(v.to_string(), v.as_str());
+        }
+        let msgs: std::collections::HashSet<_> = variants.iter().map(|v| v.as_str()).collect();
+        assert_eq!(msgs.len(), variants.len());
     }
 }

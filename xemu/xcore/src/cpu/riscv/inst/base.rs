@@ -464,6 +464,180 @@ mod tests {
     }
 
     #[test]
+    fn sub_produces_correct_result() {
+        let mut core = RVCore::new();
+        core.gpr[RVReg::t0] = 10;
+        core.gpr[RVReg::t1] = 3;
+        core.sub(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 7);
+
+        // Wrapping underflow
+        core.gpr[RVReg::t0] = 0;
+        core.gpr[RVReg::t1] = 1;
+        core.sub(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], Word::MAX);
+    }
+
+    #[test]
+    fn logical_ops_work() {
+        let mut core = RVCore::new();
+        core.gpr[RVReg::t0] = 0xFF00;
+        core.gpr[RVReg::t1] = 0x0FF0;
+
+        core.and(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 0x0F00);
+
+        core.or(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 0xFFF0);
+
+        core.xor(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 0xF0F0);
+    }
+
+    #[test]
+    fn slt_and_sltu_compare_correctly() {
+        let mut core = RVCore::new();
+        // Signed: -1 < 1
+        core.gpr[RVReg::t0] = (-1 as SWord) as Word;
+        core.gpr[RVReg::t1] = 1;
+        core.slt(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 1);
+
+        // Unsigned: MAX > 1
+        core.sltu(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 0); // MAX > 1 unsigned
+
+        // Equal values
+        core.gpr[RVReg::t1] = core.gpr[RVReg::t0];
+        core.slt(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 0);
+    }
+
+    #[test]
+    fn immediate_ops_work() {
+        let mut core = RVCore::new();
+        core.gpr[RVReg::t0] = 100;
+
+        core.addi(RVReg::t1, RVReg::t0, -50).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 50);
+
+        core.xori(RVReg::t1, RVReg::t0, -1).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], !100);
+
+        core.ori(RVReg::t1, RVReg::t0, 0xF).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 100 | 0xF);
+
+        core.andi(RVReg::t1, RVReg::t0, 0xF0 as SWord).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 100 & 0xF0);
+
+        core.slti(RVReg::t1, RVReg::t0, 200).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 1);
+        core.slti(RVReg::t1, RVReg::t0, 50).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 0);
+
+        core.sltiu(RVReg::t1, RVReg::t0, -1).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 1); // 100 < MAX unsigned
+    }
+
+    #[test]
+    fn shift_immediate_ops() {
+        let mut core = RVCore::new();
+        core.gpr[RVReg::t0] = 0x10;
+
+        core.slli(RVReg::t1, RVReg::t0, 4).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 0x100);
+
+        core.srli(RVReg::t1, RVReg::t0, 2).unwrap();
+        assert_eq!(core.gpr[RVReg::t1], 0x4);
+
+        // Arithmetic right shift preserves sign
+        core.gpr[RVReg::t0] = (-16 as SWord) as Word;
+        core.srai(RVReg::t1, RVReg::t0, 2).unwrap();
+        assert_eq!(core.gpr[RVReg::t1] as SWord, -4);
+    }
+
+    #[test]
+    fn lui_and_auipc_produce_correct_values() {
+        let mut core = RVCore::new();
+        core.pc = VirtAddr::from(TEST_BASE);
+
+        core.lui(RVReg::t0, 0x12345000 as SWord).unwrap();
+        assert_eq!(core.gpr[RVReg::t0], 0x12345000 as Word);
+
+        core.auipc(RVReg::t1, 0x1000 as SWord).unwrap();
+        assert_eq!(
+            core.gpr[RVReg::t1],
+            (TEST_BASE as Word).wrapping_add(0x1000)
+        );
+    }
+
+    #[test]
+    fn all_branch_variants() {
+        let mut core = RVCore::new();
+        core.pc = VirtAddr::from(TEST_BASE);
+        let offset: SWord = 100;
+
+        // bne: taken when not equal
+        core.gpr[RVReg::t0] = 1;
+        core.gpr[RVReg::t1] = 2;
+        core.npc = core.pc.wrapping_add(4);
+        core.bne(RVReg::t0, RVReg::t1, offset).unwrap();
+        assert_eq!(core.npc, core.pc.wrapping_add(offset as usize));
+
+        // bne: not taken when equal
+        core.gpr[RVReg::t1] = 1;
+        core.npc = core.pc.wrapping_add(4);
+        core.bne(RVReg::t0, RVReg::t1, offset).unwrap();
+        assert_eq!(core.npc, core.pc.wrapping_add(4));
+
+        // blt: signed less than
+        core.gpr[RVReg::t0] = (-5 as SWord) as Word;
+        core.gpr[RVReg::t1] = 3;
+        core.npc = core.pc.wrapping_add(4);
+        core.blt(RVReg::t0, RVReg::t1, offset).unwrap();
+        assert_eq!(core.npc, core.pc.wrapping_add(offset as usize));
+
+        // bge: signed >=
+        core.npc = core.pc.wrapping_add(4);
+        core.bge(RVReg::t1, RVReg::t0, offset).unwrap();
+        assert_eq!(core.npc, core.pc.wrapping_add(offset as usize));
+
+        // bltu: unsigned less than
+        core.gpr[RVReg::t0] = 5;
+        core.gpr[RVReg::t1] = Word::MAX;
+        core.npc = core.pc.wrapping_add(4);
+        core.bltu(RVReg::t0, RVReg::t1, offset).unwrap();
+        assert_eq!(core.npc, core.pc.wrapping_add(offset as usize));
+
+        // bgeu: unsigned >=
+        core.npc = core.pc.wrapping_add(4);
+        core.bgeu(RVReg::t1, RVReg::t0, offset).unwrap();
+        assert_eq!(core.npc, core.pc.wrapping_add(offset as usize));
+    }
+
+    #[test]
+    #[cfg(isa64)]
+    fn addw_sign_extends_result() {
+        let mut core = RVCore::new();
+        // 0x7FFFFFFF + 1 = 0x80000000 which sign-extends to 0xFFFFFFFF_80000000
+        core.gpr[RVReg::t0] = 0x7FFFFFFF;
+        core.gpr[RVReg::t1] = 1;
+        core.addw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2] as i64, -2147483648_i64); // 0x80000000 sign-extended
+    }
+
+    #[test]
+    #[cfg(isa64)]
+    fn sllw_sign_extends_result() {
+        let mut core = RVCore::new();
+        core.gpr[RVReg::t0] = 1;
+        core.gpr[RVReg::t1] = 31;
+        core.sllw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        // 1 << 31 = 0x80000000, sign-extended to 0xFFFFFFFF_80000000
+        assert_eq!(core.gpr[RVReg::t2] as i64, -2147483648_i64);
+    }
+
+    #[test]
     fn jal_and_jalr_produce_correct_targets() {
         let mut core = RVCore::new();
         core.pc = VirtAddr::from(TEST_BASE);
@@ -478,14 +652,35 @@ mod tests {
         assert_eq!(core.npc, core.pc.wrapping_add(imm as usize));
 
         core.gpr[RVReg::t0] = (TEST_BASE + 0x123) as Word;
-        core.jalr(RVReg::t1, RVReg::t0, 3).unwrap();
+        core.jalr(RVReg::t1, RVReg::t0, 2).unwrap();
         assert_eq!(
             core.gpr[RVReg::t1],
             core.pc.wrapping_add(4).as_usize() as Word
         );
         assert_eq!(
             core.npc,
-            VirtAddr::from(((TEST_BASE + 0x123 + 3) & !1) as usize)
+            VirtAddr::from(((TEST_BASE + 0x123 + 2) & !1) as usize)
         );
+    }
+
+    #[test]
+    #[cfg(isa32)]
+    fn rv64_only_base_instructions_are_rejected_on_rv32() {
+        let mut core = RVCore::new();
+        let r = (RVReg::t0, RVReg::t1, RVReg::t2);
+
+        for result in [
+            core.addw(r.0, r.1, r.2),
+            core.subw(r.0, r.1, r.2),
+            core.sllw(r.0, r.1, r.2),
+            core.srlw(r.0, r.1, r.2),
+            core.sraw(r.0, r.1, r.2),
+            core.addiw(r.0, r.1, 1),
+            core.slliw(r.0, r.1, 1),
+            core.srliw(r.0, r.1, 1),
+            core.sraiw(r.0, r.1, 1),
+        ] {
+            assert!(matches!(result, Err(crate::error::XError::InvalidInst)));
+        }
     }
 }

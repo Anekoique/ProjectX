@@ -23,3 +23,23 @@ pub fn word_to_shamt(value: Word) -> u32 {
     (value & SHAMT_MASK) as u32
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn word_to_u32_truncates() {
+        assert_eq!(word_to_u32(0), 0u32);
+        assert_eq!(word_to_u32(0xDEADBEEF as Word), 0xDEADBEEF_u32);
+        #[cfg(isa64)]
+        assert_eq!(word_to_u32(0x1234_5678_DEAD_BEEF_u64 as Word), 0xDEAD_BEEF);
+    }
+
+    #[test]
+    fn word_to_shamt_masks_shift_amount() {
+        let cases = [(0, 0), (3, 3), ((Word::BITS as Word) + 5, 5)];
+        for (input, expected) in cases {
+            assert_eq!(word_to_shamt(input), expected);
+        }
+    }
+}

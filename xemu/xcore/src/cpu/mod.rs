@@ -182,3 +182,102 @@ macro_rules! terminate {
     }};
 }
 
+#[cfg(test)]
+mod tests {
+    use memory_addr::MemoryAddr;
+
+    use super::*;
+
+    fn new_cpu() -> CPU<Core> {
+        let mut cpu = CPU::new(Core::new());
+        cpu.reset().unwrap();
+        cpu
+    }
+
+    #[test]
+    fn state_is_terminated() {
+        assert!(!State::RUNNING.is_terminated());
+        assert!(!State::STOP.is_terminated());
+        assert!(State::HALTED.is_terminated());
+        assert!(State::ABORT.is_terminated());
+    }
+
+    #[test]
+    fn cpu_reset_sets_pc_to_reset_vector() {
+        let mut cpu = new_cpu();
+        assert_eq!(cpu.core.pc, VirtAddr::from(RESET_VECTOR));
+        assert_eq!(cpu.state, State::STOP);
+
+        // Reset again to verify idempotency
+        cpu.state = State::RUNNING;
+        cpu.reset().unwrap();
+        assert_eq!(cpu.state, State::STOP);
+        assert_eq!(cpu.core.pc, VirtAddr::from(RESET_VECTOR));
+    }
+
+    #[test]
+    fn cpu_load_default_image() {
+        let mut cpu = new_cpu();
+        cpu.load(None).unwrap();
+        // After loading default IMG, memory at RESET_VECTOR should have the first
+        // instruction
+        let word = with_mem!(read(PhysAddr::from(RESET_VECTOR), 4)).unwrap();
+        assert_eq!(word as u32, crate::isa::IMG[0]);
+    }
+
+    #[test]
+    fn cpu_run_skips_if_terminated() {
+        let mut cpu = new_cpu();
+        cpu.state = State::HALTED;
+        // Should not error, just skip
+        cpu.run(100).unwrap();
+        assert_eq!(cpu.state, State::HALTED);
+    }
+
+    #[test]
+    fn cpu_set_terminated_captures_state() {
+        let mut cpu = new_cpu();
+        // halt_ret reads from a0, which is 0 after reset
+        cpu.set_terminated(State::HALTED);
+        assert_eq!(cpu.state, State::HALTED);
+        assert_eq!(cpu.halt_ret, 0);
+        assert_eq!(cpu.halt_pc, cpu.core.pc());
+    }
+
+    #[test]
+    fn cpu_is_exit_normal_only_when_halted_with_zero() {
+        let mut cpu = new_cpu();
+        cpu.state = State::HALTED;
+        cpu.halt_ret = 0;
+        assert!(cpu.is_exit_normal());
+
+        cpu.halt_ret = 1;
+        assert!(!cpu.is_exit_normal());
+
+        cpu.state = State::ABORT;
+        cpu.halt_ret = 0;
+        assert!(!cpu.is_exit_normal());
+    }
+
+    #[test]
+    fn cpu_step_advances_pc() {
+        let mut cpu = new_cpu();
+        cpu.load(None).unwrap();
+        cpu.state = State::RUNNING;
+
+        // The first IMG instruction is `auipc t0, 0` (0x00000297), a 32-bit inst
+        let pc_before = cpu.core.pc();
+        cpu.step().unwrap();
+        // PC should advance by 4
+        assert_eq!(cpu.core.pc(), pc_before.wrapping_add(4));
+    }
+
+    #[test]
+    fn cpu_run_executes_default_img_to_completion() {
+        let mut cpu = new_cpu();
+        cpu.load(None).unwrap();
+        // The default IMG ends with ebreak which returns ToTerminate
+        let result = cpu.run(100);
+        assert!(matches!(result, Err(XError::ToTerminate)));
+    }
+}

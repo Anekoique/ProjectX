@@ -122,6 +122,8 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(isa32)]
+    use crate::error::XError;
 
     #[test]
     fn mul_variants_produce_expected_results() {
@@ -138,6 +140,15 @@ mod tests {
         core.mulh(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
         let expected_h = (((lhs as i128) * (rhs as i128)) >> Word::BITS) as SWord as Word;
         assert_eq!(core.gpr[RVReg::t3], expected_h);
+
+        let lhs_su: SWord = -7;
+        let rhs_su: Word = 9;
+        core.gpr[RVReg::t0] = lhs_su as Word;
+        core.gpr[RVReg::t1] = rhs_su;
+        core.mulhsu(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        let expected_hsu =
+            (((lhs_su as i128) * (rhs_su as u128) as i128) >> Word::BITS) as SWord as Word;
+        assert_eq!(core.gpr[RVReg::t3], expected_hsu);
 
         let lhs_u: Word = Word::MAX;
         let rhs_u: Word = 0x12345;
@@ -187,5 +198,55 @@ mod tests {
         assert_eq!(core.gpr[RVReg::t2], Word::MAX);
         core.remu(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t3], core.gpr[RVReg::t0]);
+    }
+
+    #[test]
+    #[cfg(isa32)]
+    fn rv64_only_muldiv_variants_are_rejected_on_rv32() {
+        let mut core = RVCore::new();
+
+        for op in [
+            RVCore::mulw,
+            RVCore::divw,
+            RVCore::divuw,
+            RVCore::remw,
+            RVCore::remuw,
+        ] {
+            assert!(matches!(
+                op(&mut core, RVReg::t0, RVReg::t1, RVReg::t2),
+                Err(XError::InvalidInst)
+            ));
+        }
+    }
+
+    #[test]
+    #[cfg(isa64)]
+    fn rv64_word_muldiv_variants_sign_extend_results() {
+        let mut core = RVCore::new();
+
+        core.gpr[RVReg::t0] = 0xFFFF_FFFF;
+        core.gpr[RVReg::t1] = 2;
+        core.mulw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2] as SWord, -2);
+
+        core.gpr[RVReg::t0] = 0xFFFF_FFFF_8000_0000;
+        core.gpr[RVReg::t1] = 2;
+        core.divw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2] as SWord, -1073741824);
+
+        core.gpr[RVReg::t0] = 0xFFFF_FFFF;
+        core.gpr[RVReg::t1] = 2;
+        core.divuw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 0x7FFF_FFFF);
+
+        core.gpr[RVReg::t0] = 0xFFFF_FFFF_8000_0003;
+        core.gpr[RVReg::t1] = 2;
+        core.remw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2] as SWord, -1);
+
+        core.gpr[RVReg::t0] = 0x1_0000_0003;
+        core.gpr[RVReg::t1] = 2;
+        core.remuw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        assert_eq!(core.gpr[RVReg::t2], 1);
     }
 }

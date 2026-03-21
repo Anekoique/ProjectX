@@ -80,7 +80,6 @@ mod tests {
 
     use super::*;
 
-    // Helper function to get the memory base address.
     fn mbase() -> PhysAddr {
         pa!(crate::config::CONFIG_MBASE)
     }
@@ -90,16 +89,19 @@ mod tests {
     fn test_memory_read_write_common() {
         let base = mbase();
         let mut mem = Memory::new();
+        let cases = [(0usize, 1usize, 0xFF), (2, 2, 0xBEEF), (4, 4, 0xDEADBEEF)];
 
-        // Test 1, 2, and 4-byte reads/writes which are common to both isa32 and isa64.
-        assert!(mem.write(base, 1, 0xFF).is_ok());
-        assert_eq!(mem.read(base, 1).unwrap(), 0xFF);
-
-        assert!(mem.write(base + 2, 2, 0xBEEF).is_ok());
-        assert_eq!(mem.read(base + 2, 2).unwrap(), 0xBEEF);
-
-        assert!(mem.write(base + 4, 4, 0xDEADBEEF).is_ok());
-        assert_eq!(mem.read(base + 4, 4).unwrap(), 0xDEADBEEF);
+        for (offset, size, value) in cases {
+            assert!(
+                mem.write(base + offset, size, value).is_ok(),
+                "write failed for size {size}"
+            );
+            assert_eq!(
+                mem.read(base + offset, size).unwrap(),
+                value,
+                "readback mismatch for size {size}"
+            );
+        }
     }
 
     #[test]
@@ -108,29 +110,99 @@ mod tests {
         let base = mbase();
         let mut mem = Memory::new();
 
-        // Test 8-byte read/write specific to isa64.
         assert!(mem.write(base + 8, 8, 0xCAFEBABEDEADBEEF).is_ok());
         assert_eq!(mem.read(base + 8, 8).unwrap(), 0xCAFEBABEDEADBEEF);
     }
 
     #[test]
-    fn test_memory_bounds() {
+    fn test_memory_rejects_invalid_read_size_and_alignment() {
         let mem = Memory::new();
+        let base = mbase();
 
-        // Test reading from an out-of-bounds address.
-        let out_of_bounds = mbase() + crate::config::CONFIG_MSIZE;
+        for size in [3, 16] {
+            assert!(matches!(mem.read(base, size), Err(XError::AddrNotAligned)));
+        }
+
+        assert!(matches!(mem.read(base + 1, 2), Err(XError::AddrNotAligned)));
+        assert!(matches!(
+            mem.fetch_u32(base + 1, 4),
+            Err(XError::AddrNotAligned)
+        ));
+    }
+
+    #[test]
+    fn test_memory_rejects_out_of_bounds_accesses() {
+        let mut mem = Memory::new();
+        let base = mbase();
+        let out_of_bounds = base + crate::config::CONFIG_MSIZE;
+        let near_end = base + crate::config::CONFIG_MSIZE - 2;
+
         assert!(matches!(
             mem.read(out_of_bounds, 1),
             Err(XError::BadAddress)
         ));
+        assert!(matches!(
+            mem.write(near_end, 4, 0xAABBCCDD),
+            Err(XError::BadAddress)
+        ));
+        assert!(matches!(
+            mem.fetch_u32(near_end, 4),
+            Err(XError::BadAddress)
+        ));
+        assert!(matches!(
+            mem.load(near_end, &[1, 2, 3, 4]),
+            Err(XError::BadAddress)
+        ));
+    }
 
-        // Test reading where the access would go out of bounds.
-        let near_end = mbase() + crate::config::CONFIG_MSIZE - 4;
-        assert!(matches!(mem.read(near_end, 8), Err(XError::AddrNotAligned)));
+    #[test]
+    fn test_fetch_u32_relaxed_alignment() {
+        let mut mem = Memory::new();
+        let base = mbase();
 
-        // Test reading with an unsupported access size.
-        let addr = mbase();
-        assert!(matches!(mem.read(addr, 3), Err(XError::AddrNotAligned)));
-        assert!(matches!(mem.read(addr, 16), Err(XError::AddrNotAligned)));
+        // Write at 4-aligned address, fetch from 2-aligned offset
+        mem.write(base, 4, 0xDEADBEEF).unwrap();
+        // fetch_u32 from base (4-aligned) should work
+        assert_eq!(mem.fetch_u32(base, 4).unwrap() as u32, 0xDEADBEEF_u32);
+
+        // Write data and fetch from 2-byte-aligned but not 4-byte-aligned address
+        mem.write(base + 4, 4, 0xCAFEBABE).unwrap();
+        // fetch_u32 at base+2 should succeed (2-byte aligned)
+        let val = mem.fetch_u32(base + 2, 4).unwrap();
+        // Bytes at offset 2..6: [0xBE, 0xDE, 0xBE, 0xBA] (little-endian cross-word
+        // read)
+        assert_eq!(val as u32, 0xBABEDEAD_u32);
+    }
+
+    #[test]
+    fn test_load_bulk_data() {
+        let mut mem = Memory::new();
+        let base = mbase();
+        let data = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
+        mem.load(base, &data).unwrap();
+
+        assert_eq!(mem.read(base, 1).unwrap() as u8, 0x11);
+        assert_eq!(mem.read(base + 2, 2).unwrap() as u16, 0x4433);
+        assert_eq!(mem.read(base + 4, 4).unwrap() as u32, 0x88776655);
+    }
+
+    #[test]
+    fn test_load_out_of_bounds() {
+        let mut mem = Memory::new();
+        let addr = mbase() + crate::config::CONFIG_MSIZE - 2;
+        let data = [0u8; 4];
+        assert!(matches!(mem.load(addr, &data), Err(XError::BadAddress)));
+    }
+
+    #[test]
+    fn test_write_read_preserves_little_endian() {
+        let mut mem = Memory::new();
+        let base = mbase();
+        mem.write(base, 4, 0x04030201).unwrap();
+        // Read individual bytes to verify LE layout
+        assert_eq!(mem.read(base, 1).unwrap(), 0x01);
+        assert_eq!(mem.read(base + 1, 1).unwrap(), 0x02);
+        assert_eq!(mem.read(base + 2, 1).unwrap(), 0x03);
+        assert_eq!(mem.read(base + 3, 1).unwrap(), 0x04);
     }
 }
