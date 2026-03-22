@@ -1,3 +1,6 @@
+// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
+#![allow(clippy::needless_return)]
+
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use super::RVCore;

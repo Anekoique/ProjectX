@@ -1,3 +1,6 @@
+// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
+#![allow(clippy::needless_return)]
+
 use super::RVCore;
 #[cfg(isa32)]
 use crate::error::XError;

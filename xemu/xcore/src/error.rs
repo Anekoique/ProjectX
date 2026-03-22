@@ -15,8 +15,6 @@ pub enum XError {
     // IO errors
     FailedToRead,
     FailedToWrite,
-    // Control flow
-    ToTerminate,
     // Not yet implemented
     Unimplemented,
 }
@@ -36,7 +34,6 @@ impl XError {
             XError::InvalidReg => "invalid register",
             XError::FailedToRead => "failed to read",
             XError::FailedToWrite => "failed to write",
-            XError::ToTerminate => "to be terminated",
             XError::Unimplemented => "unimplemented",
         }
     }
@@ -73,7 +70,6 @@ mod tests {
             XError::InvalidReg,
             XError::FailedToRead,
             XError::FailedToWrite,
-            XError::ToTerminate,
             XError::Unimplemented,
         ];
         for v in &variants {

@@ -27,24 +27,14 @@ pub static XCPU: LazyLock<Mutex<CPU<Core>>> = LazyLock::new(|| Mutex::new(CPU::n
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum State {
-    RUNNING,
-    STOP,
-    ABORT,
+    IDLE,
     HALTED,
+    ABORT,
 }
 
 impl State {
     pub fn is_terminated(self) -> bool {
         matches!(self, State::HALTED | State::ABORT)
-    }
-
-    pub fn message(self) -> &'static str {
-        match self {
-            State::HALTED => "Halted",
-            State::ABORT => "Aborted",
-            State::RUNNING => "Running",
-            State::STOP => "Stopped",
-        }
     }
 }
 
@@ -62,15 +52,16 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
     pub fn new(core: Core) -> Self {
         Self {
             core,
-            state: State::STOP,
+            state: State::IDLE,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
         }
     }
 
     pub fn reset(&mut self) -> XResult {
-        self.state = State::STOP;
-        self.core.reset()
+        self.state = State::IDLE;
+        self.core.reset()?;
+        self.core.init_memory(PhysAddr::from_usize(RESET_VECTOR))
     }
 
     pub fn load(&mut self, file: Option<String>) -> XResult<&mut Self> {
@@ -93,10 +84,11 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
     }
 
     pub fn step(&mut self) -> XResult {
-        self.core
-            .fetch()
-            .and_then(|instr| self.core.decode(instr))
-            .and_then(|decoded| self.core.execute(decoded))
+        self.core.step()?;
+        if self.core.halted() {
+            self.set_terminated(State::HALTED).log_termination();
+        }
+        Ok(())
     }
 
     pub fn run(&mut self, count: u64) -> XResult {
@@ -105,18 +97,16 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
             return Ok(());
         }
 
-        self.state = State::RUNNING;
         for _ in 0..count {
             self.step()?;
+            if self.state.is_terminated() {
+                break;
+            }
         }
         Ok(())
     }
 
-    pub fn terminate(&mut self, state: State, error_msg: &str) {
-        self.set_terminated(state).log_termination(error_msg);
-    }
-
-    pub fn set_terminated(&mut self, state: State) -> &Self {
+    pub fn set_terminated(&mut self, state: State) -> &mut Self {
         self.state = state;
         self.halt_pc = self.core.pc();
         self.halt_ret = self.core.halt_ret();
@@ -127,24 +117,24 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
         self.state == State::HALTED && self.halt_ret == 0
     }
 
-    pub fn log_termination(&self, error_msg: &str) {
-        let (color, msg) = if self.is_exit_normal() {
-            (
-                ColorCode::Green,
-                format!("Program terminated with exit code {}", self.halt_ret),
-            )
-        } else {
-            (
-                ColorCode::Red,
-                format!(
-                    "Program {} with error: {} (exit code: {})",
-                    self.state.message(),
-                    error_msg,
+    pub fn log_termination(&self) {
+        match self.state {
+            State::ABORT => {
+                xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc);
+            }
+            State::HALTED if self.halt_ret == 0 => {
+                xprintln!(ColorCode::Green, "HIT GOOD TRAP at pc={:#x}", self.halt_pc);
+            }
+            State::HALTED => {
+                xprintln!(
+                    ColorCode::Red,
+                    "HIT BAD TRAP at pc={:#x} (exit code: {})",
+                    self.halt_pc,
                     self.halt_ret
-                ),
-            )
-        };
-        xprintln!(color, "{}", msg);
+                );
+            }
+            State::IDLE => {}
+        }
     }
 }
 
@@ -163,21 +153,9 @@ macro_rules! with_xcpu {
 #[macro_export]
 macro_rules! terminate {
     ($e:expr) => {{
-        $crate::with_xcpu(|cpu| match &$e {
-            $crate::XError::ToTerminate => {
-                cpu.set_terminated($crate::State::HALTED)
-                    .log_termination("No error message provided");
-            }
-            err => {
-                cpu.set_terminated($crate::State::ABORT)
-                    .log_termination(&err.to_string());
-            }
-        });
-    }};
-    () => {{
+        error!("{}", $e);
         $crate::with_xcpu(|cpu| {
-            cpu.set_terminated($crate::State::HALTED)
-                .log_termination("No error message provided");
+            cpu.set_terminated($crate::State::ABORT).log_termination();
         });
     }};
 }
@@ -196,8 +174,7 @@ mod tests {
 
     #[test]
     fn state_is_terminated() {
-        assert!(!State::RUNNING.is_terminated());
-        assert!(!State::STOP.is_terminated());
+        assert!(!State::IDLE.is_terminated());
         assert!(State::HALTED.is_terminated());
         assert!(State::ABORT.is_terminated());
     }
@@ -206,12 +183,12 @@ mod tests {
     fn cpu_reset_sets_pc_to_reset_vector() {
         let mut cpu = new_cpu();
         assert_eq!(cpu.core.pc, VirtAddr::from(RESET_VECTOR));
-        assert_eq!(cpu.state, State::STOP);
+        assert_eq!(cpu.state, State::IDLE);
 
         // Reset again to verify idempotency
-        cpu.state = State::RUNNING;
+        cpu.state = State::HALTED;
         cpu.reset().unwrap();
-        assert_eq!(cpu.state, State::STOP);
+        assert_eq!(cpu.state, State::IDLE);
         assert_eq!(cpu.core.pc, VirtAddr::from(RESET_VECTOR));
     }
 
@@ -263,8 +240,6 @@ mod tests {
     fn cpu_step_advances_pc() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        cpu.state = State::RUNNING;
-
         // The first IMG instruction is `auipc t0, 0` (0x00000297), a 32-bit inst
         let pc_before = cpu.core.pc();
         cpu.step().unwrap();
@@ -276,8 +251,8 @@ mod tests {
     fn cpu_run_executes_default_img_to_completion() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        // The default IMG ends with ebreak which returns ToTerminate
-        let result = cpu.run(100);
-        assert!(matches!(result, Err(XError::ToTerminate)));
+        // The default IMG ends with ebreak which halts the core
+        cpu.run(100).unwrap();
+        assert_eq!(cpu.state, State::HALTED);
     }
 }

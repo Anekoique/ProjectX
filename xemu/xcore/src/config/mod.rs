@@ -14,11 +14,13 @@ pub type SWord = i32;
 pub const SHAMT_MASK: Word = (Word::BITS as Word) - 1;
 
 #[inline(always)]
+#[allow(clippy::unnecessary_cast)]
 pub fn word_to_u32(value: Word) -> u32 {
     value as u32
 }
 
 #[inline(always)]
+#[allow(clippy::unnecessary_cast)]
 pub fn word_to_shamt(value: Word) -> u32 {
     (value & SHAMT_MASK) as u32
 }

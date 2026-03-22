@@ -32,7 +32,9 @@ impl Memory {
     }
 
     fn access(&self, addr: PhysAddr, size: usize) -> XResult<usize> {
-        let offset = addr.as_usize() - CONFIG_MBASE;
+        let addr = addr.as_usize();
+        ensure!(addr >= CONFIG_MBASE, Err(XError::BadAddress));
+        let offset = addr - CONFIG_MBASE;
         ensure!(offset + size <= CONFIG_MSIZE, Err(XError::BadAddress));
         Ok(offset)
     }
@@ -60,6 +62,10 @@ impl Memory {
     }
 
     pub fn write(&mut self, addr: PhysAddr, size: usize, value: Word) -> XResult {
+        ensure!(
+            [1, 2, 4, 8].contains(&size) && addr.is_aligned(size),
+            Err(XError::AddrNotAligned)
+        );
         self.access(addr, size).map(|offset| {
             let bytes = value.to_le_bytes();
             self.data[offset..offset + size].copy_from_slice(&bytes[..size]);
@@ -131,26 +137,48 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_rejects_invalid_write_size_and_alignment() {
+        let mut mem = Memory::new();
+        let base = mbase();
+
+        for size in [3, 16] {
+            assert!(matches!(
+                mem.write(base, size, 0),
+                Err(XError::AddrNotAligned)
+            ));
+        }
+
+        assert!(matches!(
+            mem.write(base + 1, 2, 0xBEEF),
+            Err(XError::AddrNotAligned)
+        ));
+    }
+
+    #[test]
     fn test_memory_rejects_out_of_bounds_accesses() {
         let mut mem = Memory::new();
         let base = mbase();
-        let out_of_bounds = base + crate::config::CONFIG_MSIZE;
-        let near_end = base + crate::config::CONFIG_MSIZE - 2;
+        let msize = crate::config::CONFIG_MSIZE;
+        let out_of_bounds = base + msize;
+        // 4-byte aligned but straddles the end (offset + 4 > MSIZE)
+        let near_end_aligned = base + msize - 4 + 4; // == out_of_bounds
+        // 2-byte aligned for fetch_u32 (offset + 4 > MSIZE)
+        let near_end_half = base + msize - 2;
 
         assert!(matches!(
             mem.read(out_of_bounds, 1),
             Err(XError::BadAddress)
         ));
         assert!(matches!(
-            mem.write(near_end, 4, 0xAABBCCDD),
+            mem.write(near_end_aligned, 4, 0xAABBCCDD),
             Err(XError::BadAddress)
         ));
         assert!(matches!(
-            mem.fetch_u32(near_end, 4),
+            mem.fetch_u32(near_end_half, 4),
             Err(XError::BadAddress)
         ));
         assert!(matches!(
-            mem.load(near_end, &[1, 2, 3, 4]),
+            mem.load(near_end_half, &[1, 2, 3, 4]),
             Err(XError::BadAddress)
         ));
     }

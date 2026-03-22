@@ -1,8 +1,12 @@
+// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
+#![allow(clippy::needless_return)]
+
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use super::RVCore;
 use crate::{
     config::{SWord, Word},
+    cpu::riscv::trap::{Exception, TrapCause},
     error::{XError, XResult},
     isa::RVReg,
     utils::{bit_u32, sext_word},
@@ -312,7 +316,11 @@ impl RVCore {
     }
 
     pub(super) fn c_ebreak(&mut self, _inst: u32) -> XResult {
-        Err(XError::ToTerminate)
+        self.raise_trap(
+            TrapCause::Exception(Exception::Breakpoint),
+            self.pc.as_usize() as Word,
+        );
+        Ok(())
     }
 
     pub(super) fn c_jalr(&mut self, inst: u32) -> XResult {
@@ -540,9 +548,11 @@ mod tests {
     }
 
     #[test]
-    fn c_ebreak_returns_terminate() {
+    fn c_ebreak_sets_breakpoint_trap() {
         let mut core = setup_core();
-        assert!(matches!(core.c_ebreak(0), Err(XError::ToTerminate)));
+        assert!(core.c_ebreak(0).is_ok());
+        let trap = core.pending_trap.unwrap();
+        assert_eq!(trap.cause, TrapCause::Exception(Exception::Breakpoint));
     }
 
     #[test]
