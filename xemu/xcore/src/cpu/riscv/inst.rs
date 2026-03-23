@@ -1,3 +1,4 @@
+mod atomic;
 mod base;
 mod compressed;
 mod mul;

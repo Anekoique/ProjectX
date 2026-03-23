@@ -2,7 +2,7 @@
 macro_rules! rv_inst_table {
     ($macro:ident) => {
         $macro! {
-            (R, (rd, rs1, rs2), [add, addw, sub, subw, sll, sllw, slt, sltu, xor, srl, srlw, sra, sraw, or, and, mul, mulw, mulh, mulhsu, mulhu, div, divw, divu, divuw, rem, remw, remu, remuw, mret, sret]),
+            (R, (rd, rs1, rs2), [add, addw, sub, subw, sll, sllw, slt, sltu, xor, srl, srlw, sra, sraw, or, and, mul, mulw, mulh, mulhsu, mulhu, div, divw, divu, divuw, rem, remw, remu, remuw, mret, sret, lr_w, sc_w, amoswap_w, amoadd_w, amoxor_w, amoand_w, amoor_w, amomin_w, amomax_w, amominu_w, amomaxu_w, lr_d, sc_d, amoswap_d, amoadd_d, amoxor_d, amoand_d, amoor_d, amomin_d, amomax_d, amominu_d, amomaxu_d]),
             (I, (rd, rs1, imm), [addi, addiw, slli, slliw, slti, sltiu, xori, srli, srliw, srai, sraiw, ori, andi, lb, lh, lw, ld, lbu, lhu, lwu, jalr, csrrw, csrrs, csrrc, csrrwi, csrrsi, csrrci, ebreak, ecall]),
             (S, (rs1, rs2, imm), [sb, sh, sw, sd]),
             (B, (rs1, rs2, imm), [beq, bne, blt, bge, bltu, bgeu]),

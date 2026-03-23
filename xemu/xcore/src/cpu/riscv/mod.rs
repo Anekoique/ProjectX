@@ -25,6 +25,7 @@ pub struct RVCore {
     pub(crate) csr: CsrFile,
     pub(crate) privilege: PrivilegeMode,
     pub(crate) pending_trap: Option<PendingTrap>,
+    pub(crate) reservation: Option<usize>,
     halted: bool,
 }
 
@@ -37,6 +38,7 @@ impl RVCore {
             csr: CsrFile::new(),
             privilege: PrivilegeMode::Machine,
             pending_trap: None,
+            reservation: None,
             halted: false,
         }
     }
@@ -96,6 +98,7 @@ impl CoreOps for RVCore {
         self.csr = CsrFile::new();
         self.privilege = PrivilegeMode::Machine;
         self.pending_trap = None;
+        self.reservation = None;
         self.halted = false;
         Ok(())
     }

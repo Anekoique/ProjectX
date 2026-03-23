@@ -90,6 +90,8 @@ impl RVCore {
             (1 as Word).wrapping_shl(size as u32 * 8) - 1
         };
         with_mem!(write(self.virt_to_phys(addr), size, self.gpr[rs2] & mask))?;
+        // Any store invalidates a pending LR/SC reservation (RISC-V spec §8.2).
+        self.reservation = None;
         Ok(())
     }
 

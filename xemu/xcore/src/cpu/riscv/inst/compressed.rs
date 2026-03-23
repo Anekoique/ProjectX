@@ -278,6 +278,9 @@ impl RVCore {
 
     pub(super) fn c_lwsp(&mut self, inst: u32) -> XResult {
         let rd = reg(inst, 11, 7)?;
+        if rd == RVReg::zero {
+            return Err(XError::InvalidInst);
+        }
         let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 4) << 2) | (bits(inst, 3, 2) << 6);
         self.load_with(rd, RVReg::sp, imm as SWord, 4, |value| sext_word(value, 32))
     }
@@ -291,6 +294,9 @@ impl RVCore {
         #[cfg(isa64)]
         {
             let rd = reg(inst, 11, 7)?;
+            if rd == RVReg::zero {
+                return Err(XError::InvalidInst);
+            }
             let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 5) << 3) | (bits(inst, 4, 2) << 6);
             self.load_with(rd, RVReg::sp, imm as SWord, 8, |value| value)
         }
@@ -646,6 +652,23 @@ mod tests {
         let inst: u32 = 0b100_0_10_000_01111_01;
         core.c_andi(inst).unwrap();
         assert_eq!(core.gpr[RVReg::s0], 0x0F);
+    }
+
+    #[test]
+    fn c_lwsp_rejects_rd_zero() {
+        let mut core = setup_core();
+        // c.lwsp x0, 0: 010_0_00000_00000_10
+        let inst: u32 = 0b010_0_00000_000_00_10;
+        assert!(matches!(core.c_lwsp(inst), Err(XError::InvalidInst)));
+    }
+
+    #[test]
+    #[cfg(isa64)]
+    fn c_ldsp_rejects_rd_zero() {
+        let mut core = setup_core();
+        // c.ldsp x0, 0: 011_0_00000_00000_10
+        let inst: u32 = 0b011_0_00000_000_00_10;
+        assert!(matches!(core.c_ldsp(inst), Err(XError::InvalidInst)));
     }
 
     #[test]

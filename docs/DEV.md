@@ -76,7 +76,7 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 - [x] Batch mode execution
 - [x] 31 cpu-tests-rs passing
 - [ ] **C cpu-tests support** — implement `klib` (bare-metal printf/string) or adapt alu-test generator
-- [ ] **A extension** — LR/SC, AMO instructions (needed for multi-threaded workloads)
+- [x] **A extension** — LR/SC, AMO instructions (needed for multi-threaded workloads)
 
 ### Phase 2: System Infrastructure
 
