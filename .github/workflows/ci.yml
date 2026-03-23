@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feat/cicd]
+  pull_request:
+    branches: [main]
+
+env:
+  AM_HOME: ${{ github.workspace }}/xam
+  XEMU_HOME: ${{ github.workspace }}/xemu
+  CARGO_TERM_COLOR: always
+  CROSS_COMPILE: riscv64-unknown-linux-musl-
+
+jobs:
+  # ── Stage 1: Fast checks (no build deps) ──────────────────────────
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - name: Rust fmt (xemu)
+        working-directory: xemu
+        run: cargo fmt --all --check
+
+      - name: Rust fmt (xam)
+        working-directory: xam
+        run: cargo fmt --all --check
+
+      - name: C fmt (xlib)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq clang-format
+          find xlib/src xlib/include -name '*.c' -o -name '*.h' \
+            | xargs clang-format --dry-run --Werror
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            xemu/target
+            xam/target
+          key: clippy-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: clippy-${{ runner.os }}-
+
+      - name: Clippy (xemu)
+        working-directory: xemu
+        run: cargo clippy -- -D warnings
+
+      - name: Clippy (xam)
+        working-directory: xam
+        run: cargo clippy --target riscv64gc-unknown-none-elf -- -D warnings
+
+  # ── Stage 2: Tests ─────────────────────────────────────────────────
+
+  test-unit:
+    name: Unit Tests
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            xemu/target
+          key: test-unit-${{ runner.os }}-${{ hashFiles('xemu/Cargo.lock') }}
+          restore-keys: test-unit-${{ runner.os }}-
+
+      - name: cargo test -p xcore
+        working-directory: xemu
+        run: cargo test -p xcore
+
+  test-cpu-rs:
+    name: CPU Tests (Rust)
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - name: Install riscv64 musl cross toolchain
+        run: |
+          curl -fsSL -o /tmp/musl-cross.tar.xz \
+            "https://github.com/cross-tools/musl-cross/releases/download/20250929/riscv64-unknown-linux-musl.tar.xz"
+          tar xf /tmp/musl-cross.tar.xz -C /opt
+          echo "/opt/riscv64-unknown-linux-musl/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            xemu/target
+            xam/target
+          key: test-cpu-rs-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: test-cpu-rs-${{ runner.os }}-
+
+      - name: Install axconfig-gen
+        run: command -v axconfig-gen || cargo install axconfig-gen
+
+      - name: Build xemu
+        working-directory: xemu
+        run: cargo build
+
+      - name: Run cpu-tests-rs
+        working-directory: xkernels/tests/cpu-tests-rs
+        run: make run LOG=off
+
+  test-cpu-c:
+    name: CPU Tests (C)
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - name: Install riscv64 musl cross toolchain
+        run: |
+          curl -fsSL -o /tmp/musl-cross.tar.xz \
+            "https://github.com/cross-tools/musl-cross/releases/download/20250929/riscv64-unknown-linux-musl.tar.xz"
+          tar xf /tmp/musl-cross.tar.xz -C /opt
+          echo "/opt/riscv64-unknown-linux-musl/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            xemu/target
+            xam/target
+            xlib/build
+          key: test-cpu-c-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'xlib/src/**', 'xlib/include/**') }}
+          restore-keys: test-cpu-c-${{ runner.os }}-
+
+      - name: Install axconfig-gen
+        run: command -v axconfig-gen || cargo install axconfig-gen
+
+      - name: Build xemu
+        working-directory: xemu
+        run: cargo build
+
+      - name: Run cpu-tests
+        working-directory: xkernels/tests/cpu-tests
+        run: make run LOG=off
