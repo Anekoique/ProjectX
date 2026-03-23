@@ -1,7 +1,10 @@
-OBJS            = $(addprefix $(OUT_DIR)/, $(addsuffix .o, $(KERNEL_NAME)))
-LINKAGE        += $(OBJS) $(LIBXHAL)
+XLIB_HOME      ?= $(abspath $(AM_HOME)/../xlib)
+LIBXLIB        := $(XLIB_HOME)/build/$(ARCH)-$(PLATFORM)-$(MODE)/libxlib.a
 
-INC_PATH       += $(WORK_DIR)/include $(KERNEL_DIR)/../include
+OBJS            = $(addprefix $(OUT_DIR)/, $(addsuffix .o, $(KERNEL_NAME)))
+LINKAGE        += $(OBJS) $(LIBXLIB) $(LIBXHAL)
+
+INC_PATH       += $(XLIB_HOME)/include $(WORK_DIR)/include $(KERNEL_DIR)/../include
 INCFLAGS       += $(addprefix -I, $(INC_PATH))
 
 CFLAGS         += -Wall -Werror 
@@ -35,3 +38,6 @@ $(OUT_DIR)/%.o: %.cc
 $(OUT_DIR)/%.o: %.S
 	@mkdir -p $(dir $@)
 	@$(AS) $(ASFLAGS) -c -o $@ $(realpath $<)
+
+$(LIBXLIB):
+	@$(MAKE) -C $(XLIB_HOME) ARCH=$(ARCH) PLATFORM=$(PLATFORM) MODE=$(MODE)

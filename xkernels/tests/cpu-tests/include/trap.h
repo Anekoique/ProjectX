@@ -1,7 +1,7 @@
 #ifndef __TRAP_H__
 #define __TRAP_H__
 
-#include <stdbool.h>
+#include <klib.h>
 
 void halt(int code);
 

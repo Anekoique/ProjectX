@@ -1,0 +1,63 @@
+Language: Cpp
+BasedOnStyle: LLVM
+
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# Braces: K&R (Attach)
+BreakBeforeBraces: Attach
+
+# Pointer/reference alignment: char *p
+PointerAlignment: Right
+ReferenceAlignment: Right
+SpaceAroundPointerQualifiers: Default
+
+# Switch/case: case labels not indented
+IndentCaseLabels: false
+IndentCaseBlocks: false
+
+# Short forms
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+
+# Spaces
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: false
+SpaceBeforeAssignmentOperators: true
+SpaceBeforeSquareBrackets: false
+SpacesInParens: Never
+SpacesInSquareBrackets: false
+
+# Alignment
+AlignAfterOpenBracket: Align
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: true
+AlignEscapedNewlines: Left
+AlignOperands: true
+AlignTrailingComments: true
+
+# Includes
+SortIncludes: CaseInsensitive
+IncludeBlocks: Preserve
+
+# Binary operators
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: true
+
+# Packing
+BinPackArguments: true
+BinPackParameters: true
+
+# Penalties (prefer breaking after return type over mid-expression)
+PenaltyBreakBeforeFirstCallParameter: 19
+PenaltyReturnTypeOnItsOwnLine: 60
+PenaltyExcessCharacter: 1000000
