@@ -39,6 +39,30 @@ impl RVCore {
         self.do_sret();
         Ok(())
     }
+
+    pub(super) fn sfence_vma(&mut self, _rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+        if self.privilege == PrivilegeMode::User {
+            return self.illegal_inst();
+        }
+        if self.privilege == PrivilegeMode::Supervisor {
+            let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
+            if ms.contains(MStatus::TVM) {
+                return self.illegal_inst();
+            }
+        }
+        let vpn = if rs1 != RVReg::zero {
+            Some((self.gpr[rs1] as usize) >> 12)
+        } else {
+            None
+        };
+        let asid = if rs2 != RVReg::zero {
+            Some(self.gpr[rs2] as u16)
+        } else {
+            None
+        };
+        self.mmu.tlb.flush(vpn, asid);
+        Ok(())
+    }
 }
 
 #[cfg(test)]

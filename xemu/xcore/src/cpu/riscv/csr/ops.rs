@@ -28,16 +28,24 @@ impl RVCore {
     }
 
     fn csr_write_side_effects(&mut self, addr: u16) {
-        const SATP: u16 = CsrAddr::satp as u16;
-        const MSTATUS: u16 = CsrAddr::mstatus as u16;
-        const SSTATUS: u16 = CsrAddr::sstatus as u16;
-
         match addr {
-            SATP => self.mmu.update_satp(self.csr.get(CsrAddr::satp)),
-            MSTATUS | SSTATUS => {
+            0x180 /* satp */ => {
+                self.mmu.update_satp(self.csr.get(CsrAddr::satp));
+            }
+            0x300 /* mstatus */ | 0x100 /* sstatus */ => {
                 let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
-                self.mmu
-                    .update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
+                self.mmu.update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
+            }
+            0x3A0..=0x3A3 /* pmpcfg0..3 */ => {
+                let val = self.csr.get_by_addr(addr);
+                let base = (addr - 0x3A0) as usize * std::mem::size_of::<Word>();
+                for i in 0..std::mem::size_of::<Word>() {
+                    self.pmp.update_cfg(base + i, (val >> (i * 8)) as u8);
+                }
+            }
+            0x3B0..=0x3BF /* pmpaddr0..15 */ => {
+                let idx = (addr - 0x3B0) as usize;
+                self.pmp.update_addr(idx, self.csr.get_by_addr(addr) as usize);
             }
             _ => {}
         }

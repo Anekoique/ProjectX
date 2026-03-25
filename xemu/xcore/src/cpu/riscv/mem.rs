@@ -21,7 +21,7 @@ impl RVCore {
     }
 
     /// Full access path: vaddr → MMU translate → PMP check → paddr.
-    fn translate(&mut self, vaddr: VirtAddr, op: MemOp) -> XResult<usize> {
+    pub(super) fn translate(&mut self, vaddr: VirtAddr, op: MemOp) -> XResult<usize> {
         let bus = self.bus.lock().expect("bus lock poisoned");
         let priv_mode = match op {
             MemOp::Fetch => self.privilege,
@@ -125,11 +125,6 @@ impl RVCore {
             .unwrap()
             .write(paddr, size, value)
             .map_err(|e| Self::map_mem_err(e, addr, MemOp::Amo))
-    }
-
-    /// Identity virt→phys for LR/SC reservation tracking.
-    pub(super) fn virt_to_phys(&self, vaddr: VirtAddr) -> usize {
-        vaddr.as_usize()
     }
 }
 

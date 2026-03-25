@@ -103,29 +103,30 @@ impl Pte {
 }
 
 // ---------------------------------------------------------------------------
-// TlbEntry + Tlb (stub — Step 4 implements full TLB)
+// TlbEntry + Tlb
 // ---------------------------------------------------------------------------
 
+const TLB_SIZE: usize = 64;
+
 #[derive(Clone, Copy, Default)]
-pub(super) struct TlbEntry {
+struct TlbEntry {
+    vpn: usize,
     ppn: usize,
+    asid: u16,
+    perm: u8, // R=0, W=1, X=2, U=3, G=4
     level: u8,
-    // Fields for Step 4:
-    _vpn: usize,
-    _asid: u16,
-    _perm: u8,
-    _valid: bool,
+    valid: bool,
 }
 
 impl TlbEntry {
     fn from_pte(pte: Pte, vaddr: VirtAddr, level: usize, sv: &SvMode, asid: u16) -> Self {
         Self {
+            vpn: vaddr.as_usize() >> PAGE_SHIFT,
             ppn: pte.ppn(sv),
+            asid,
+            perm: pte.perm_bits(),
             level: level as u8,
-            _vpn: vaddr.as_usize() >> PAGE_SHIFT,
-            _asid: asid,
-            _perm: pte.perm_bits(),
-            _valid: true,
+            valid: true,
         }
     }
 
@@ -137,15 +138,87 @@ impl TlbEntry {
             self.ppn << PAGE_SHIFT | (vaddr.as_usize() & (PAGE_SIZE - 1))
         }
     }
+
+    fn check_perm(&self, op: MemOp, priv_mode: PrivilegeMode, sum: bool, mxr: bool) -> bool {
+        let (r, w, x, u) = (
+            self.perm & 1 != 0,
+            self.perm & 2 != 0,
+            self.perm & 4 != 0,
+            self.perm & 8 != 0,
+        );
+        let perm_ok = match op {
+            MemOp::Fetch => x,
+            MemOp::Load => r || (mxr && x),
+            _ => w,
+        };
+        let priv_ok = if u {
+            priv_mode == PrivilegeMode::User || (priv_mode == PrivilegeMode::Supervisor && sum)
+        } else {
+            priv_mode != PrivilegeMode::User
+        };
+        perm_ok && priv_ok
+    }
 }
 
-pub(super) struct Tlb;
+pub(super) struct Tlb {
+    entries: [TlbEntry; TLB_SIZE],
+}
 
 impl Tlb {
     pub fn new() -> Self {
-        Self
+        Self {
+            entries: [TlbEntry::default(); TLB_SIZE],
+        }
     }
-    pub fn flush(&mut self, _vpn: Option<usize>, _asid: Option<u16>) {}
+
+    fn index(vpn: usize) -> usize {
+        vpn & (TLB_SIZE - 1)
+    }
+
+    fn lookup(
+        &self,
+        vpn: usize,
+        asid: u16,
+        op: MemOp,
+        priv_mode: PrivilegeMode,
+        sum: bool,
+        mxr: bool,
+    ) -> Option<&TlbEntry> {
+        let entry = &self.entries[Self::index(vpn)];
+        let is_global = entry.perm & 16 != 0;
+        if entry.valid
+            && entry.vpn == vpn
+            && (entry.asid == asid || is_global)
+            && entry.check_perm(op, priv_mode, sum, mxr)
+        {
+            Some(entry)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, entry: TlbEntry) {
+        self.entries[Self::index(entry.vpn)] = entry;
+    }
+
+    /// Flush per sfence.vma semantics.
+    pub fn flush(&mut self, vpn: Option<usize>, asid: Option<u16>) {
+        for entry in &mut self.entries {
+            if !entry.valid {
+                continue;
+            }
+            let is_global = entry.perm & 16 != 0;
+            let should_flush = match (vpn, asid) {
+                (None, None) => true,
+                (Some(v), None) => entry.vpn == v,
+                (None, Some(a)) => entry.asid == a && !is_global,
+                (Some(v), Some(a)) => entry.vpn == v && entry.asid == a && !is_global,
+            };
+            if should_flush {
+                entry.valid = false;
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -200,8 +273,20 @@ impl Mmu {
             return Ok(vaddr.as_usize());
         }
 
+        // TLB lookup
+        let vpn = vaddr.as_usize() >> PAGE_SHIFT;
+        if let Some(entry) = self
+            .tlb
+            .lookup(vpn, self.asid, op, priv_mode, self.sum, self.mxr)
+        {
+            return Ok(entry.translate(vaddr, sv));
+        }
+
+        // TLB miss → page walk
         let entry = self.page_walk(vaddr, op, priv_mode, sv, pmp, bus)?;
-        Ok(entry.translate(vaddr, sv))
+        let paddr = entry.translate(vaddr, sv);
+        self.tlb.insert(entry);
+        Ok(paddr)
     }
 
     fn page_walk(
@@ -221,9 +306,7 @@ impl Mmu {
 
         for level in (0..sv.levels).rev() {
             let pte_addr = base + vpn_index(vaddr, level, sv) * sv.pte_size;
-
             pmp.check(pte_addr, MemOp::Load, PrivilegeMode::Supervisor)?;
-
             let pte = bus
                 .read_ram(pte_addr, sv.pte_size)
                 .map(|w| Pte(w as usize))?;
@@ -231,23 +314,19 @@ impl Mmu {
             if !pte.is_valid() || pte.is_reserved() {
                 return Err(XError::PageFault);
             }
-
             if pte.is_leaf() {
                 if !pte.superpage_aligned(level, sv) || !self.check_perm(pte, op, priv_mode) {
                     return Err(XError::PageFault);
                 }
                 return Ok(TlbEntry::from_pte(pte, vaddr, level, sv, self.asid));
             }
-
             base = pte.ppn(sv) * PAGE_SIZE;
         }
-
         Err(XError::PageFault)
     }
 
     fn check_perm(&self, pte: Pte, op: MemOp, priv_mode: PrivilegeMode) -> bool {
         let f = pte.flags();
-
         let perm_ok = match op {
             MemOp::Fetch => f.contains(PteFlags::X),
             MemOp::Load => f.contains(PteFlags::R) || (self.mxr && f.contains(PteFlags::X)),
@@ -260,13 +339,12 @@ impl Mmu {
         };
         let ad_ok = f.contains(PteFlags::A)
             && (!matches!(op, MemOp::Store | MemOp::Amo) || f.contains(PteFlags::D));
-
         perm_ok && priv_ok && ad_ok
     }
 }
 
 // ---------------------------------------------------------------------------
-// satp field extraction
+// Helpers
 // ---------------------------------------------------------------------------
 
 fn satp_to_sv(satp: Word) -> Option<&'static SvMode> {
@@ -342,7 +420,6 @@ mod tests {
         pmp
     }
 
-    /// PTE helpers for readable test setup.
     fn ptr_pte(child_base: usize) -> usize {
         ((child_base >> PAGE_SHIFT) << 10) | 0x01
     }
@@ -354,7 +431,6 @@ mod tests {
     const PTE_VRAD: usize = 0xC3; // V|R|A|D (read-only)
     const PTE_VRWX: usize = 0x0F; // V|R|W|X (no A/D — Svade fault)
 
-    /// Set up a full page table mapping vaddr 0x0 → target paddr.
     fn setup_page_table(bus: &mut MutexGuard<'_, Bus>, mmu: &mut Mmu, leaf_flags: usize) -> usize {
         let pt_base = CONFIG_MBASE + 0x1000;
         let target_paddr = CONFIG_MBASE + 0x2000;
@@ -386,14 +462,17 @@ mod tests {
         let pmp = Pmp::new();
         let bus = test_bus();
         let lock = bus.lock().unwrap();
-        let r = mmu.translate(
-            VirtAddr::from(0x8000_1234_usize),
-            MemOp::Load,
-            PrivilegeMode::Machine,
-            &pmp,
-            &lock,
+        assert_eq!(
+            mmu.translate(
+                VirtAddr::from(0x8000_1234_usize),
+                MemOp::Load,
+                PrivilegeMode::Machine,
+                &pmp,
+                &lock
+            )
+            .unwrap(),
+            0x8000_1234,
         );
-        assert_eq!(r.unwrap(), 0x8000_1234);
     }
 
     #[test]
@@ -406,14 +485,17 @@ mod tests {
         let pmp = Pmp::new();
         let bus = test_bus();
         let lock = bus.lock().unwrap();
-        let r = mmu.translate(
-            VirtAddr::from(CONFIG_MBASE),
-            MemOp::Fetch,
-            PrivilegeMode::Machine,
-            &pmp,
-            &lock,
+        assert_eq!(
+            mmu.translate(
+                VirtAddr::from(CONFIG_MBASE),
+                MemOp::Fetch,
+                PrivilegeMode::Machine,
+                &pmp,
+                &lock
+            )
+            .unwrap(),
+            CONFIG_MBASE,
         );
-        assert_eq!(r.unwrap(), CONFIG_MBASE);
     }
 
     #[test]
@@ -443,14 +525,16 @@ mod tests {
         mmu.update_satp((8u64 << 60) | (CONFIG_MBASE >> PAGE_SHIFT) as u64);
         #[cfg(isa32)]
         mmu.update_satp(((1u32 << 31) | (CONFIG_MBASE >> PAGE_SHIFT) as u32) as Word);
-        let r = mmu.translate(
-            VirtAddr::from(0x0_usize),
-            MemOp::Load,
-            PrivilegeMode::Supervisor,
-            &pmp,
-            &lock,
-        );
-        assert!(matches!(r, Err(XError::PageFault)));
+        assert!(matches!(
+            mmu.translate(
+                VirtAddr::from(0x0_usize),
+                MemOp::Load,
+                PrivilegeMode::Supervisor,
+                &pmp,
+                &lock
+            ),
+            Err(XError::PageFault)
+        ));
     }
 
     #[test]
@@ -460,7 +544,6 @@ mod tests {
         let mut mmu = Mmu::new();
         let pmp = allow_all_pmp();
         setup_page_table(&mut lock, &mut mmu, PTE_VRAD);
-
         assert!(
             mmu.translate(
                 VirtAddr::from(0x0_usize),
@@ -490,13 +573,92 @@ mod tests {
         let mut mmu = Mmu::new();
         let pmp = allow_all_pmp();
         setup_page_table(&mut lock, &mut mmu, PTE_VRWX);
-        let r = mmu.translate(
+        assert!(matches!(
+            mmu.translate(
+                VirtAddr::from(0x0_usize),
+                MemOp::Load,
+                PrivilegeMode::Supervisor,
+                &pmp,
+                &lock
+            ),
+            Err(XError::PageFault)
+        ));
+    }
+
+    fn zap_root_pte(bus: &mut MutexGuard<'_, Bus>) {
+        let root = CONFIG_MBASE + 0x1000;
+        #[cfg(isa64)]
+        bus.write(root, 8, 0).unwrap();
+        #[cfg(isa32)]
+        bus.write(root, 4, 0).unwrap();
+    }
+
+    #[test]
+    fn tlb_caches_translation() {
+        let bus = test_bus();
+        let mut lock = bus.lock().unwrap();
+        let mut mmu = Mmu::new();
+        let pmp = allow_all_pmp();
+        let target = setup_page_table(&mut lock, &mut mmu, PTE_VRWXAD);
+
+        // Page walk populates TLB
+        assert_eq!(
+            mmu.translate(
+                VirtAddr::from(0x0_usize),
+                MemOp::Load,
+                PrivilegeMode::Supervisor,
+                &pmp,
+                &lock
+            )
+            .unwrap(),
+            target,
+        );
+
+        // Destroy page table — TLB still serves
+        zap_root_pte(&mut lock);
+        assert_eq!(
+            mmu.translate(
+                VirtAddr::from(0x0_usize),
+                MemOp::Load,
+                PrivilegeMode::Supervisor,
+                &pmp,
+                &lock
+            )
+            .unwrap(),
+            target,
+        );
+    }
+
+    #[test]
+    fn tlb_flush_invalidates() {
+        let bus = test_bus();
+        let mut lock = bus.lock().unwrap();
+        let mut mmu = Mmu::new();
+        let pmp = allow_all_pmp();
+        setup_page_table(&mut lock, &mut mmu, PTE_VRWXAD);
+
+        // Populate TLB
+        mmu.translate(
             VirtAddr::from(0x0_usize),
             MemOp::Load,
             PrivilegeMode::Supervisor,
             &pmp,
             &lock,
-        );
-        assert!(matches!(r, Err(XError::PageFault)));
+        )
+        .unwrap();
+
+        // Destroy + flush → fault
+        zap_root_pte(&mut lock);
+        mmu.tlb.flush(None, None);
+        assert!(matches!(
+            mmu.translate(
+                VirtAddr::from(0x0_usize),
+                MemOp::Load,
+                PrivilegeMode::Supervisor,
+                &pmp,
+                &lock
+            ),
+            Err(XError::PageFault)
+        ));
     }
 }

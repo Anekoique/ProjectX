@@ -8,18 +8,15 @@ use super::RVCore;
 use crate::config::SWord;
 #[cfg(isa32)]
 use crate::error::XError;
-use crate::{config::Word, error::XResult, isa::RVReg, utils::sext_word};
+use crate::{config::Word, cpu::riscv::mmu::MemOp, error::XResult, isa::RVReg, utils::sext_word};
 
 // --- Helpers ---
 
 impl RVCore {
-    /// Virtual address for atomic access at M[rs1].
     fn amo_addr(&self, rs1: RVReg) -> memory_addr::VirtAddr {
         self.eff_addr(rs1, 0)
     }
 
-    /// Atomic load-modify-store (32-bit word). Returns sign-extended old value
-    /// in rd.
     fn amo_w<F: FnOnce(u32, u32) -> u32>(
         &mut self,
         rd: RVReg,
@@ -34,7 +31,6 @@ impl RVCore {
         self.set_gpr(rd, sext_word(old, 32))
     }
 
-    /// Atomic load-modify-store (64-bit doubleword). RV64 only.
     #[cfg(isa64)]
     fn amo_d<F: FnOnce(Word, Word) -> Word>(
         &mut self,
@@ -56,7 +52,7 @@ impl RVCore {
 impl RVCore {
     pub(super) fn lr_w(&mut self, rd: RVReg, rs1: RVReg, _rs2: RVReg) -> XResult {
         let addr = self.amo_addr(rs1);
-        let paddr = self.virt_to_phys(addr);
+        let paddr = self.translate(addr, MemOp::Amo)?;
         let val = self.load(addr, 4)? & 0xFFFF_FFFF;
         self.reservation = Some(paddr);
         self.set_gpr(rd, sext_word(val, 32))
@@ -64,7 +60,7 @@ impl RVCore {
 
     pub(super) fn sc_w(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let addr = self.amo_addr(rs1);
-        let paddr = self.virt_to_phys(addr);
+        let paddr = self.translate(addr, MemOp::Amo)?;
         let success = self.reservation.take() == Some(paddr);
         if success {
             self.store(addr, 4, self.gpr[rs2] & 0xFFFF_FFFF)?;
@@ -81,7 +77,7 @@ impl RVCore {
         #[cfg(isa64)]
         {
             let addr = self.amo_addr(rs1);
-            let paddr = self.virt_to_phys(addr);
+            let paddr = self.translate(addr, MemOp::Amo)?;
             let val = self.load(addr, 8)?;
             self.reservation = Some(paddr);
             self.set_gpr(rd, val)
@@ -97,7 +93,7 @@ impl RVCore {
         #[cfg(isa64)]
         {
             let addr = self.amo_addr(rs1);
-            let paddr = self.virt_to_phys(addr);
+            let paddr = self.translate(addr, MemOp::Amo)?;
             let success = self.reservation.take() == Some(paddr);
             if success {
                 self.store(addr, 8, self.gpr[rs2])?;
@@ -356,14 +352,13 @@ mod tests {
         core.lr_w(RVReg::t1, RVReg::t0, RVReg::zero).unwrap();
         assert!(core.reservation.is_some());
 
-        // A plain store between LR and SC must invalidate the reservation.
         core.gpr[RVReg::t2] = 77;
         core.sw(RVReg::t0, RVReg::t2, 0).unwrap();
 
         core.gpr[RVReg::t2] = 99;
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 1); // SC must fail
-        assert_eq!(read_mem(&core, a, 4), 77); // only the SW value persists
+        assert_eq!(read_mem(&core, a, 4), 77);
     }
 
     #[test]

@@ -126,6 +126,28 @@ csr_table! {
     stval      = 0x143 => [RW(!0)],
     satp       = 0x180 => [RW(!0), blocked_by(TVM)],
 
+    // ---- PMP ----
+    pmpcfg0    = 0x3A0 => [RW(!0)],
+    pmpcfg1    = 0x3A1 => [RW(!0)],
+    pmpcfg2    = 0x3A2 => [RW(!0)],
+    pmpcfg3    = 0x3A3 => [RW(!0)],
+    pmpaddr0   = 0x3B0 => [RW(!0)],
+    pmpaddr1   = 0x3B1 => [RW(!0)],
+    pmpaddr2   = 0x3B2 => [RW(!0)],
+    pmpaddr3   = 0x3B3 => [RW(!0)],
+    pmpaddr4   = 0x3B4 => [RW(!0)],
+    pmpaddr5   = 0x3B5 => [RW(!0)],
+    pmpaddr6   = 0x3B6 => [RW(!0)],
+    pmpaddr7   = 0x3B7 => [RW(!0)],
+    pmpaddr8   = 0x3B8 => [RW(!0)],
+    pmpaddr9   = 0x3B9 => [RW(!0)],
+    pmpaddr10  = 0x3BA => [RW(!0)],
+    pmpaddr11  = 0x3BB => [RW(!0)],
+    pmpaddr12  = 0x3BC => [RW(!0)],
+    pmpaddr13  = 0x3BD => [RW(!0)],
+    pmpaddr14  = 0x3BE => [RW(!0)],
+    pmpaddr15  = 0x3BF => [RW(!0)],
+
     // ---- Machine Information (read-only) ----
     mvendorid  = 0xF11 => [RO],
     marchid    = 0xF12 => [RO],
@@ -158,6 +180,11 @@ impl CsrFile {
 
     /// Raw get by CsrAddr — used by trap handler internals.
     pub fn get(&self, addr: CsrAddr) -> Word {
+        self.regs[addr as usize]
+    }
+
+    /// Raw get by numeric address — used by side-effect handlers.
+    pub fn get_by_addr(&self, addr: u16) -> Word {
         self.regs[addr as usize]
     }
 
