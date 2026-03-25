@@ -3,35 +3,49 @@
 > Phase 3 of [DEV.md](../DEV.md) — Memory Management
 > Bus + MMU + TLB + MMIO routing, Rust-idiomatic, dual RV32/RV64
 >
-> v6 (2026-03-25): Bus shared via `Arc<Mutex<Bus>>` instead of `&mut Bus` threading.
-> Changes from v5: RVCore holds `Arc<Mutex<Bus>>` clone — no bus parameter on dispatch
-> or instruction handlers. CPU owns the Arc, clones to each core. Multi-core ready.
-> Prior: v5 RAM/MMIO split, AccessCtx/MemFault, err2trap, MemAccess deleted.
-> Reference designs: KXemu (`bus.hpp`, `memory.cpp`), Nemu-rust (`IOMap`), REMU (`Bus`).
+> **Current: v9** (2026-03-25)
+>
+> Changelog:
+> - v9: SvMode descriptor for runtime SV32/39/48/57 switching. Walk parameterized
+>   by &SvMode. Pte format-dependent methods take &SvMode. MMU caches Option<&'static SvMode>.
+> - v8: MemOp replaces AccessKind. MemFault eliminated — reuse XError::PageFault + BadAddress.
+> - v7: MMU caches satp/mstatus config. No AccessCtx struct. translate(vaddr, op, priv).
+> - v6: Bus shared via Arc<Mutex<Bus>>. No parameter threading on instruction handlers.
+> - v5: RAM/MMIO split in Bus. AccessCtx/MemFault. err2trap pattern. MemAccess deleted.
+> - v4: Initial plan — Pte type with PteFlags, page walk, TLB, sfence.vma.
+>
+> Reference designs: KXemu, Nemu-rust, REMU, arceos, asterinas.
 
 ---
 
 ## Architecture Overview
 
 ```
-CPU                                      ┌──────────────────────┐
-├── core: RVCore                         │  Bus                 │
-│   ├── bus: Arc<Mutex<Bus>> (clone) ──► │  ├── Ram [0x8000_0000│
-│   ├── mmu: Mmu  ──translate──►paddr──► │  ├── UART [Phase 4]  │
-│   │   └── tlb: Tlb                     │  └── ...             │
-│   ├── csr, privilege, ...              └──────────────────────┘
+CPU                                         ┌──────────────────────┐
+├── core: RVCore                            │  Bus                 │
+│   ├── bus: Arc<Mutex<Bus>> (clone) ──────►│  ├── Ram [0x8000_0000│
+│   ├── mmu: Mmu  ──vaddr→paddr            │  ├── UART [Phase 4]  │
+│   │   └── tlb: Tlb                        │  └── ...             │
+│   ├── pmp: Pmp  ──paddr permission gate   └──────────────────────┘
+│   ├── csr, privilege, ...
 │   └── step(&mut self)
 ├── bus: Arc<Mutex<Bus>>  ◄─── shared via Arc clone
 └── state, halt_pc, halt_ret
+
+Access path (models real RISC-V pipeline):
+  vaddr ─► alignment check ─► MMU translate ─► paddr ─► PMP check ─► bus access
+                                   │                        ▲
+                                   └── page walk: pte_paddr ┘  (PMP also checks PTE reads)
 ```
 
-Three-layer responsibility split (same principle as CSR subsystem):
+Four-layer responsibility split:
 
 | Layer | Knows about | Does NOT know about |
 |-------|------------|---------------------|
-| `Bus` | Physical addresses, device regions | Virtual addresses, privilege, traps |
-| `Mmu` | Page tables, TLB, PTE permission bits | Trap codes, which instruction triggered the access |
-| `RVCore` | Everything: privilege, MPRV, trap mapping | Internal device state |
+| `Bus` | Physical addresses, device regions | Virtual addresses, privilege, traps, PMP |
+| `Mmu` | Page tables, TLB, PTE bits, SUM/MXR | Trap codes, PMP (receives `&Pmp` for walks) |
+| `Pmp` | Physical address permissions, privilege | Virtual addresses, page tables |
+| `RVCore` | Orchestrates: privilege, MPRV, trap mapping | Internal device state |
 
 ---
 
@@ -227,12 +241,10 @@ fn fetch(&self) -> XResult<u32> {
 ```rust
 use std::sync::{Arc, Mutex};
 
-type SharedBus = Arc<Mutex<Bus>>;
-
 // CPU owns the Arc, clones to core
 pub struct CPU<Core: CoreOps> {
     core: Core,
-    bus: SharedBus,
+    bus: Arc<Mutex<Bus>>,
     state: State,
     halt_pc: VirtAddr,
     halt_ret: Word,
@@ -248,7 +260,7 @@ pub trait CoreOps {
 pub struct RVCore {
     gpr: [Word; 32],
     pc: VirtAddr,
-    bus: SharedBus,  // Arc clone — same Bus as CPU
+    bus: Arc<Mutex<Bus>>,  // clone — same Bus as CPU
     ...
 }
 
@@ -276,7 +288,7 @@ fn fetch(&mut self) -> XResult<u32> {
 
 **Why `Arc<Mutex<Bus>>`**:
 - No `&mut Bus` parameter threading through dispatch + ~70 instruction handlers
-- Multi-core ready: `CPU { cores: Vec<Core>, bus: SharedBus }` — each core gets a clone
+- Multi-core ready: `CPU { cores: Vec<Core>, bus: Arc<Mutex<Bus>> }` — each core gets a clone
 - Bus has the same lifetime as CPU — Arc ensures this naturally
 - Single-core: mutex is uncontested, ~20ns overhead per access (acceptable)
 - Instruction handlers access bus via `self.bus()` like any other field
@@ -286,92 +298,107 @@ fn fetch(&mut self) -> XResult<u32> {
 Instruction handler signatures unchanged from original — only memory helpers
 (`fetch`, `load_op`, `store_op`, `amo_w`, `lr`, `sc`) call `self.bus()`.
 
-### 4. MMU: pure translation, returns MemFault
+### 4. MMU: cached config, minimal translate interface
 
-**Types** — replaces the earlier `Perm` + `PageFault` with a unified access context:
+**Types**:
 
 ```rust
 // xcore/src/cpu/riscv/mmu.rs
 
-/// What kind of memory access is being performed.
-/// Determines which PTE permission bits to check, and which trap to raise on failure.
+/// Memory operation type — determines PTE permission bit and fault cause.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum AccessKind { Fetch, Load, Store, Amo }
-
-/// All context needed for address translation.
-pub struct AccessCtx {
-    pub kind: AccessKind,
-    pub priv_mode: PrivilegeMode,
-    pub sum: bool,
-    pub mxr: bool,
-    pub satp: Word,
-}
-
-/// MMU translation failure — ISA-agnostic. Caller maps to RISC-V trap cause.
-pub enum MemFault {
-    /// Page table walk failed (invalid PTE, permission, A/D, canonical, etc.)
-    Page(VirtAddr),
-    /// Bus access fault during page walk (PTE address hits unmapped region)
-    Access(VirtAddr),
-}
+pub enum MemOp { Fetch, Load, Store, Amo }
 
 pub struct Mmu {
     tlb: Tlb,
+    // Cached from satp — updated on CSR write
+    sv: Option<&'static SvMode>,  // None = Bare mode (identity mapping)
+    ppn: usize,                    // page table root PPN
+    asid: u16,
+    // Cached from mstatus — updated on CSR write
+    sum: bool,
+    mxr: bool,
 }
 ```
 
-`AccessKind` tells the MMU which PTE bit to check (R/W/X). `RVCore` maps `MemFault`
-to the correct RISC-V trap cause (`LoadPageFault`, `StoreAccessFault`, etc.) based on
-`AccessKind`. The MMU never imports trap codes.
+**No `MemFault` enum.** Translation failures use existing `XError` variants:
+- `XError::PageFault` (new) — PTE invalid, permission denied, A/D, canonical
+- `XError::BadAddress` (existing) — PTE address unmapped, PMP denied
 
-**The translate function** — follows KXemu's `vaddr_translate_core()` pattern:
+RVCore maps these to RISC-V traps based on `MemOp`:
+- `PageFault` + `Fetch` → `InstructionPageFault`
+- `BadAddress` + `Load` → `LoadAccessFault`
+- etc.
+
+The `translate` call passes only what varies per access:
 
 ```rust
 impl Mmu {
-    /// Translate virtual → physical address.
-    ///
-    /// Returns `Err(MemFault)` on any translation failure.
-    /// The caller (RVCore) maps this to the appropriate RISC-V trap.
+    /// Update cached satp fields. Called on satp CSR write.
+    pub fn update_satp(&mut self, satp: Word) {
+        self.sv = match satp_mode(satp) {
+            0 => None,                    // Bare
+            1 => Some(&SV32),             // RV32 only
+            8 => Some(&SV39),
+            9 => Some(&SV48),
+            10 => Some(&SV57),
+            _ => None,                    // reserved → Bare
+        };
+        self.ppn = satp_ppn(satp);
+        self.asid = satp_asid(satp);
+        self.tlb.flush(None, None);
+    }
+
+    /// Update cached mstatus fields. Called on mstatus CSR write.
+    pub fn update_mstatus(&mut self, sum: bool, mxr: bool) {
+        self.sum = sum;
+        self.mxr = mxr;
+    }
+
+    /// Translate virtual → physical. Returns XResult for uniform error handling.
     pub fn translate(
         &mut self,
         vaddr: VirtAddr,
-        ctx: &AccessCtx,
-        bus: &MutexGuard<'_, Bus>,  // lock held by caller for duration of access
-    ) -> Result<PhysAddr, MemFault> {
-        let mode = satp_mode(ctx.satp);
-
-        // Bare mode or M-mode (without MPRV changing effective priv): identity mapping
-        if mode == SatpMode::Bare || ctx.priv_mode == PrivilegeMode::Machine {
-            return Ok(PhysAddr::from(vaddr.as_usize()));
+        op: MemOp,
+        priv_mode: PrivilegeMode,
+        pmp: &Pmp,
+        bus: &MutexGuard<'_, Bus>,
+    ) -> XResult<usize> {
+        // Bare mode or M-mode: identity mapping
+        let Some(sv) = self.sv else {
+            return Ok(vaddr.as_usize());
+        };
+        if priv_mode == PrivilegeMode::Machine {
+            return Ok(vaddr.as_usize());
         }
 
         // TLB lookup
         let vpn = vaddr_vpn(vaddr);
-        let asid = satp_asid(ctx.satp);
-        if let Some(entry) = self.tlb.lookup(vpn, asid) {
-            if entry.check_perm(ctx) {
-                return Ok(entry.translate(vaddr));
+        if let Some(entry) = self.tlb.lookup(vpn, self.asid) {
+            if entry.check_perm(op, priv_mode, self.sum, self.mxr) {
+                return Ok(entry.translate(vaddr, sv));
             }
         }
 
-        // TLB miss → page walk (reads RAM only, never MMIO)
-        let result = self.page_walk(vaddr, ctx, bus)?;
-        self.tlb.insert(result.entry);
-        Ok(result.paddr)
+        // TLB miss → page walk
+        let entry = self.page_walk(vaddr, op, priv_mode, sv, pmp, bus)?;
+        let paddr = entry.translate(vaddr, sv);
+        self.tlb.insert(entry);
+        Ok(paddr)
     }
 }
 ```
 
-**Page walk uses `bus.read_ram()`**, not `bus.read()`. The caller holds the
-`MutexGuard<Bus>` and passes it to `translate` → `page_walk`. A misconfigured
-`satp` pointing at MMIO space returns `MemFault::Access`, never triggers a
-spurious device read.
+**Design rationale** (follows KXemu's `vaddr_translate_core` pattern):
+- KXemu caches satp mode as a function pointer, updated on satp write
+- We cache mode/ppn/asid/sum/mxr as fields — same idea, Rust-idiomatic
+- `translate` is called ~billions of times; `update_satp`/`update_mstatus` ~rarely
+- `priv_mode` still passed per-call because MPRV changes it for data vs fetch
 
-**RVCore maps MemFault to RISC-V traps** — using the err2trap `Result`-based pattern:
+**RVCore orchestrates the full access path** — MMU, PMP, and bus:
 
 ```rust
 impl RVCore {
-    /// Compute effective privilege for data access (accounts for MPRV).
     fn effective_priv(&self) -> PrivilegeMode {
         if self.privilege == PrivilegeMode::Machine && self.csr.mstatus().mprv() {
             self.csr.mstatus().mpp()
@@ -380,47 +407,53 @@ impl RVCore {
         }
     }
 
-    /// Build AccessCtx for a data access (load/store/AMO). Uses effective privilege.
-    fn data_ctx(&self, kind: AccessKind) -> AccessCtx {
-        let mstatus = self.csr.mstatus();
-        AccessCtx {
-            kind,
-            priv_mode: self.effective_priv(),
-            sum: mstatus.sum(),
-            mxr: mstatus.mxr(),
-            satp: self.csr.get(CsrAddr::satp),
-        }
+    /// Full access path: vaddr → MMU translate → PMP check → paddr.
+    /// Maps XError::{PageFault, BadAddress} to the correct RISC-V trap.
+    fn translate(
+        &mut self, vaddr: VirtAddr, op: MemOp, priv_mode: PrivilegeMode,
+        bus: &MutexGuard<'_, Bus>,
+    ) -> XResult<usize> {
+        let paddr = self.mmu
+            .translate(vaddr, op, priv_mode, &self.pmp, bus)
+            .map_err(|e| self.map_mem_err(e, vaddr, op))?;
+
+        // PMP on final paddr (walk PTEs already PMP-checked inside MMU)
+        self.pmp
+            .check(paddr, op, self.privilege)  // original privilege, not effective
+            .map_err(|e| self.map_mem_err(e, vaddr, op))?;
+
+        Ok(paddr)
     }
 
-    /// Translate and map any MemFault to the correct RISC-V trap via Err(XError::Trap).
-    fn translate(
-        &mut self, vaddr: VirtAddr, ctx: &AccessCtx, bus: &MutexGuard<'_, Bus>,
-    ) -> XResult<PhysAddr> {
-        self.mmu.translate(vaddr, ctx, bus).map_err(|fault| {
-            let (exc, tval) = match fault {
-                MemFault::Page(va) => (match ctx.kind {
-                    AccessKind::Fetch => Exception::InstructionPageFault,
-                    AccessKind::Load  => Exception::LoadPageFault,
-                    AccessKind::Store | AccessKind::Amo => Exception::StorePageFault,
-                }, va.as_usize() as Word),
-                MemFault::Access(va) => (match ctx.kind {
-                    AccessKind::Fetch => Exception::InstructionAccessFault,
-                    AccessKind::Load  => Exception::LoadAccessFault,
-                    AccessKind::Store | AccessKind::Amo => Exception::StoreAccessFault,
-                }, va.as_usize() as Word),
-            };
-            XError::Trap(PendingTrap { cause: TrapCause::Exception(exc), tval })
-        })
+    /// Map XError::{PageFault, BadAddress} → RISC-V trap based on MemOp.
+    fn map_mem_err(&self, err: XError, vaddr: VirtAddr, op: MemOp) -> XError {
+        let tval = vaddr.as_usize() as Word;
+        let exc = match err {
+            XError::PageFault => match op {
+                MemOp::Fetch => Exception::InstructionPageFault,
+                MemOp::Load  => Exception::LoadPageFault,
+                _            => Exception::StorePageFault,
+            },
+            XError::BadAddress => match op {
+                MemOp::Fetch => Exception::InstructionAccessFault,
+                MemOp::Load  => Exception::LoadAccessFault,
+                _            => Exception::StoreAccessFault,
+            },
+            other => return other,  // pass through non-memory errors
+        };
+        XError::Trap(PendingTrap { cause: TrapCause::Exception(exc), tval })
     }
 }
 ```
 
-Then the load/store/fetch helpers become — using `?` to propagate traps up to
-`trap_on_err()` in `step()`:
+**PMP check uses `self.privilege` (original), not `priv_mode` (effective).**
+Per spec §3.7.1: PMP applies to S/U-mode accesses and page-table walks
+(effective = S). M-mode bypasses unless Locked.
+
+Then fetch/load/store — `map_mem_err` handles bus errors too:
 
 ```rust
 impl RVCore {
-    /// Lock the shared bus for the duration of one access.
     fn bus(&self) -> MutexGuard<'_, Bus> {
         self.bus.lock().expect("bus lock poisoned")
     }
@@ -430,262 +463,226 @@ impl RVCore {
             return self.trap_exception(Exception::InstructionMisaligned,
                                        self.pc.as_usize() as Word);
         }
-        let ctx = AccessCtx {
-            kind: AccessKind::Fetch,
-            priv_mode: self.privilege,
-            sum: self.csr.mstatus().sum(),
-            mxr: self.csr.mstatus().mxr(),
-            satp: self.csr.get(CsrAddr::satp),
-        };
         let bus = self.bus();
-        let paddr = self.translate(self.pc, &ctx, &bus)?;
-        let word = bus.read(paddr.as_usize(), 4)
-            .map_err(|_| XError::Trap(PendingTrap {
-                cause: TrapCause::Exception(Exception::InstructionAccessFault),
-                tval: self.pc.as_usize() as Word,
-            }))?;
-        let inst = word_to_u32(word);
-        Ok(if (inst & 0b11) != 0b11 { inst & 0xFFFF } else { inst })
+        let paddr = self.translate(self.pc, MemOp::Fetch, self.privilege, &bus)?;
+        let word = bus.read(paddr, 4)
+            .map_err(|e| self.map_mem_err(e, self.pc, MemOp::Fetch))?;
+        Ok(word_to_u32(word))
     }
 
-    fn load_op<F>(
-        &mut self, rd: RVReg, rs1: RVReg, imm: SWord, size: usize,
-        extend: F,
-    ) -> XResult
+    fn load_op<F>(&mut self, rd: RVReg, rs1: RVReg, imm: SWord, size: usize,
+                   extend: F) -> XResult
     where F: FnOnce(Word) -> Word {
         let vaddr = self.eff_addr(rs1, imm);
         if !vaddr.is_aligned(size) {
             return self.trap_exception(Exception::LoadMisaligned,
                                        vaddr.as_usize() as Word);
         }
-        let ctx = self.data_ctx(AccessKind::Load);
         let bus = self.bus();
-        let paddr = self.translate(vaddr, &ctx, &bus)?;
-        let value = bus.read(paddr.as_usize(), size)
-            .map_err(|_| XError::Trap(PendingTrap {
-                cause: TrapCause::Exception(Exception::LoadAccessFault),
-                tval: vaddr.as_usize() as Word,
-            }))?;
+        let paddr = self.translate(vaddr, MemOp::Load, self.effective_priv(), &bus)?;
+        let value = bus.read(paddr, size)
+            .map_err(|e| self.map_mem_err(e, vaddr, MemOp::Load))?;
         self.set_gpr(rd, extend(value))
     }
 
-    fn store_op(
-        &mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize,
-    ) -> XResult {
+    fn store_op(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize) -> XResult {
         let vaddr = self.eff_addr(rs1, imm);
         if !vaddr.is_aligned(size) {
             return self.trap_exception(Exception::StoreMisaligned,
                                        vaddr.as_usize() as Word);
         }
-        let ctx = self.data_ctx(AccessKind::Store);
         let bus = self.bus();
-        let paddr = self.translate(vaddr, &ctx, &bus)?;
+        let paddr = self.translate(vaddr, MemOp::Store, self.effective_priv(), &bus)?;
         let mask = if size >= std::mem::size_of::<Word>() { Word::MAX }
                    else { (1 as Word).wrapping_shl(size as u32 * 8) - 1 };
-        bus.write(paddr.as_usize(), size, self.gpr[rs2] & mask)
-            .map_err(|_| XError::Trap(PendingTrap {
-                cause: TrapCause::Exception(Exception::StoreAccessFault),
-                tval: vaddr.as_usize() as Word,
-            }))?;
+        bus.write(paddr, size, self.gpr[rs2] & mask)
+            .map_err(|e| self.map_mem_err(e, vaddr, MemOp::Store))?;
         self.reservation = None;
         Ok(())
     }
 }
 ```
 
-**Key pattern**: Alignment → lock bus → translate → bus access → drop lock.
-Each layer can fail independently via `Err(XError::Trap(...))` + `?`.
-The bus lock is held for the minimum scope (one translate+access pair).
-
-**No `bus` parameter on instruction handlers.** `lb`, `sw`, `amoadd_w` etc. keep
-their original signatures `(&mut self, rd, rs1, imm) -> XResult`. Only the
-internal helpers (`fetch`, `load_op`, `store_op`, `amo_w`, `lr_w`, `sc_w`) call
-`self.bus()`. ALU / branch / CSR handlers never touch the bus.
-
-Same three-level chain as KXemu's `vm_read` → `vaddr_translate_core` → `pm_read_check`.
+**Full access path**: alignment → lock bus → MMU translate → PMP check → bus access.
+Bus errors (`BadAddress`) also flow through `map_mem_err` — unified error mapping.
 
 ### 5. Page table walk
 
-Follows the RISC-V spec algorithm (§4.3.2 Sv39 / §4.3.1 Sv32). Inspired by
-arceos/page_table_entry's `GenericPTE` and asterinas's `PteScalar` pattern:
-extract all PTE bit manipulation into a dedicated `Pte` type so the walk loop
-stays clean.
+Follows RISC-V spec §4.3.2 Sv39 / §4.3.1 Sv32. Designed for runtime mode
+switching (satp changes active scheme) and future SV48/SV57 extensibility.
 
-#### 5a. Pte type — encapsulates all bit twiddling
+#### 5a. SvMode descriptor — one struct for all page table formats
 
 ```rust
-// xcore/src/cpu/riscv/mmu.rs
+/// Page table format descriptor. One const per Sv scheme.
+/// Adding SV48/SV57 is just two more constants — zero code changes to the walk.
+struct SvMode {
+    levels: usize,     // 2 (SV32) / 3 (SV39) / 4 (SV48) / 5 (SV57)
+    pte_size: usize,   // 4 (SV32) / 8 (SV39+)
+    vpn_bits: usize,   // 10 (SV32) / 9 (SV39+)
+    va_bits: usize,    // 32 / 39 / 48 / 57
+}
+
+const SV32: SvMode = SvMode { levels: 2, pte_size: 4, vpn_bits: 10, va_bits: 32 };
+const SV39: SvMode = SvMode { levels: 3, pte_size: 8, vpn_bits: 9,  va_bits: 39 };
+const SV48: SvMode = SvMode { levels: 4, pte_size: 8, vpn_bits: 9,  va_bits: 48 };
+const SV57: SvMode = SvMode { levels: 5, pte_size: 8, vpn_bits: 9,  va_bits: 57 };
 
 const PAGE_SHIFT: usize = 12;
 const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
+```
 
-#[cfg(isa32)]
-mod sv { pub const LEVELS: usize = 2; pub const PTESIZE: usize = 4; pub const VPN_BITS: usize = 10; }
-#[cfg(isa64)]
-mod sv { pub const LEVELS: usize = 3; pub const PTESIZE: usize = 8; pub const VPN_BITS: usize = 9; }
-use sv::*;
+**Design rationale** (compare reference projects):
+- KXemu uses C++ templates `<LEVELS, PTESIZE, VPNBITS>` — compile-time instantiation,
+  function pointer swapped on satp write. Our `SvMode` struct is the Rust equivalent.
+- arceos uses trait `PagingMetaData { const LEVELS, VA_MAX_BITS }` with separate types
+  per scheme (`Sv39MetaData`, `Sv48MetaData`). Good for OS page table management, but
+  an emulator needs runtime switching — satp changes which mode is active.
+- asterinas uses `PagingConstsTrait` with `#[cfg]` feature gates. Compile-time only —
+  can't switch modes at runtime.
+
+Our approach: **runtime-parameterized walk via `&SvMode`**, cached in `Mmu` on satp
+write. The walk loop is generic over the descriptor. SV48/SV57 require no code
+changes — just use the additional constants.
+
+#### 5b. Pte type — pure bitfield accessor
+
+```rust
 
 bitflags::bitflags! {
-    /// PTE flag bits (RISC-V Privileged Spec §4.3).
     struct PteFlags: usize {
-        const V = 1 << 0;
-        const R = 1 << 1;
-        const W = 1 << 2;
-        const X = 1 << 3;
-        const U = 1 << 4;
-        const G = 1 << 5;
-        const A = 1 << 6;
-        const D = 1 << 7;
+        const V = 1 << 0; const R = 1 << 1; const W = 1 << 2;
+        const X = 1 << 3; const U = 1 << 4; const G = 1 << 5;
+        const A = 1 << 6; const D = 1 << 7;
     }
 }
 
-/// A decoded page table entry. All bit-level operations live here.
+/// Decoded PTE. Pure bit accessor — no policy logic here.
+/// Methods that depend on the page table format take `&SvMode`.
 #[derive(Clone, Copy)]
 struct Pte(usize);
 
 impl Pte {
     fn flags(self) -> PteFlags { PteFlags::from_bits_truncate(self.0) }
-    fn is_valid(self) -> bool { self.flags().contains(PteFlags::V) }
-    fn is_leaf(self) -> bool { self.flags().intersects(PteFlags::R | PteFlags::X) }
-
-    fn ppn(self) -> usize {
-        (self.0 >> 10) & ((1 << (LEVELS * VPN_BITS + 2)) - 1)
+    fn is_valid(self) -> bool   { self.flags().contains(PteFlags::V) }
+    fn is_leaf(self) -> bool    { self.flags().intersects(PteFlags::R | PteFlags::X) }
+    fn is_reserved(self) -> bool {
+        self.flags().contains(PteFlags::W) && !self.flags().contains(PteFlags::R)
     }
 
-    /// Check perm + U-bit + A/D against AccessCtx. Returns true if access is allowed.
-    fn check_perm(self, ctx: &AccessCtx) -> bool {
-        let f = self.flags();
-        let perm_ok = match ctx.kind {
-            AccessKind::Load  => f.contains(PteFlags::R) || (ctx.mxr && f.contains(PteFlags::X)),
-            AccessKind::Store | AccessKind::Amo => f.contains(PteFlags::W),
-            AccessKind::Fetch => f.contains(PteFlags::X),
-        };
-        let priv_ok = if f.contains(PteFlags::U) {
-            ctx.priv_mode == PrivilegeMode::User
-                || (ctx.priv_mode == PrivilegeMode::Supervisor && ctx.sum)
+    fn ppn(self, sv: &SvMode) -> usize {
+        (self.0 >> 10) & ((1 << (sv.levels * sv.vpn_bits + 2)) - 1)
+    }
+
+    fn superpage_aligned(self, level: usize, sv: &SvMode) -> bool {
+        level == 0 || (self.ppn(sv) & ((1 << (level * sv.vpn_bits)) - 1)) == 0
+    }
+
+    fn translate(self, vaddr: VirtAddr, level: usize, sv: &SvMode) -> usize {
+        if level > 0 {
+            let mask = (1 << (level * sv.vpn_bits + PAGE_SHIFT)) - 1;
+            (self.ppn(sv) << PAGE_SHIFT) & !mask | (vaddr.as_usize() & mask)
         } else {
-            ctx.priv_mode != PrivilegeMode::User
+            self.ppn(sv) << PAGE_SHIFT | (vaddr.as_usize() & (PAGE_SIZE - 1))
+        }
+    }
+}
+```
+
+`Pte` is a pure bitfield — no permission policy. Format-dependent methods
+(`ppn`, `superpage_aligned`, `translate`) take `&SvMode` for the active
+page table scheme. Permission checking lives in the walk.
+
+#### 5b. The walk — permission check inline
+
+```rust
+impl Mmu {
+    /// Walk page table, return TlbEntry for caching + translation.
+    fn page_walk(
+        &self,
+        vaddr: VirtAddr,
+        op: MemOp,
+        priv_mode: PrivilegeMode,
+        sv: &SvMode,
+        pmp: &Pmp,
+        bus: &MutexGuard<'_, Bus>,
+    ) -> XResult<TlbEntry> {
+        if !is_canonical(vaddr, sv) { return Err(XError::PageFault); }
+
+        let mut base = self.ppn * PAGE_SIZE;
+
+        for level in (0..sv.levels).rev() {
+            let pte_addr = base + vpn_index(vaddr, level, sv) * sv.pte_size;
+
+            // PMP on PTE read (effective privilege = S, spec §3.7.1)
+            pmp.check(pte_addr, MemOp::Load, PrivilegeMode::Supervisor)?;
+
+            let pte = self.read_pte(pte_addr, sv, bus)?;
+
+            if !pte.is_valid() || pte.is_reserved() {
+                return Err(XError::PageFault);
+            }
+
+            if pte.is_leaf() {
+                if !pte.superpage_aligned(level, sv)
+                    || !self.check_leaf_perm(pte, op, priv_mode) {
+                    return Err(XError::PageFault);
+                }
+                return Ok(TlbEntry::from_pte(pte, vaddr, level, sv, self.asid));
+            }
+
+            base = pte.ppn(sv) * PAGE_SIZE;
+        }
+
+        Err(XError::PageFault)
+    }
+
+    fn check_leaf_perm(&self, pte: Pte, op: MemOp, priv_mode: PrivilegeMode) -> bool {
+        let f = pte.flags();
+
+        let perm_ok = match op {
+            MemOp::Fetch => f.contains(PteFlags::X),
+            MemOp::Load  => f.contains(PteFlags::R) || (self.mxr && f.contains(PteFlags::X)),
+            _            => f.contains(PteFlags::W),
         };
+
+        let priv_ok = if f.contains(PteFlags::U) {
+            priv_mode == PrivilegeMode::User
+                || (priv_mode == PrivilegeMode::Supervisor && self.sum)
+        } else {
+            priv_mode != PrivilegeMode::User
+        };
+
         // Svade: A must be set; D must be set for writes
         let ad_ok = f.contains(PteFlags::A)
-            && (!matches!(ctx.kind, AccessKind::Store | AccessKind::Amo) || f.contains(PteFlags::D));
+            && (!matches!(op, MemOp::Store | MemOp::Amo) || f.contains(PteFlags::D));
 
         perm_ok && priv_ok && ad_ok
     }
 
-    /// Check superpage alignment: lower PPN bits must be zero at level > 0.
-    fn superpage_aligned(self, level: usize) -> bool {
-        if level == 0 { return true; }
-        (self.ppn() & ((1 << (level * VPN_BITS)) - 1)) == 0
+    fn read_pte(&self, addr: usize, sv: &SvMode, bus: &MutexGuard<'_, Bus>) -> XResult<Pte> {
+        bus.read_ram(addr, sv.pte_size).map(|w| Pte(w as usize))
     }
+}
 
-    /// Build physical address for a leaf PTE at the given level.
-    fn translate(self, vaddr: VirtAddr, level: usize) -> PhysAddr {
-        let pg_offset = vaddr.as_usize() & (PAGE_SIZE - 1);
-        if level > 0 {
-            let mask = (1 << (level * VPN_BITS + PAGE_SHIFT)) - 1;
-            PhysAddr::from((self.ppn() << PAGE_SHIFT) & !mask | (vaddr.as_usize() & mask))
-        } else {
-            PhysAddr::from(self.ppn() << PAGE_SHIFT | pg_offset)
-        }
-    }
+fn vpn_index(vaddr: VirtAddr, level: usize, sv: &SvMode) -> usize {
+    (vaddr.as_usize() >> (PAGE_SHIFT + level * sv.vpn_bits)) & ((1 << sv.vpn_bits) - 1)
+}
 
-    /// Pack permission bits for TlbEntry.
-    fn perm_bits(self) -> u8 {
-        (self.flags() & (PteFlags::R | PteFlags::W | PteFlags::X | PteFlags::U | PteFlags::G))
-            .bits() as u8 >> 1  // shift R to bit 0
-    }
+/// Canonical address check: upper bits must be sign-extension of bit[va_bits-1].
+fn is_canonical(vaddr: VirtAddr, sv: &SvMode) -> bool {
+    let va = vaddr.as_usize() as isize;
+    let shift = usize::BITS as usize - sv.va_bits;
+    (va << shift) >> shift == va
 }
 ```
 
-This follows the same principle as arceos's `GenericPTE` (bitflags + accessor
-methods) and asterinas's `PteFlags` (bitflags for V/R/W/X/U/G/A/D). The key
-difference: our `Pte` is read-only (emulator reads guest PTEs, never writes
-them back — see Svade in §6).
+**Key change from v5**: Permission checking is `Mmu::check_leaf_perm()` — a method
+on MMU that reads `self.sum`/`self.mxr` directly. No `AccessCtx` struct needed.
+`Pte` is a pure bitfield accessor with no policy logic.
 
-#### 5b. The walk itself — now trivially short
-
-```rust
-struct WalkResult {
-    paddr: PhysAddr,
-    entry: TlbEntry,
-}
-
-impl Mmu {
-    fn page_walk(
-        &self,
-        vaddr: VirtAddr,
-        ctx: &AccessCtx,
-        bus: &MutexGuard<'_, Bus>,
-    ) -> Result<WalkResult, MemFault> {
-        #[cfg(isa64)]
-        if !is_canonical(vaddr) { return Err(MemFault::Page(vaddr)); }
-
-        let mut base = satp_ppn(ctx.satp) * PAGE_SIZE;
-
-        for level in (0..LEVELS).rev() {
-            let vpn_i = vpn_index(vaddr, level);
-            let pte_addr = base + vpn_i * PTESIZE;
-            let pte = self.read_pte(pte_addr, bus, vaddr)?;
-
-            if !pte.is_valid() || pte.is_reserved() {
-                return Err(MemFault::Page(vaddr));
-            }
-
-            if pte.is_leaf() {
-                if !pte.superpage_aligned(level) || !pte.check_perm(ctx) {
-                    return Err(MemFault::Page(vaddr));
-                }
-                return Ok(WalkResult {
-                    paddr: pte.translate(vaddr, level),
-                    entry: TlbEntry::from_pte(pte, vaddr, level, satp_asid(ctx.satp)),
-                });
-            }
-
-            // Non-leaf: descend to next level
-            base = pte.ppn() * PAGE_SIZE;
-        }
-
-        Err(MemFault::Page(vaddr))
-    }
-
-    /// Read a PTE from RAM. Returns MemFault::Access if address is unmapped.
-    fn read_pte(&self, addr: usize, bus: &MutexGuard<'_, Bus>, vaddr: VirtAddr) -> Result<Pte, MemFault> {
-        bus.read_ram(addr, PTESIZE)
-            .map(|w| Pte(w as usize))
-            .map_err(|_| MemFault::Access(vaddr))
-    }
-}
-
-/// Extract VPN[level] from a virtual address.
-fn vpn_index(vaddr: VirtAddr, level: usize) -> usize {
-    (vaddr.as_usize() >> (PAGE_SHIFT + level * VPN_BITS)) & ((1 << VPN_BITS) - 1)
-}
-
-impl Pte {
-    /// Reserved encoding: W=1 but R=0.
-    fn is_reserved(self) -> bool {
-        let f = self.flags();
-        f.contains(PteFlags::W) && !f.contains(PteFlags::R)
-    }
-}
-
-#[cfg(isa64)]
-fn is_canonical(vaddr: VirtAddr) -> bool {
-    let va = vaddr.as_usize() as i64;
-    // SV39: bits[63:39] must be sign-extension of bit[38]
-    (va << (64 - 39)) >> (64 - 39) == va
-}
-```
-
-**Compared to v4**: The walk loop dropped from ~80 lines to ~20 lines. All PTE
-bit manipulation moved into `Pte` methods (which are independently testable).
-Same algorithm, same spec compliance — just cleaner separation of concerns.
-
-**Compared to reference implementations**:
-- arceos `GenericPTE`: similar — `is_present()`, `is_huge()`, `paddr()`, `flags()`
-- asterinas `PteTrait::to_repr()`: similar — converts raw bits to `Absent | PageTable | Mapped`
-- Both: PTE type encapsulates bits, walk loop stays clean
+Walk uses `self.ppn` (cached) instead of parsing satp each call.
+`self.asid` passed to `TlbEntry::from_pte` — also cached.
 
 ### 6. A/D bit policy: Svade
 
@@ -704,7 +701,84 @@ Linux handles A/D faults in its page fault handler.
 **If Phase 7 needs hardware A/D**: Change `page_walk` to write back PTEs. The `translate`
 signature doesn't change — only internal walk logic changes.
 
-### 7. TLB
+### 7. PMP (Physical Memory Protection)
+
+Separate from MMU. Operates on physical addresses only. Checked at two points:
+1. **Final paddr** — in `RVCore::translate()`, after MMU returns paddr
+2. **PTE reads during page walk** — in `Mmu::page_walk()`, before each `read_pte`
+
+```rust
+// xcore/src/cpu/riscv/pmp.rs
+
+const PMP_COUNT: usize = 16;
+
+/// Address matching mode (pmpcfg.A field).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PmpMatch { Off, Tor, Na4, Napot }
+
+/// One PMP entry — decoded from pmpcfg + pmpaddr CSRs.
+#[derive(Clone, Copy)]
+struct PmpEntry {
+    addr: usize,    // decoded address (shifted/masked per mode)
+    mask: usize,    // for NAPOT: address mask
+    cfg: u8,        // raw pmpcfg byte: L|00|A[1:0]|X|W|R
+}
+
+impl PmpEntry {
+    fn locked(self) -> bool  { self.cfg & 0x80 != 0 }
+    fn match_mode(self) -> PmpMatch {
+        match (self.cfg >> 3) & 3 {
+            0 => PmpMatch::Off,
+            1 => PmpMatch::Tor,
+            2 => PmpMatch::Na4,
+            3 => PmpMatch::Napot,
+            _ => unreachable!(),
+        }
+    }
+    fn r(self) -> bool { self.cfg & 1 != 0 }
+    fn w(self) -> bool { self.cfg & 2 != 0 }
+    fn x(self) -> bool { self.cfg & 4 != 0 }
+}
+
+pub struct Pmp {
+    entries: [PmpEntry; PMP_COUNT],
+    count: usize,  // number of entries with A != Off (optimization)
+}
+
+impl Pmp {
+    pub fn new() -> Self { ... }
+
+    /// Update cached entry. Called on pmpcfg/pmpaddr CSR write.
+    pub fn update(&mut self, index: usize, cfg: u8, addr: usize) { ... }
+
+    /// Check physical address access. Returns Err(BadAddress) on deny.
+    pub fn check(
+        &self,
+        paddr: usize,
+        op: MemOp,
+        priv_mode: PrivilegeMode,
+    ) -> XResult {
+        // M-mode: PMP only enforced if entry is Locked
+        // S/U-mode: scan entries, first match wins
+        // No match in S/U-mode → Err(XError::BadAddress) (spec §3.7.1)
+        ...
+    }
+}
+```
+
+**Key spec rules** (§3.7.1):
+- Entries checked in order 0..N; first match determines permission
+- M-mode bypasses all entries unless Locked (L=1)
+- S/U-mode: if no entry matches → **deny** (access fault)
+- PMP applies to page-table walks at effective privilege S
+- TOR (Top Of Range): matches `pmpaddr[i-1] <= addr < pmpaddr[i]`
+- NAPOT: matches `addr & mask == pmpaddr & mask`
+- NA4: matches exactly 4 bytes at `pmpaddr`
+
+**PMP is per-hart** — each core has its own PMP config. In multi-core,
+PMP entries are not shared (unlike Bus which is shared via Arc).
+
+### 8. TLB
 
 ```rust
 // xcore/src/cpu/riscv/mmu.rs (or mmu/tlb.rs)
@@ -733,35 +807,33 @@ impl TlbEntry {
         }
     }
 
-    fn check_perm(&self, ctx: &AccessCtx) -> bool {
-        let r = self.perm & 1 != 0;
-        let w = self.perm & 2 != 0;
-        let x = self.perm & 4 != 0;
-        let u = self.perm & 8 != 0;
+    fn check_perm(&self, op: MemOp, priv_mode: PrivilegeMode,
+                   sum: bool, mxr: bool) -> bool {
+        let (r, w, x, u) = (self.perm & 1 != 0, self.perm & 2 != 0,
+                             self.perm & 4 != 0, self.perm & 8 != 0);
 
-        let perm_ok = match ctx.kind {
-            AccessKind::Load  => r || (ctx.mxr && x),
-            AccessKind::Store | AccessKind::Amo => w,
-            AccessKind::Fetch => x,
+        let perm_ok = match op {
+            MemOp::Fetch => x,
+            MemOp::Load  => r || (mxr && x),
+            _            => w,
         };
 
         let priv_ok = if u {
-            ctx.priv_mode == PrivilegeMode::User
-                || (ctx.priv_mode == PrivilegeMode::Supervisor && ctx.sum)
+            priv_mode == PrivilegeMode::User
+                || (priv_mode == PrivilegeMode::Supervisor && sum)
         } else {
-            ctx.priv_mode != PrivilegeMode::User
+            priv_mode != PrivilegeMode::User
         };
 
         perm_ok && priv_ok
     }
 
-    fn translate(&self, vaddr: VirtAddr) -> PhysAddr {
-        let pg_offset = vaddr.as_usize() & (PAGE_SIZE - 1);
+    fn translate(&self, vaddr: VirtAddr, sv: &SvMode) -> usize {
         if self.level > 0 {
-            let mask = (1 << (self.level as usize * VPN_BITS + PAGE_SHIFT)) - 1;
-            PhysAddr::from((self.ppn << PAGE_SHIFT) & !mask | (vaddr.as_usize() & mask))
+            let mask = (1 << (self.level as usize * sv.vpn_bits + PAGE_SHIFT)) - 1;
+            (self.ppn << PAGE_SHIFT) & !mask | (vaddr.as_usize() & mask)
         } else {
-            PhysAddr::from(self.ppn << PAGE_SHIFT | pg_offset)
+            self.ppn << PAGE_SHIFT | (vaddr.as_usize() & (PAGE_SIZE - 1))
         }
     }
 }
@@ -818,7 +890,7 @@ impl Tlb {
 Matches KXemu's `TLBBlock` + `tlb_hit`/`tlb_push`/`tlb_fence`. Direct-mapped, indexed by
 lower VPN bits. ASID-tagged. Global pages (G=1) only flushed when `asid == None`.
 
-### 8. Effective privilege (MPRV)
+### 9. Effective privilege (MPRV)
 
 ```rust
 /// MPRV: when set in M-mode, data accesses use MPP's privilege level.
@@ -832,9 +904,10 @@ fn effective_priv(&self) -> PrivilegeMode {
 }
 ```
 
-Called in `translate_data` (load/store/AMO), NOT in `translate_fetch`.
+Called for data accesses (load/store/AMO), NOT for instruction fetch.
+Fetch always uses `self.privilege` directly (see §4 `fetch` code).
 
-### 9. sfence.vma
+### 10. sfence.vma
 
 ```
 INSTPAT("0001001 ????? ????? 000 00000 1110011", sfence_vma, R);
@@ -892,9 +965,9 @@ Test cases:
 ### Step 1: Wire Bus into CPU via `Arc<Mutex<Bus>>` (replace global MEMORY)
 
 **Files changed**:
-- MODIFY: `xcore/src/cpu/mod.rs` — add `bus: SharedBus` to `CPU`, clone to core
+- MODIFY: `xcore/src/cpu/mod.rs` — add `bus: Arc<Mutex<Bus>>` to `CPU`, clone to core
 - MODIFY: `xcore/src/cpu/core.rs` — `CoreOps::step(&mut self)` (no bus param)
-- MODIFY: `xcore/src/cpu/riscv/mod.rs` — add `bus: SharedBus` field, `bus()` accessor
+- MODIFY: `xcore/src/cpu/riscv/mod.rs` — add `bus: Arc<Mutex<Bus>>` field, `bus()` accessor
 - MODIFY: `xcore/src/cpu/riscv/mem.rs` — rewrite: `self.bus().read()`/`.write()` instead of `with_mem!`
 - MODIFY: `xcore/src/cpu/riscv/inst/base.rs` — `load_op`/`store_op` call `self.bus()` internally
 - MODIFY: `xcore/src/cpu/riscv/inst/atomic.rs` — `amo_w`/`amo_d`/`lr`/`sc` call `self.bus()`
@@ -902,7 +975,7 @@ Test cases:
 - DELETE: `xcore/src/memory/mod.rs` — replaced by device/bus + device/ram
 - DELETE: `xcore/src/cpu/mem.rs` — `MemOps` trait deleted entirely
 
-**Type alias**: `pub type SharedBus = Arc<Mutex<Bus>>;` in `device/bus.rs`.
+Bus shared as `Arc<Mutex<Bus>>` — no type alias.
 
 **Migration mechanics**: `with_mem!(read(addr, size))` → `self.bus().read(addr, size)`.
 `with_mem!(write(addr, size, val))` → `self.bus().write(addr, size, val)`.
@@ -917,46 +990,59 @@ After this step, `Ram` does raw byte access only. Alignment enforcement lives in
 `store_op`, `amo_w`, `amo_d`, `lr_*`, `sc_*` call `self.bus()`. The dispatch macro
 and all ~55 ALU/branch/CSR handlers remain unchanged from their original signatures.
 
-**Test migration**: Tests create `let bus = SharedBus::new(Bus::new(...))` and
-clone into `RVCore`. Or use a helper `setup_core() -> RVCore` that creates the bus.
+**Test migration**: `RVCore::new()` creates its own `Arc<Mutex<Bus>>`.
+Tests use `core.bus.lock().unwrap()` to read/write memory directly.
 
 **Zero behavioral change.** All 200 tests pass after this step.
 
-### Step 2: MMU skeleton (Bare mode)
+### Step 2: MMU + PMP skeletons (Bare mode, no PMP entries)
 
 **Files changed**:
-- NEW: `xcore/src/cpu/riscv/mmu.rs` — `Mmu`, `AccessKind`, `AccessCtx`, `MemFault`, `Tlb` (stub), `translate`
-- MODIFY: `xcore/src/cpu/riscv/mod.rs` — add `mmu: Mmu` to `RVCore`, add `translate`/`data_ctx`/`effective_priv`
-- MODIFY: `xcore/src/cpu/riscv/mem.rs` — `fetch`/`load`/`store` call `self.translate()` instead of identity mapping
+- NEW: `xcore/src/cpu/riscv/mmu.rs` — `Mmu` (cached config), `MemOp`, `SvMode`, `Tlb` (stub)
+- NEW: `xcore/src/cpu/riscv/pmp.rs` — `Pmp` (16 entries, all Off initially)
+- MODIFY: `xcore/src/cpu/riscv/mod.rs` — add `mmu: Mmu` + `pmp: Pmp` to `RVCore`, add `translate`/`effective_priv`/`mem_fault_to_trap`
+- MODIFY: `xcore/src/cpu/riscv/mem.rs` — `fetch`/`load`/`store` call `self.translate(vaddr, kind, priv)` instead of identity mapping
 
-In Bare mode, `translate` returns identity: `Ok(PhysAddr::from(vaddr.as_usize()))`.
-The alignment-check → lock bus → translate → bus-access pattern shown in §4 is established here.
+In Bare mode (default) with no PMP entries, both pass through:
+- `Mmu::translate` returns identity `Ok(vaddr.as_usize())`
+- `Pmp::check` returns `Ok(())` (M-mode, no locked entries)
+
+The full path established: alignment → lock bus → MMU → PMP → bus access.
 
 **Zero behavioral change.** M-mode with Bare satp = current behavior.
 
-### Step 3: Page walk (SV32 / SV39)
+### Step 3: Page walk (SV32 / SV39) + PMP on PTE reads
 
 **Files changed**:
-- MODIFY: `xcore/src/cpu/riscv/mmu.rs` — add `page_walk`, `satp_mode`/`satp_ppn`/`satp_asid` helpers
+- MODIFY: `xcore/src/cpu/riscv/mmu.rs` — add `page_walk`, `check_leaf_perm`, `Pte`, `PteFlags`
+- MODIFY: `xcore/src/cpu/riscv/pmp.rs` — implement `Pmp::check` (TOR, NA4, NAPOT matching)
+- MODIFY: `xcore/src/cpu/riscv/csr/ops.rs` — satp write → `mmu.update_satp()`, mstatus write → `mmu.update_mstatus()`, pmpcfg/pmpaddr write → `pmp.update()`
 
-**Page walk uses `bus.read_ram()`**, not `bus.read()`. A misconfigured satp pointing
-at MMIO returns `MemFault::Access`, never triggers a device read.
+Page walk calls `pmp.check(pte_addr, Load, Supervisor)` before each PTE read (spec §3.7.1).
+Final paddr checked by `RVCore::translate()` after MMU returns.
 
-**Test plan**: Create a `Bus`, manually write a page table structure into RAM,
-set satp, call `mmu.translate` and verify the returned physical address.
+**Test plan**: Create a Bus, manually write page tables into RAM,
+call `mmu.translate` and verify results.
 
-Test cases:
+Test cases (MMU):
 1. Single-level mapping (4 KB page)
 2. Superpage (4 MB for SV32, 2 MB for SV39)
-3. Invalid PTE (V=0) → MemFault::Page
-4. Permission violation (write to read-only) → MemFault::Page
-5. Superpage misalignment → MemFault::Page
-6. Svade: A=0 → MemFault::Page, D=0 on write → MemFault::Page
-7. SV39 canonical address violation → MemFault::Page
-8. U-bit: U-mode access to S-page → MemFault::Page
+3. Invalid PTE (V=0) → PageFault
+4. Permission violation (write to read-only) → PageFault
+5. Superpage misalignment → PageFault
+6. Svade: A=0 → PageFault, D=0 on write → PageFault
+7. SV39 canonical address violation → PageFault
+8. U-bit: U-mode access to S-page → PageFault
 9. SUM: S-mode access to U-page with SUM=0 → fault, SUM=1 → OK
 10. MXR: read from X-only page with MXR=0 → fault, MXR=1 → OK
-11. PTE address in MMIO range → MemFault::Access (not MemFault::Page)
+11. PTE address in MMIO range → BadAddress
+
+Test cases (PMP):
+12. No PMP entries → M-mode allowed, S/U-mode denied (no match → BadAddress)
+13. NAPOT region with R+W → S-mode read/write OK, execute denied
+14. TOR region boundaries: addr at low bound OK, at high bound denied
+15. Locked entry enforced in M-mode
+16. PMP denies PTE read during page walk → BadAddress
 
 ### Step 4: TLB + sfence.vma
 
@@ -1002,17 +1088,19 @@ Phase 4 adds devices: `bus.add_mmio("uart", UART_BASE, UART_SIZE, Box::new(Uart:
 |------|------|---------|
 | `Device` | trait | MMIO device read/write (2 methods) |
 | `Ram` | struct | Byte array, owned directly by Bus (not a Device) |
-| `Bus` | struct | RAM + MMIO dispatch, provides `read_ram` for page walk |
-| `SharedBus` | type alias | `Arc<Mutex<Bus>>` — shared between CPU and cores |
-| `Mmu` | struct | TLB + page walk |
+| `Bus` | struct | RAM + MMIO dispatch, `read_ram` for page walk |
+| `Mmu` | struct | Cached satp/mstatus config + TLB + page walk |
+| `Pmp` | struct | Cached pmpcfg/pmpaddr, physical address permission gate |
 | `Tlb` | struct | Direct-mapped translation cache (64 entries) |
-| `AccessKind` | enum | Fetch / Load / Store / Amo |
-| `AccessCtx` | struct | Full translation context (kind + priv + SUM/MXR + satp) |
-| `MemFault` | enum | Page / Access — ISA-agnostic translation failure |
-| `Pte` | struct | Decoded PTE — all bit manipulation lives here |
+| `SvMode` | struct | Page table format descriptor (levels, pte_size, vpn_bits, va_bits) |
+| `MemOp` | enum | Fetch / Load / Store / Amo |
+| `Pte` | struct | PTE bitfield accessor (no policy) |
 | `PteFlags` | bitflags | V/R/W/X/U/G/A/D flag bits |
 
-**11 types total.** `SharedBus` is a thin alias. `Pte` + `PteFlags` are internal to `mmu.rs`.
+**10 types.** `SvMode` is a simple const struct — `SV32`/`SV39`/`SV48`/`SV57` are
+static constants. Adding new modes requires zero code changes to the walk.
+No `MemFault` — reuse `XError::PageFault` + `XError::BadAddress`.
+`Pte`/`PteFlags`/`PmpEntry` internal. `Bus` shared via `Arc<Mutex<Bus>>`.
 They encapsulate PTE bit twiddling so the walk loop stays clean (~20 lines).
 Pattern borrowed from arceos `GenericPTE` + asterinas `PteFlags`.
 
@@ -1056,8 +1144,8 @@ PTE (32 bits):
 │ PPN[1:0] (22 bits)   │RSW │D│A│G│U│X│W│R│V│
 └──────────────────────┴────┴─┴─┴─┴─┴─┴─┴─┴─┘
 
-LEVELS = 2, PTESIZE = 4, VPN_BITS = 10
-Page sizes: 4 KB (i=0), 4 MB megapage (i=1)
+SvMode: SV32 { levels: 2, pte_size: 4, vpn_bits: 10, va_bits: 32 }
+Page sizes: 4 KB (level 0), 4 MB megapage (level 1)
 ```
 
 ### SV39 (RV64)
@@ -1075,8 +1163,8 @@ PTE (64 bits):
 │ 10 bits │                      │    │ │ │ │ │ │ │ │ │
 └─────────┴──────────────────────┴────┴─┴─┴─┴─┴─┴─┴─┴─┘
 
-LEVELS = 3, PTESIZE = 8, VPN_BITS = 9
-Page sizes: 4 KB (i=0), 2 MB megapage (i=1), 1 GB gigapage (i=2)
+SvMode: SV39 { levels: 3, pte_size: 8, vpn_bits: 9, va_bits: 39 }
+Page sizes: 4 KB (level 0), 2 MB megapage (level 1), 1 GB gigapage (level 2)
 ```
 
 ## PTE Permission Rules

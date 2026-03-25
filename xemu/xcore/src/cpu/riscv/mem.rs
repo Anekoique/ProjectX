@@ -1,66 +1,62 @@
-use std::sync::MutexGuard;
-
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use super::RVCore;
 use crate::{
     config::{Word, word_to_u32},
-    cpu::riscv::trap::Exception,
-    device::bus::Bus,
-    error::XResult,
-};
-
-struct Faults {
-    misaligned: Exception,
-    access: Exception,
-}
-
-const LOAD_FAULTS: Faults = Faults {
-    misaligned: Exception::LoadMisaligned,
-    access: Exception::LoadAccessFault,
-};
-
-const STORE_FAULTS: Faults = Faults {
-    misaligned: Exception::StoreMisaligned,
-    access: Exception::StoreAccessFault,
+    cpu::riscv::{csr::PrivilegeMode, mmu::MemOp, trap::Exception},
+    error::{XError, XResult},
 };
 
 impl RVCore {
-    fn bus(&self) -> MutexGuard<'_, Bus> {
-        self.bus.lock().expect("bus lock poisoned")
-    }
-
-    /// Identity mapping — will be replaced by MMU translate in Step 2.
-    pub(super) fn virt_to_phys(&self, vaddr: VirtAddr) -> usize {
-        vaddr.as_usize()
-    }
-
-    fn checked_read(&mut self, addr: VirtAddr, size: usize, faults: &Faults) -> XResult<Word> {
-        let tval = addr.as_usize() as Word;
-        if !addr.is_aligned(size) {
-            return self.trap_exception(faults.misaligned, tval);
+    /// Effective privilege for data accesses (accounts for MPRV).
+    fn effective_priv(&self) -> PrivilegeMode {
+        use crate::cpu::riscv::csr::MStatus;
+        let ms =
+            MStatus::from_bits_truncate(self.csr.get(crate::cpu::riscv::csr::CsrAddr::mstatus));
+        if self.privilege == PrivilegeMode::Machine && ms.contains(MStatus::MPRV) {
+            ms.mpp()
+        } else {
+            self.privilege
         }
-        let paddr = self.virt_to_phys(addr);
-        self.bus()
-            .read(paddr, size)
-            .or_else(|_| self.trap_exception(faults.access, tval))
     }
 
-    fn checked_write(
-        &mut self,
-        addr: VirtAddr,
-        size: usize,
-        value: Word,
-        faults: &Faults,
-    ) -> XResult {
-        let tval = addr.as_usize() as Word;
-        if !addr.is_aligned(size) {
-            return self.trap_exception(faults.misaligned, tval);
-        }
-        let paddr = self.virt_to_phys(addr);
-        self.bus()
-            .write(paddr, size, value)
-            .or_else(|_| self.trap_exception(faults.access, tval))
+    /// Full access path: vaddr → MMU translate → PMP check → paddr.
+    fn translate(&mut self, vaddr: VirtAddr, op: MemOp) -> XResult<usize> {
+        let bus = self.bus.lock().expect("bus lock poisoned");
+        let priv_mode = match op {
+            MemOp::Fetch => self.privilege,
+            _ => self.effective_priv(),
+        };
+        let paddr = self
+            .mmu
+            .translate(vaddr, op, priv_mode, &self.pmp, &bus)
+            .map_err(|e| Self::map_mem_err(e, vaddr, op))?;
+        self.pmp
+            .check(paddr, op, self.privilege)
+            .map_err(|e| Self::map_mem_err(e, vaddr, op))?;
+        Ok(paddr)
+    }
+
+    /// Map XError::{PageFault, BadAddress} → RISC-V trap.
+    fn map_mem_err(err: XError, vaddr: VirtAddr, op: MemOp) -> XError {
+        let tval = vaddr.as_usize() as Word;
+        let exc = match err {
+            XError::PageFault => match op {
+                MemOp::Fetch => Exception::InstructionPageFault,
+                MemOp::Load => Exception::LoadPageFault,
+                _ => Exception::StorePageFault,
+            },
+            XError::BadAddress => match op {
+                MemOp::Fetch => Exception::InstructionAccessFault,
+                MemOp::Load => Exception::LoadAccessFault,
+                _ => Exception::StoreAccessFault,
+            },
+            other => return other,
+        };
+        XError::Trap(crate::cpu::riscv::trap::PendingTrap {
+            cause: crate::cpu::riscv::trap::TrapCause::Exception(exc),
+            tval,
+        })
     }
 
     pub(super) fn fetch(&mut self) -> XResult<u32> {
@@ -68,11 +64,13 @@ impl RVCore {
         if !self.pc.is_aligned(2_usize) {
             return self.trap_exception(Exception::InstructionMisaligned, tval);
         }
-        let paddr = self.virt_to_phys(self.pc);
+        let paddr = self.translate(self.pc, MemOp::Fetch)?;
         let word = self
-            .bus()
+            .bus
+            .lock()
+            .unwrap()
             .read(paddr, 4)
-            .or_else(|_| self.trap_exception(Exception::InstructionAccessFault, tval))?;
+            .map_err(|e| Self::map_mem_err(e, self.pc, MemOp::Fetch))?;
         let inst = word_to_u32(word);
         Ok(if inst & 0b11 != 0b11 {
             inst & 0xFFFF
@@ -82,19 +80,56 @@ impl RVCore {
     }
 
     pub(super) fn load(&mut self, addr: VirtAddr, size: usize) -> XResult<Word> {
-        self.checked_read(addr, size, &LOAD_FAULTS)
+        if !addr.is_aligned(size) {
+            return self.trap_exception(Exception::LoadMisaligned, addr.as_usize() as Word);
+        }
+        let paddr = self.translate(addr, MemOp::Load)?;
+        self.bus
+            .lock()
+            .unwrap()
+            .read(paddr, size)
+            .map_err(|e| Self::map_mem_err(e, addr, MemOp::Load))
     }
 
     pub(super) fn store(&mut self, addr: VirtAddr, size: usize, value: Word) -> XResult {
-        self.checked_write(addr, size, value, &STORE_FAULTS)
+        if !addr.is_aligned(size) {
+            return self.trap_exception(Exception::StoreMisaligned, addr.as_usize() as Word);
+        }
+        let paddr = self.translate(addr, MemOp::Store)?;
+        self.bus
+            .lock()
+            .unwrap()
+            .write(paddr, size, value)
+            .map_err(|e| Self::map_mem_err(e, addr, MemOp::Store))
     }
 
     pub(super) fn amo_load(&mut self, addr: VirtAddr, size: usize) -> XResult<Word> {
-        self.checked_read(addr, size, &STORE_FAULTS)
+        if !addr.is_aligned(size) {
+            return self.trap_exception(Exception::StoreMisaligned, addr.as_usize() as Word);
+        }
+        let paddr = self.translate(addr, MemOp::Amo)?;
+        self.bus
+            .lock()
+            .unwrap()
+            .read(paddr, size)
+            .map_err(|e| Self::map_mem_err(e, addr, MemOp::Amo))
     }
 
     pub(super) fn amo_store(&mut self, addr: VirtAddr, size: usize, value: Word) -> XResult {
-        self.checked_write(addr, size, value, &STORE_FAULTS)
+        if !addr.is_aligned(size) {
+            return self.trap_exception(Exception::StoreMisaligned, addr.as_usize() as Word);
+        }
+        let paddr = self.translate(addr, MemOp::Amo)?;
+        self.bus
+            .lock()
+            .unwrap()
+            .write(paddr, size, value)
+            .map_err(|e| Self::map_mem_err(e, addr, MemOp::Amo))
+    }
+
+    /// Identity virt→phys for LR/SC reservation tracking.
+    pub(super) fn virt_to_phys(&self, vaddr: VirtAddr) -> usize {
+        vaddr.as_usize()
     }
 }
 

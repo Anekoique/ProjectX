@@ -51,7 +51,13 @@ pub struct CPU<Core: CoreOps> {
 impl<Core: CoreOps> CPU<Core> {
     pub fn new(core: Core) -> Self {
         let bus = core.bus().clone();
-        Self { core, bus, state: State::IDLE, halt_pc: VirtAddr::from(0), halt_ret: 0 }
+        Self {
+            core,
+            bus,
+            state: State::IDLE,
+            halt_pc: VirtAddr::from(0),
+            halt_ret: 0,
+        }
     }
 
     pub fn reset(&mut self) -> XResult {

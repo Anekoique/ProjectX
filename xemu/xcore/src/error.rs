@@ -8,6 +8,7 @@ pub enum XError {
     Trap(PendingTrap),
     // Memory management
     BadAddress,
+    PageFault,
     AddrNotAligned,
     // Instruction decoding
     PatternError,
@@ -35,6 +36,7 @@ impl XError {
         match self {
             XError::Trap(_) => "trap triggered",
             XError::BadAddress => "bad address",
+            XError::PageFault => "page fault",
             XError::AddrNotAligned => "address not aligned",
 
             XError::PatternError => "pattern error",
@@ -74,6 +76,7 @@ mod tests {
     fn all_variants_have_distinct_nonempty_messages() {
         let variants = [
             XError::BadAddress,
+            XError::PageFault,
             XError::AddrNotAligned,
             XError::PatternError,
             XError::ParseError,
