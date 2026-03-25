@@ -9,15 +9,11 @@ impl RVCore {
         let src = self.gpr[rs1];
 
         if rd != RVReg::zero {
-            let Some(old) = self.csr_read(addr) else {
-                return Ok(());
-            };
-            if !self.csr_write(addr, src) {
-                return Ok(());
-            }
+            let old = self.csr_read(addr)?;
+            self.csr_write(addr, src)?;
             self.set_gpr(rd, old)?;
-        } else if !self.csr_write(addr, src) {
-            return Ok(());
+        } else {
+            self.csr_write(addr, src)?;
         }
         Ok(())
     }
@@ -27,11 +23,9 @@ impl RVCore {
     pub(super) fn csrrs(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
         let addr = (imm as u16) & 0xFFF;
 
-        let Some(old) = self.csr_read(addr) else {
-            return Ok(());
-        };
-        if rs1 != RVReg::zero && !self.csr_write(addr, old | self.gpr[rs1]) {
-            return Ok(());
+        let old = self.csr_read(addr)?;
+        if rs1 != RVReg::zero {
+            self.csr_write(addr, old | self.gpr[rs1])?;
         }
         self.set_gpr(rd, old)?;
         Ok(())
@@ -42,11 +36,9 @@ impl RVCore {
     pub(super) fn csrrc(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
         let addr = (imm as u16) & 0xFFF;
 
-        let Some(old) = self.csr_read(addr) else {
-            return Ok(());
-        };
-        if rs1 != RVReg::zero && !self.csr_write(addr, old & !self.gpr[rs1]) {
-            return Ok(());
+        let old = self.csr_read(addr)?;
+        if rs1 != RVReg::zero {
+            self.csr_write(addr, old & !self.gpr[rs1])?;
         }
         self.set_gpr(rd, old)?;
         Ok(())
@@ -58,15 +50,11 @@ impl RVCore {
         let uimm = u8::from(rs1) as crate::config::Word;
 
         if rd != RVReg::zero {
-            let Some(old) = self.csr_read(addr) else {
-                return Ok(());
-            };
-            if !self.csr_write(addr, uimm) {
-                return Ok(());
-            }
+            let old = self.csr_read(addr)?;
+            self.csr_write(addr, uimm)?;
             self.set_gpr(rd, old)?;
-        } else if !self.csr_write(addr, uimm) {
-            return Ok(());
+        } else {
+            self.csr_write(addr, uimm)?;
         }
         Ok(())
     }
@@ -77,11 +65,9 @@ impl RVCore {
         let addr = (imm as u16) & 0xFFF;
         let uimm = u8::from(rs1) as crate::config::Word;
 
-        let Some(old) = self.csr_read(addr) else {
-            return Ok(());
-        };
-        if uimm != 0 && !self.csr_write(addr, old | uimm) {
-            return Ok(());
+        let old = self.csr_read(addr)?;
+        if uimm != 0 {
+            self.csr_write(addr, old | uimm)?;
         }
         self.set_gpr(rd, old)?;
         Ok(())
@@ -93,11 +79,9 @@ impl RVCore {
         let addr = (imm as u16) & 0xFFF;
         let uimm = u8::from(rs1) as crate::config::Word;
 
-        let Some(old) = self.csr_read(addr) else {
-            return Ok(());
-        };
-        if uimm != 0 && !self.csr_write(addr, old & !uimm) {
-            return Ok(());
+        let old = self.csr_read(addr)?;
+        if uimm != 0 {
+            self.csr_write(addr, old & !uimm)?;
         }
         self.set_gpr(rd, old)?;
         Ok(())
@@ -107,7 +91,10 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cpu::riscv::csr::{CsrAddr, Exception, TrapCause};
+    use crate::cpu::riscv::{
+        csr::CsrAddr,
+        trap::test_helpers::assert_illegal_inst,
+    };
 
     fn setup_core() -> RVCore {
         RVCore::new()
@@ -204,13 +191,7 @@ mod tests {
         let mut core = setup_core();
         let bad_addr = 0xFFF as SWord;
 
-        core.csrrs(RVReg::t0, RVReg::zero, bad_addr).unwrap();
-
-        let trap = core.pending_trap.unwrap();
-        assert_eq!(
-            trap.cause,
-            TrapCause::Exception(Exception::IllegalInstruction)
-        );
+        assert_illegal_inst(core.csrrs(RVReg::t0, RVReg::zero, bad_addr));
     }
 
     #[test]
@@ -220,13 +201,7 @@ mod tests {
         let mvendorid_addr = CsrAddr::mvendorid as SWord;
         core.gpr[RVReg::t0] = 0xFF;
 
-        core.csrrw(RVReg::t1, RVReg::t0, mvendorid_addr).unwrap();
-
-        let trap = core.pending_trap.unwrap();
-        assert_eq!(
-            trap.cause,
-            TrapCause::Exception(Exception::IllegalInstruction)
-        );
+        assert_illegal_inst(core.csrrw(RVReg::t1, RVReg::t0, mvendorid_addr));
     }
 
     #[test]
@@ -248,12 +223,6 @@ mod tests {
         let mut core = setup_core();
         core.privilege = crate::cpu::riscv::csr::PrivilegeMode::User;
         // mscratch is M-mode (0x340) — U-mode can't access
-        core.csrrs(RVReg::t0, RVReg::zero, mscratch_addr()).unwrap();
-
-        let trap = core.pending_trap.unwrap();
-        assert_eq!(
-            trap.cause,
-            TrapCause::Exception(Exception::IllegalInstruction)
-        );
+        assert_illegal_inst(core.csrrs(RVReg::t0, RVReg::zero, mscratch_addr()));
     }
 }

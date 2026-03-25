@@ -1,15 +1,17 @@
 use core::fmt;
 
+use crate::cpu::PendingTrap;
+
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug)]
 pub enum XError {
+    Trap(PendingTrap),
     // Memory management
     BadAddress,
     AddrNotAligned,
     // Instruction decoding
     PatternError,
     ParseError,
-    DecodeError,
     InvalidInst,
     InvalidReg,
     // IO errors
@@ -22,14 +24,21 @@ pub enum XError {
 pub type XResult<T = ()> = Result<T, XError>;
 
 impl XError {
+    pub fn as_trap(&self) -> Option<crate::cpu::PendingTrap> {
+        match self {
+            Self::Trap(t) => Some(*t),
+            _ => None,
+        }
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
+            XError::Trap(_) => "trap triggered",
             XError::BadAddress => "bad address",
             XError::AddrNotAligned => "address not aligned",
 
             XError::PatternError => "pattern error",
             XError::ParseError => "parse error",
-            XError::DecodeError => "decode error",
             XError::InvalidInst => "invalid instruction",
             XError::InvalidReg => "invalid register",
             XError::FailedToRead => "failed to read",
@@ -50,7 +59,10 @@ macro_rules! ensure {
 
 impl fmt::Display for XError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.as_str())
+        match self {
+            XError::Trap(trap) => write!(f, "trap {trap:?} thrown"),
+            _ => write!(f, "{}", self.as_str()),
+        }
     }
 }
 
@@ -65,7 +77,6 @@ mod tests {
             XError::AddrNotAligned,
             XError::PatternError,
             XError::ParseError,
-            XError::DecodeError,
             XError::InvalidInst,
             XError::InvalidReg,
             XError::FailedToRead,

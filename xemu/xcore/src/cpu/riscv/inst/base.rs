@@ -8,10 +8,9 @@ use super::RVCore;
 use crate::error::XError;
 use crate::{
     config::{SWord, Word, word_to_shamt},
-    cpu::MemOps,
+    cpu::mem::MemOps,
     error::XResult,
     isa::RVReg,
-    memory::with_mem,
     utils::sext_word,
 };
 
@@ -65,7 +64,7 @@ impl RVCore {
     }
 
     #[inline(always)]
-    pub(super) fn load_with<F>(
+    pub(super) fn load_op<F>(
         &mut self,
         rd: RVReg,
         rs1: RVReg,
@@ -77,26 +76,26 @@ impl RVCore {
         F: FnOnce(Word) -> Word,
     {
         let addr = self.eff_addr(rs1, imm);
-        let value = with_mem!(read(self.virt_to_phys(addr), size))?;
+        let value = self.load(addr, size)?;
         self.set_gpr(rd, extend(value))
     }
 
     #[inline(always)]
-    pub(super) fn store(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize) -> XResult {
+    pub(super) fn store_op(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, size: usize) -> XResult {
         let addr = self.eff_addr(rs1, imm);
         let mask = if size >= std::mem::size_of::<Word>() {
             Word::MAX
         } else {
             (1 as Word).wrapping_shl(size as u32 * 8) - 1
         };
-        with_mem!(write(self.virt_to_phys(addr), size, self.gpr[rs2] & mask))?;
+        self.store(addr, size, self.gpr[rs2] & mask)?;
         // Any store invalidates a pending LR/SC reservation (RISC-V spec §8.2).
         self.reservation = None;
         Ok(())
     }
 
     #[inline(always)]
-    pub(super) fn branch<F>(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, cond: F) -> XResult
+    pub(super) fn branch_op<F>(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord, cond: F) -> XResult
     where
         F: FnOnce(Word, Word) -> bool,
     {
@@ -256,27 +255,27 @@ impl RVCore {
 
 impl RVCore {
     pub(super) fn lb(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 1, |v| sext_word(v, 8))
+        self.load_op(rd, rs1, imm, 1, |v| sext_word(v, 8))
     }
 
     pub(super) fn lh(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 2, |v| sext_word(v, 16))
+        self.load_op(rd, rs1, imm, 2, |v| sext_word(v, 16))
     }
 
     pub(super) fn lw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 4, |v| sext_word(v, 32))
+        self.load_op(rd, rs1, imm, 4, |v| sext_word(v, 32))
     }
 
     pub(super) fn ld(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 8, |v| v)
+        self.load_op(rd, rs1, imm, 8, |v| v)
     }
 
     pub(super) fn lbu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 1, |v| v & 0xFF)
+        self.load_op(rd, rs1, imm, 1, |v| v & 0xFF)
     }
 
     pub(super) fn lhu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.load_with(rd, rs1, imm, 2, |v| v & 0xFFFF)
+        self.load_op(rd, rs1, imm, 2, |v| v & 0xFFFF)
     }
 
     pub(super) fn lwu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
@@ -286,19 +285,19 @@ impl RVCore {
             return Err(XError::InvalidInst);
         }
         #[cfg(isa64)]
-        self.load_with(rd, rs1, imm, 4, |v| v & 0xFFFF_FFFF)
+        self.load_op(rd, rs1, imm, 4, |v| v & 0xFFFF_FFFF)
     }
 
     pub(super) fn sb(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.store(rs1, rs2, imm, 1)
+        self.store_op(rs1, rs2, imm, 1)
     }
 
     pub(super) fn sh(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.store(rs1, rs2, imm, 2)
+        self.store_op(rs1, rs2, imm, 2)
     }
 
     pub(super) fn sw(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.store(rs1, rs2, imm, 4)
+        self.store_op(rs1, rs2, imm, 4)
     }
 
     pub(super) fn sd(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
@@ -308,7 +307,7 @@ impl RVCore {
             return Err(XError::InvalidInst);
         }
         #[cfg(isa64)]
-        self.store(rs1, rs2, imm, 8)
+        self.store_op(rs1, rs2, imm, 8)
     }
 }
 
@@ -316,27 +315,27 @@ impl RVCore {
 
 impl RVCore {
     pub(super) fn beq(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |a, b| a == b)
+        self.branch_op(rs1, rs2, imm, |a, b| a == b)
     }
 
     pub(super) fn bne(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |a, b| a != b)
+        self.branch_op(rs1, rs2, imm, |a, b| a != b)
     }
 
     pub(super) fn blt(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |a, b| (a as SWord) < (b as SWord))
+        self.branch_op(rs1, rs2, imm, |a, b| (a as SWord) < (b as SWord))
     }
 
     pub(super) fn bge(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |a, b| (a as SWord) >= (b as SWord))
+        self.branch_op(rs1, rs2, imm, |a, b| (a as SWord) >= (b as SWord))
     }
 
     pub(super) fn bltu(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |a, b| a < b)
+        self.branch_op(rs1, rs2, imm, |a, b| a < b)
     }
 
     pub(super) fn bgeu(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.branch(rs1, rs2, imm, |a, b| a >= b)
+        self.branch_op(rs1, rs2, imm, |a, b| a >= b)
     }
 
     pub(super) fn jal(&mut self, rd: RVReg, imm: SWord) -> XResult {
@@ -367,7 +366,7 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::CONFIG_MBASE;
+    use crate::{config::CONFIG_MBASE, memory::with_mem};
 
     const TEST_BASE: usize = CONFIG_MBASE + 0x1000;
 
@@ -376,7 +375,7 @@ mod tests {
     }
 
     fn write_bytes(core: &RVCore, offset: usize, bytes: &[u8]) {
-        with_mem!(load(phys(core, offset), bytes)).expect("write_bytes failed");
+        with_mem!(load_img(phys(core, offset), bytes)).expect("write_bytes failed");
     }
 
     fn read_word(core: &RVCore, offset: usize, size: usize) -> Word {

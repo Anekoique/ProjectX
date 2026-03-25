@@ -5,22 +5,21 @@ pub mod trap;
 
 use memory_addr::{MemoryAddr, VirtAddr};
 
-pub use self::RVCore as Core;
+pub use self::{RVCore as Core, trap::PendingTrap};
 use self::{
     csr::{CsrFile, PrivilegeMode},
-    trap::{PendingTrap, TrapCause},
+    trap::TrapCause,
 };
 use super::{CoreOps, MemOps, RESET_VECTOR};
 use crate::{
-    config::{Word, word_to_u32},
+    config::Word,
     error::XResult,
     isa::{DECODER, DecodedInst, RVReg},
-    memory::with_mem,
 };
 
 pub struct RVCore {
     gpr: [Word; 32],
-    pub pc: VirtAddr,
+    pc: VirtAddr,
     npc: VirtAddr,
     pub(crate) csr: CsrFile,
     pub(crate) privilege: PrivilegeMode,
@@ -50,16 +49,6 @@ impl RVCore {
             self.pending_trap
         );
         self.pending_trap = Some(PendingTrap { cause, tval });
-    }
-
-    fn fetch(&self) -> XResult<u32> {
-        let word = with_mem!(fetch_u32(self.virt_to_phys(self.pc), 4))?;
-        let inst = word_to_u32(word);
-        if (inst & 0b11) != 0b11 {
-            Ok(inst & 0xFFFF)
-        } else {
-            Ok(inst)
-        }
     }
 
     fn decode(&self, raw: u32) -> XResult<DecodedInst> {
@@ -104,21 +93,18 @@ impl CoreOps for RVCore {
     }
 
     fn step(&mut self) -> XResult {
-        // 1. Interrupt sampling — before fetch
         if self.check_pending_interrupts() {
             self.retire();
             return Ok(());
         }
 
-        // 2. Fetch
-        let raw = self.fetch()?;
+        self.trap_on_err(|core| {
+            let raw = core.fetch()?;
+            let inst = core.decode(raw)?;
+            core.execute(inst)
+        })?;
 
-        // 3. Decode + Execute
-        self.execute(self.decode(raw)?)?;
-
-        // 4. Retire — commit trap if any, advance pc and counters
         self.retire();
-
         Ok(())
     }
 
@@ -137,6 +123,7 @@ mod tests {
     use crate::{
         config::CONFIG_MBASE,
         cpu::riscv::{csr::CsrAddr, trap::Exception},
+        memory::with_mem,
     };
 
     #[test]

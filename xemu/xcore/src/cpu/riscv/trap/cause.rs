@@ -27,7 +27,7 @@ impl TrapCause {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PendingTrap {
     pub cause: TrapCause,
     pub tval: Word,

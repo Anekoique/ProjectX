@@ -6,5 +6,4 @@
 **/build/
 /.claude
 .DS_Store
-CLAUDE.md
 .result

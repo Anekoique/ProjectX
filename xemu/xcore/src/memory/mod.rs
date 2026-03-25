@@ -56,7 +56,7 @@ impl Memory {
     /// Read with relaxed alignment (IALIGN=16: 2-byte aligned).
     /// Used for instruction fetch where 32-bit instructions may start at
     /// non-4-aligned addresses.
-    pub fn fetch_u32(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
+    pub fn fetch(&self, addr: PhysAddr, size: usize) -> XResult<Word> {
         ensure!(addr.is_aligned(2_usize), Err(XError::AddrNotAligned));
         self.access(addr, size).map(|off| self.read_at(off, size))
     }
@@ -72,7 +72,7 @@ impl Memory {
         })
     }
 
-    pub fn load(&mut self, addr: PhysAddr, data: &[u8]) -> XResult {
+    pub fn load_img(&mut self, addr: PhysAddr, data: &[u8]) -> XResult {
         let size = data.len();
         self.access(addr, size).map(|offset| {
             self.data[offset..offset + size].copy_from_slice(data);
@@ -131,7 +131,7 @@ mod tests {
 
         assert!(matches!(mem.read(base + 1, 2), Err(XError::AddrNotAligned)));
         assert!(matches!(
-            mem.fetch_u32(base + 1, 4),
+            mem.fetch(base + 1, 4),
             Err(XError::AddrNotAligned)
         ));
     }
@@ -174,11 +174,11 @@ mod tests {
             Err(XError::BadAddress)
         ));
         assert!(matches!(
-            mem.fetch_u32(near_end_half, 4),
+            mem.fetch(near_end_half, 4),
             Err(XError::BadAddress)
         ));
         assert!(matches!(
-            mem.load(near_end_half, &[1, 2, 3, 4]),
+            mem.load_img(near_end_half, &[1, 2, 3, 4]),
             Err(XError::BadAddress)
         ));
     }
@@ -191,12 +191,12 @@ mod tests {
         // Write at 4-aligned address, fetch from 2-aligned offset
         mem.write(base, 4, 0xDEADBEEF).unwrap();
         // fetch_u32 from base (4-aligned) should work
-        assert_eq!(mem.fetch_u32(base, 4).unwrap() as u32, 0xDEADBEEF_u32);
+        assert_eq!(mem.fetch(base, 4).unwrap() as u32, 0xDEADBEEF_u32);
 
         // Write data and fetch from 2-byte-aligned but not 4-byte-aligned address
         mem.write(base + 4, 4, 0xCAFEBABE).unwrap();
         // fetch_u32 at base+2 should succeed (2-byte aligned)
-        let val = mem.fetch_u32(base + 2, 4).unwrap();
+        let val = mem.fetch(base + 2, 4).unwrap();
         // Bytes at offset 2..6: [0xBE, 0xDE, 0xBE, 0xBA] (little-endian cross-word
         // read)
         assert_eq!(val as u32, 0xBABEDEAD_u32);
@@ -207,7 +207,7 @@ mod tests {
         let mut mem = Memory::new();
         let base = mbase();
         let data = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88];
-        mem.load(base, &data).unwrap();
+        mem.load_img(base, &data).unwrap();
 
         assert_eq!(mem.read(base, 1).unwrap() as u8, 0x11);
         assert_eq!(mem.read(base + 2, 2).unwrap() as u16, 0x4433);
@@ -219,7 +219,7 @@ mod tests {
         let mut mem = Memory::new();
         let addr = mbase() + crate::config::CONFIG_MSIZE - 2;
         let data = [0u8; 4];
-        assert!(matches!(mem.load(addr, &data), Err(XError::BadAddress)));
+        assert!(matches!(mem.load_img(addr, &data), Err(XError::BadAddress)));
     }
 
     #[test]

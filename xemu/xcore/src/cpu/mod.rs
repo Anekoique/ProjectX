@@ -73,7 +73,7 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
                 std::fs::read(path)
                     .map_err(|_| XError::FailedToRead)
                     .and_then(|bytes| {
-                        with_mem!(load(addr, &bytes))?;
+                        with_mem!(load_img(addr, &bytes))?;
                         info!("Loaded {} bytes @ {:#x}", bytes.len(), addr);
                         Ok(())
                     })
@@ -182,14 +182,14 @@ mod tests {
     #[test]
     fn cpu_reset_sets_pc_to_reset_vector() {
         let mut cpu = new_cpu();
-        assert_eq!(cpu.core.pc, VirtAddr::from(RESET_VECTOR));
+        assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
         assert_eq!(cpu.state, State::IDLE);
 
         // Reset again to verify idempotency
         cpu.state = State::HALTED;
         cpu.reset().unwrap();
         assert_eq!(cpu.state, State::IDLE);
-        assert_eq!(cpu.core.pc, VirtAddr::from(RESET_VECTOR));
+        assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
     }
 
     #[test]

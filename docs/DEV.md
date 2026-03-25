@@ -1,17 +1,22 @@
 # xemu Development Plan
 
-## Current Status (2026-03-16)
+## Current Status (2026-03-23)
 
-xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust workspace (xcore, xdb, xlogger). It supports RV32/RV64 user-mode instruction execution in interactive and batch modes.
+xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, and interrupt routing.
 
 ### What Works
 
-- **ISA**: RV32I/RV64I base, M extension (mul/div), C extension (compressed)
-- **Memory**: Flat 128 MB physical memory, aligned access, bounds checking
-- **Decoding**: pest-based pattern matcher, 100+ instruction patterns
+- **ISA**: RV32I/RV64I base, M (mul/div), A (atomics: LR/SC + 9 AMO ops), C (compressed), Zicsr
+- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus)
+- **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
+- **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
+- **Memory**: Flat 128 MB physical memory, identity-mapped virt→phys
+- **Decoding**: pest-based pattern matcher, 130 instruction patterns
+- **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: step, continue, load, reset
 - **Logging**: Colored, timestamped, configurable log levels
-- **Tests**: 31 cpu-tests-rs (Rust) passing, unit tests in xcore
+- **Tests**: 196 unit tests passing, 31 cpu-tests-rs (integration)
+- **CI**: GitHub Actions pipeline
 
 ---
 
@@ -23,10 +28,11 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 |---------|------|-----------|
 | ISA width | RV32/RV64 (cfg) | RV64 only |
 | Compressed (C ext) | Yes | No |
-| CSR registers | Stub (unimplemented) | Full (mstatus, mtvec, satp, etc.) |
-| Privilege modes | None (M-mode only) | M/S/U with delegation |
+| Atomic (A ext) | Full (LR/SC + AMO) | No |
+| CSR registers | Full WARL + shadows | Full (mstatus, mtvec, satp, etc.) |
+| Privilege modes | M/S/U with delegation | M/S/U with delegation |
 | MMU / Virtual memory | Identity mapping | SV39 + TLB (2048 entries) |
-| Interrupts/Exceptions | None | Full (PLIC, timer, ecall trap) |
+| Interrupts/Exceptions | Full (priority, delegation, vectored) | Full (PLIC, timer, ecall trap) |
 | Devices | None | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
 | Difftest | None | QEMU via GDB protocol |
 | Debugger | step/continue/load/reset | + breakpoints, watchpoints, expression eval, backtrace |
@@ -34,26 +40,26 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 | Disassembly | None | LLVM-based disassembler |
 | Performance profiling | None | Per-instruction counters |
 
-**Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed instruction support.
-**Key gaps**: No CSR, no privilege modes, no devices, no MMU, no debugging beyond step.
+**Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic extensions, clean WARL CSR model.
+**Key gaps**: No MMU, no devices, no debugging beyond step.
 
 ### vs remu (~3,800 lines, RV32)
 
 | Feature | xemu | remu |
 |---------|------|------|
 | ISA width | RV32/RV64 | RV32 only |
-| Atomic (A ext) | None | LR/SC, AMO operations |
-| CSR registers | Stub | Full 4096-entry array |
-| Privilege modes | None | M/S/U with delegation |
+| Atomic (A ext) | Full (LR/SC + AMO .w/.d) | LR/SC, AMO operations |
+| CSR registers | Full WARL + shadows | Full 4096-entry array |
+| Privilege modes | M/S/U with delegation | M/S/U with delegation |
 | MMU / Virtual memory | Identity mapping | SV32 page tables |
-| Interrupts/Exceptions | None | CLINT + PLIC, M/S-mode traps |
+| Interrupts/Exceptions | Full trap framework | CLINT + PLIC, M/S-mode traps |
 | Devices | None | CLINT, PLIC, UART, Timer, VGA, Keyboard, Audio, Disk |
 | Tracing | Log only | 7 ring-buffered traces (itrace, mtrace, ftrace, dtrace, etc.) |
 | Configuration | Makefile env vars | Kconfig system (.config -> config.rs) |
 | Linux boot | No | Boots OpenSBI + Linux 5.15 |
 
-**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed insts.
-**Key gaps**: Cannot run any OS — missing CSR, privilege, interrupts, devices.
+**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation.
+**Key gaps**: Cannot run any OS — missing MMU and devices.
 
 ### Architectural Advantages of xemu
 
@@ -61,12 +67,13 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 2. **Workspace crate separation** — xcore (engine), xdb (debugger), xlogger (logging) are independently testable
 3. **Pest-based decoder** — declarative instruction patterns, easier to extend
 4. **Dual 32/64 via cfg_if** — single codebase for both widths
+5. **WARL CSR model** — write-mask + shadow register architecture matches spec precisely
 
 ---
 
 ## Development Roadmap
 
-### Phase 1: Foundation (Current → Near-term)
+### Phase 1: Foundation — COMPLETE
 
 **Goal**: Complete user-mode emulation, pass all cpu-tests.
 
@@ -75,24 +82,24 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 - [x] C extension (compressed)
 - [x] Batch mode execution
 - [x] 31 cpu-tests-rs passing
-- [ ] **C cpu-tests support** — implement `klib` (bare-metal printf/string) or adapt alu-test generator
-- [x] **A extension** — LR/SC, AMO instructions (needed for multi-threaded workloads)
+- [x] **A extension** — LR/SC, AMO instructions (22 ops, .w + .d variants)
+- [x] **xlib (klib)** — bare-metal C library (printf, string, stdio)
 
-### Phase 2: System Infrastructure
+### Phase 2: System Infrastructure — COMPLETE
 
 **Goal**: Support privileged execution, lay groundwork for OS.
 
-- [ ] **CSR subsystem** — implement mstatus, mtvec, mepc, mcause, mie, mip, satp, etc.
-- [ ] **Privilege modes** — M/S/U mode transitions, trap delegation (medeleg/mideleg)
-- [ ] **Exception handling** — ecall, illegal instruction, page fault, breakpoint traps
-- [ ] **Interrupt framework** — timer interrupt, external interrupt routing
+- [x] **CSR subsystem** — mstatus, mtvec, mepc, mcause, mie, mip, satp, medeleg/mideleg, counteren, WARL masks, shadow registers
+- [x] **Privilege modes** — M/S/U mode transitions, trap delegation
+- [x] **Exception handling** — ecall (per mode), illegal instruction, breakpoint, page fault causes defined
+- [x] **Interrupt framework** — priority-based interrupt selection, MIE/SIE gating, global enable, delegation routing, vectored mtvec/stvec
 
-### Phase 3: Memory Management
+### Phase 3: Memory Management ← NEXT
 
 **Goal**: Virtual memory and address translation.
 
 - [ ] **SV39 page tables** (RV64) / **SV32** (RV32) — multi-level page walk
-- [ ] **TLB** — translation lookaside buffer with flush on satp write
+- [ ] **TLB** — translation lookaside buffer with flush on satp write/sfence.vma
 - [ ] **Permission checks** — R/W/X/U bits, page fault generation
 - [ ] **MMIO routing** — address-range based dispatch to devices vs physical memory
 
@@ -124,7 +131,6 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 - [ ] **Difftest** — compare execution with QEMU/Spike via GDB protocol
 - [ ] **Instruction cache** — decoded instruction buffer to skip re-decoding hot paths
 - [ ] **Performance counters** — per-instruction statistics, IPC tracking
-- [ ] **alu-tests** — comprehensive arithmetic/logic test coverage
 
 ### Phase 7: OS Boot (Long-term)
 
@@ -140,14 +146,13 @@ xemu is an early-stage RISC-V emulator (~2,400 lines) in a multi-crate Rust work
 
 ## Priority Order
 
-The phases above are roughly ordered by dependency, but the practical priority is:
+The critical path to OS boot is:
 
-1. **Phase 1** — finish cpu-test coverage (alu-tests, A extension)
-2. **Phase 2 + Phase 3** — CSR + privilege + MMU (these are tightly coupled)
-3. **Phase 4** — devices (UART first, then timer/CLINT/PLIC)
-4. **Phase 5** — debugging (can be developed in parallel with phases 2-4)
-5. **Phase 6** — difftest (critical for catching bugs during phase 2-4 development)
-6. **Phase 7** — OS boot (the culmination of all previous work)
+1. **Phase 3 (MMU)** — the only remaining blocker for Phase 4 and OS boot
+2. **Phase 4 (Devices)** — UART + CLINT/Timer are minimum for console output and scheduling
+3. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
+4. **Phase 5 (Debugging)** — can develop in parallel with phases 3-4
+5. **Phase 7 (OS boot)** — the culmination of all previous work
 
 ---
 

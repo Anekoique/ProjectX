@@ -8,16 +8,14 @@ use super::RVCore;
 use crate::config::SWord;
 #[cfg(isa32)]
 use crate::error::XError;
-use crate::{
-    config::Word, cpu::MemOps, error::XResult, isa::RVReg, memory::with_mem, utils::sext_word,
-};
+use crate::{config::Word, cpu::mem::MemOps, error::XResult, isa::RVReg, utils::sext_word};
 
 // --- Helpers ---
 
 impl RVCore {
-    /// Physical address for atomic access at M[rs1].
-    fn amo_addr(&self, rs1: RVReg) -> memory_addr::PhysAddr {
-        self.virt_to_phys(self.eff_addr(rs1, 0))
+    /// Virtual address for atomic access at M[rs1].
+    fn amo_addr(&self, rs1: RVReg) -> memory_addr::VirtAddr {
+        self.eff_addr(rs1, 0)
     }
 
     /// Atomic load-modify-store (32-bit word). Returns sign-extended old value
@@ -29,13 +27,9 @@ impl RVCore {
         rs2: RVReg,
         op: F,
     ) -> XResult {
-        let paddr = self.amo_addr(rs1);
-        let old = with_mem!(read(paddr, 4))? & 0xFFFF_FFFF;
-        with_mem!(write(
-            paddr,
-            4,
-            op(old as u32, self.gpr[rs2] as u32) as Word
-        ))?;
+        let addr = self.amo_addr(rs1);
+        let old = self.amo_load(addr, 4)? & 0xFFFF_FFFF;
+        self.amo_store(addr, 4, op(old as u32, self.gpr[rs2] as u32) as Word)?;
         self.reservation = None;
         self.set_gpr(rd, sext_word(old, 32))
     }
@@ -49,9 +43,9 @@ impl RVCore {
         rs2: RVReg,
         op: F,
     ) -> XResult {
-        let paddr = self.amo_addr(rs1);
-        let old = with_mem!(read(paddr, 8))?;
-        with_mem!(write(paddr, 8, op(old, self.gpr[rs2])))?;
+        let addr = self.amo_addr(rs1);
+        let old = self.amo_load(addr, 8)?;
+        self.amo_store(addr, 8, op(old, self.gpr[rs2]))?;
         self.reservation = None;
         self.set_gpr(rd, old)
     }
@@ -61,17 +55,19 @@ impl RVCore {
 
 impl RVCore {
     pub(super) fn lr_w(&mut self, rd: RVReg, rs1: RVReg, _rs2: RVReg) -> XResult {
-        let paddr = self.amo_addr(rs1);
-        let val = with_mem!(read(paddr, 4))? & 0xFFFF_FFFF;
+        let addr = self.amo_addr(rs1);
+        let paddr = self.virt_to_phys(addr);
+        let val = self.load(addr, 4)? & 0xFFFF_FFFF;
         self.reservation = Some(paddr.as_usize());
         self.set_gpr(rd, sext_word(val, 32))
     }
 
     pub(super) fn sc_w(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        let paddr = self.amo_addr(rs1);
+        let addr = self.amo_addr(rs1);
+        let paddr = self.virt_to_phys(addr);
         let success = self.reservation.take() == Some(paddr.as_usize());
         if success {
-            with_mem!(write(paddr, 4, self.gpr[rs2] & 0xFFFF_FFFF))?;
+            self.store(addr, 4, self.gpr[rs2] & 0xFFFF_FFFF)?;
         }
         self.set_gpr(rd, !success as Word)
     }
@@ -84,8 +80,9 @@ impl RVCore {
         }
         #[cfg(isa64)]
         {
-            let paddr = self.amo_addr(rs1);
-            let val = with_mem!(read(paddr, 8))?;
+            let addr = self.amo_addr(rs1);
+            let paddr = self.virt_to_phys(addr);
+            let val = self.load(addr, 8)?;
             self.reservation = Some(paddr.as_usize());
             self.set_gpr(rd, val)
         }
@@ -99,10 +96,11 @@ impl RVCore {
         }
         #[cfg(isa64)]
         {
-            let paddr = self.amo_addr(rs1);
+            let addr = self.amo_addr(rs1);
+            let paddr = self.virt_to_phys(addr);
             let success = self.reservation.take() == Some(paddr.as_usize());
             if success {
-                with_mem!(write(paddr, 8, self.gpr[rs2]))?;
+                self.store(addr, 8, self.gpr[rs2])?;
             }
             self.set_gpr(rd, !success as Word)
         }
@@ -194,7 +192,11 @@ mod tests {
     use memory_addr::PhysAddr;
 
     use super::*;
-    use crate::config::CONFIG_MBASE;
+    use crate::{
+        config::CONFIG_MBASE,
+        cpu::riscv::trap::{Exception, TrapCause, test_helpers::assert_trap},
+        memory::with_mem,
+    };
 
     /// Each test uses a unique address to avoid interference under parallel
     /// execution.
@@ -367,6 +369,33 @@ mod tests {
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 1); // SC must fail
         assert_eq!(read_mem(a, 4), 77); // only the SW value persists
+    }
+
+    #[test]
+    fn lr_w_misaligned_returns_load_trap() {
+        let mut core = RVCore::new();
+        let addr = CONFIG_MBASE + 0x2002;
+        core.gpr[RVReg::t0] = addr as Word;
+
+        assert_trap(
+            core.lr_w(RVReg::t1, RVReg::t0, RVReg::zero),
+            TrapCause::Exception(Exception::LoadMisaligned),
+            addr as Word,
+        );
+    }
+
+    #[test]
+    fn amo_w_misaligned_returns_store_trap() {
+        let mut core = RVCore::new();
+        let addr = CONFIG_MBASE + 0x2102;
+        core.gpr[RVReg::t0] = addr as Word;
+        core.gpr[RVReg::t1] = 1;
+
+        assert_trap(
+            core.amoadd_w(RVReg::t2, RVReg::t0, RVReg::t1),
+            TrapCause::Exception(Exception::StoreMisaligned),
+            addr as Word,
+        );
     }
 
     // --- RV64 .d ---

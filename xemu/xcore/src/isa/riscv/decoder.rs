@@ -129,7 +129,7 @@ impl RVDecoder {
         table
             .iter()
             .find(|p| p.matches(inst))
-            .ok_or(XError::DecodeError)
+            .ok_or(XError::InvalidInst)
             .and_then(|p| DecodedInst::from_raw(p.format, inst, p.kind))
     }
 
@@ -284,7 +284,7 @@ mod tests {
         }
 
         let unknown = 0xFFFF_FFFF;
-        assert!(matches!(decoder.decode(unknown), Err(XError::DecodeError)));
+        assert!(matches!(decoder.decode(unknown), Err(XError::InvalidInst)));
     }
 
     #[test]

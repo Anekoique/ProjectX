@@ -7,14 +7,16 @@ pub enum Exception {
     Breakpoint           = 3,
     LoadMisaligned       = 4,
     LoadAccessFault      = 5,
-    StoreMisaligned      = 6,
-    StoreAccessFault     = 7,
+    StoreMisaligned      = 6, // also used for AMO misaligned
+    StoreAccessFault     = 7, // also used for AMO access fault
     EcallFromU           = 8,
     EcallFromS           = 9,
+    // Reserved          = 10,
     EcallFromM           = 11,
     InstructionPageFault = 12,
     LoadPageFault        = 13,
-    StorePageFault       = 15,
+    // Reserved          = 14,
+    StorePageFault       = 15, // also used for AMO page fault
 }
 
 #[cfg(test)]

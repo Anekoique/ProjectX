@@ -6,7 +6,7 @@ use memory_addr::{MemoryAddr, VirtAddr};
 use super::RVCore;
 use crate::{
     config::{SWord, Word},
-    cpu::riscv::trap::{Exception, TrapCause},
+    cpu::riscv::trap::Exception,
     error::{XError, XResult},
     isa::RVReg,
     utils::{bit_u32, sext_word},
@@ -51,7 +51,7 @@ impl RVCore {
         let rd = reg_prime(inst, 4, 2)?;
         let rs1 = reg_prime(inst, 9, 7)?;
         let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 6) << 2) | (bits(inst, 5, 5) << 6);
-        self.load_with(rd, rs1, imm as SWord, 4, |value| sext_word(value, 32))
+        self.load_op(rd, rs1, imm as SWord, 4, |value| sext_word(value, 32))
     }
 
     pub(super) fn c_ld(&mut self, inst: u32) -> XResult {
@@ -65,7 +65,7 @@ impl RVCore {
             let rd = reg_prime(inst, 4, 2)?;
             let rs1 = reg_prime(inst, 9, 7)?;
             let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 5) << 6);
-            self.load_with(rd, rs1, imm as SWord, 8, |value| value)
+            self.load_op(rd, rs1, imm as SWord, 8, |value| value)
         }
     }
 
@@ -73,7 +73,7 @@ impl RVCore {
         let rs2 = reg_prime(inst, 4, 2)?;
         let rs1 = reg_prime(inst, 9, 7)?;
         let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 6) << 2) | (bits(inst, 5, 5) << 6);
-        self.store(rs1, rs2, imm as SWord, 4)
+        self.store_op(rs1, rs2, imm as SWord, 4)
     }
 
     pub(super) fn c_sd(&mut self, inst: u32) -> XResult {
@@ -87,7 +87,7 @@ impl RVCore {
             let rs2 = reg_prime(inst, 4, 2)?;
             let rs1 = reg_prime(inst, 9, 7)?;
             let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 5) << 6);
-            self.store(rs1, rs2, imm as SWord, 8)
+            self.store_op(rs1, rs2, imm as SWord, 8)
         }
     }
 
@@ -250,7 +250,7 @@ impl RVCore {
             | (bits(inst, 11, 10) << 3)
             | (bits(inst, 4, 3) << 1);
         let imm = sext_imm(imm, 9);
-        self.branch(rs1, RVReg::zero, imm, |lhs, rhs| lhs == rhs)
+        self.branch_op(rs1, RVReg::zero, imm, |lhs, rhs| lhs == rhs)
     }
 
     pub(super) fn c_bnez(&mut self, inst: u32) -> XResult {
@@ -261,7 +261,7 @@ impl RVCore {
             | (bits(inst, 11, 10) << 3)
             | (bits(inst, 4, 3) << 1);
         let imm = sext_imm(imm, 9);
-        self.branch(rs1, RVReg::zero, imm, |lhs, rhs| lhs != rhs)
+        self.branch_op(rs1, RVReg::zero, imm, |lhs, rhs| lhs != rhs)
     }
 
     pub(super) fn c_slli(&mut self, inst: u32) -> XResult {
@@ -282,7 +282,7 @@ impl RVCore {
             return Err(XError::InvalidInst);
         }
         let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 4) << 2) | (bits(inst, 3, 2) << 6);
-        self.load_with(rd, RVReg::sp, imm as SWord, 4, |value| sext_word(value, 32))
+        self.load_op(rd, RVReg::sp, imm as SWord, 4, |value| sext_word(value, 32))
     }
 
     pub(super) fn c_ldsp(&mut self, inst: u32) -> XResult {
@@ -298,7 +298,7 @@ impl RVCore {
                 return Err(XError::InvalidInst);
             }
             let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 5) << 3) | (bits(inst, 4, 2) << 6);
-            self.load_with(rd, RVReg::sp, imm as SWord, 8, |value| value)
+            self.load_op(rd, RVReg::sp, imm as SWord, 8, |value| value)
         }
     }
 
@@ -322,11 +322,7 @@ impl RVCore {
     }
 
     pub(super) fn c_ebreak(&mut self, _inst: u32) -> XResult {
-        self.raise_trap(
-            TrapCause::Exception(Exception::Breakpoint),
-            self.pc.as_usize() as Word,
-        );
-        Ok(())
+        self.trap_exception(Exception::Breakpoint, self.pc.as_usize() as Word)
     }
 
     pub(super) fn c_jalr(&mut self, inst: u32) -> XResult {
@@ -353,7 +349,7 @@ impl RVCore {
     pub(super) fn c_swsp(&mut self, inst: u32) -> XResult {
         let rs2 = reg(inst, 6, 2)?;
         let imm = (bits(inst, 12, 9) << 2) | (bits(inst, 8, 7) << 6);
-        self.store(RVReg::sp, rs2, imm as SWord, 4)
+        self.store_op(RVReg::sp, rs2, imm as SWord, 4)
     }
 
     pub(super) fn c_sdsp(&mut self, inst: u32) -> XResult {
@@ -366,7 +362,7 @@ impl RVCore {
         {
             let rs2 = reg(inst, 6, 2)?;
             let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 9, 7) << 6);
-            self.store(RVReg::sp, rs2, imm as SWord, 8)
+            self.store_op(RVReg::sp, rs2, imm as SWord, 8)
         }
     }
 }
@@ -378,7 +374,7 @@ mod tests {
     use super::*;
     use crate::{
         config::{CONFIG_MBASE, Word},
-        cpu::MemOps,
+        cpu::{MemOps, riscv::trap::{TrapCause, test_helpers::assert_trap}},
         memory::with_mem,
     };
 
@@ -556,9 +552,11 @@ mod tests {
     #[test]
     fn c_ebreak_sets_breakpoint_trap() {
         let mut core = setup_core();
-        assert!(core.c_ebreak(0).is_ok());
-        let trap = core.pending_trap.unwrap();
-        assert_eq!(trap.cause, TrapCause::Exception(Exception::Breakpoint));
+        assert_trap(
+            core.c_ebreak(0),
+            TrapCause::Exception(Exception::Breakpoint),
+            TEST_BASE as Word,
+        );
     }
 
     #[test]
