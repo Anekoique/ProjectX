@@ -5,14 +5,13 @@ extern crate xlogger;
 
 mod config;
 mod cpu;
+pub(crate) mod device;
 mod error;
 mod isa;
-mod memory;
 mod utils;
 
 pub use cpu::{State, XCPU, with_xcpu};
 pub use error::{XError, XResult};
-pub use memory::MEMORY;
 
 pub fn init_xcore() -> XResult {
     info!("Hello xcore!");

@@ -91,10 +91,7 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cpu::riscv::{
-        csr::CsrAddr,
-        trap::test_helpers::assert_illegal_inst,
-    };
+    use crate::cpu::riscv::{csr::CsrAddr, trap::test_helpers::assert_illegal_inst};
 
     fn setup_core() -> RVCore {
         RVCore::new()

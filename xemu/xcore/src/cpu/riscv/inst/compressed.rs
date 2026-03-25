@@ -374,8 +374,7 @@ mod tests {
     use super::*;
     use crate::{
         config::{CONFIG_MBASE, Word},
-        cpu::{MemOps, riscv::trap::{TrapCause, test_helpers::assert_trap}},
-        memory::with_mem,
+        cpu::riscv::trap::{TrapCause, test_helpers::assert_trap},
     };
 
     const TEST_BASE: usize = CONFIG_MBASE + 0x2000;
@@ -565,11 +564,12 @@ mod tests {
         let sp_val = (TEST_BASE + 0x400) as Word;
         core.gpr[RVReg::sp] = sp_val;
 
-        // Write a known value at sp+0
-        let addr = core.virt_to_phys(VirtAddr::from_usize(sp_val as usize));
-        with_mem!(write(addr, 4, 0x12345678)).unwrap();
+        core.bus
+            .lock()
+            .unwrap()
+            .write(sp_val as usize, 4, 0x12345678)
+            .unwrap();
 
-        // c.lwsp x10, 0: 010_0_01010_00000_10 (offset=0)
         let inst: u32 = 0b010_0_01010_000_00_10;
         core.c_lwsp(inst).unwrap();
         assert_eq!(core.gpr[RVReg::a0] as u32, 0x12345678);
@@ -582,12 +582,10 @@ mod tests {
         core.gpr[RVReg::sp] = sp_val;
         core.gpr[RVReg::t0] = 0xABCD1234;
 
-        // c.swsp x5, 0: 110_000000_00101_10 (offset=0)
         let inst: u32 = 0b110_0_0000_0_00101_10;
         core.c_swsp(inst).unwrap();
 
-        let addr = core.virt_to_phys(VirtAddr::from_usize(sp_val as usize));
-        let stored = with_mem!(read(addr, 4)).unwrap();
+        let stored = core.bus.lock().unwrap().read(sp_val as usize, 4).unwrap();
         assert_eq!(stored as u32, 0xABCD1234);
     }
 

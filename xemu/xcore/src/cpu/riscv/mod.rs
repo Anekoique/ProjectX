@@ -3,6 +3,8 @@ mod inst;
 mod mem;
 pub mod trap;
 
+use std::sync::{Arc, Mutex};
+
 use memory_addr::{MemoryAddr, VirtAddr};
 
 pub use self::{RVCore as Core, trap::PendingTrap};
@@ -10,9 +12,10 @@ use self::{
     csr::{CsrFile, PrivilegeMode},
     trap::TrapCause,
 };
-use super::{CoreOps, MemOps, RESET_VECTOR};
+use super::{CoreOps, RESET_VECTOR};
 use crate::{
-    config::Word,
+    config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
+    device::bus::Bus,
     error::XResult,
     isa::{DECODER, DecodedInst, RVReg},
 };
@@ -25,11 +28,16 @@ pub struct RVCore {
     pub(crate) privilege: PrivilegeMode,
     pub(crate) pending_trap: Option<PendingTrap>,
     pub(crate) reservation: Option<usize>,
+    pub(crate) bus: Arc<Mutex<Bus>>,
     halted: bool,
 }
 
 impl RVCore {
     pub fn new() -> Self {
+        Self::with_bus(Arc::new(Mutex::new(Bus::new(CONFIG_MBASE, CONFIG_MSIZE))))
+    }
+
+    pub fn with_bus(bus: Arc<Mutex<Bus>>) -> Self {
         Self {
             gpr: [0; 32],
             pc: VirtAddr::from(0),
@@ -38,6 +46,7 @@ impl RVCore {
             privilege: PrivilegeMode::Machine,
             pending_trap: None,
             reservation: None,
+            bus,
             halted: false,
         }
     }
@@ -62,14 +71,12 @@ impl RVCore {
         self.dispatch(inst)
     }
 
-    /// Commit any pending trap, advance pc and counters.
     fn retire(&mut self) {
         if let Some(trap) = self.pending_trap.take() {
             self.commit_trap(trap);
         } else {
             self.csr.increment_instret();
         }
-
         self.pc = self.npc;
         self.csr.increment_cycle();
     }
@@ -78,6 +85,10 @@ impl RVCore {
 impl CoreOps for RVCore {
     fn pc(&self) -> VirtAddr {
         self.pc
+    }
+
+    fn bus(&self) -> &Arc<Mutex<Bus>> {
+        &self.bus
     }
 
     fn reset(&mut self) -> XResult {
@@ -120,11 +131,23 @@ impl CoreOps for RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::CONFIG_MBASE,
-        cpu::riscv::{csr::CsrAddr, trap::Exception},
-        memory::with_mem,
-    };
+    use crate::cpu::riscv::{csr::CsrAddr, trap::Exception};
+
+    fn setup_core() -> RVCore {
+        let mut core = RVCore::new();
+        core.pc = VirtAddr::from(CONFIG_MBASE);
+        core.npc = core.pc;
+        core.csr.set(CsrAddr::mtvec, 0x8000_0000);
+        core
+    }
+
+    fn write_inst(core: &RVCore, inst: u32) {
+        core.bus
+            .lock()
+            .unwrap()
+            .write(core.pc.as_usize(), 4, inst as Word)
+            .unwrap();
+    }
 
     #[test]
     fn new_core_starts_in_machine_mode() {
@@ -147,7 +170,6 @@ mod tests {
     #[test]
     fn raise_trap_sets_pending() {
         let mut core = RVCore::new();
-        assert!(core.pending_trap.is_none());
         core.raise_trap(TrapCause::Exception(Exception::EcallFromM), 0);
         let trap = core.pending_trap.unwrap();
         assert_eq!(trap.cause, TrapCause::Exception(Exception::EcallFromM));
@@ -156,38 +178,20 @@ mod tests {
 
     #[test]
     fn fetch_distinguishes_standard_and_compressed_instructions() {
-        let mut core = RVCore::new();
-        core.pc = VirtAddr::from(CONFIG_MBASE);
-
-        let cases = [
+        let mut core = setup_core();
+        for (raw, expected) in [
             (0xCAFEBABF_u32, 0xCAFEBABF_u32),
             (0xCAFEBABE_u32, 0xBABE_u32),
-        ];
-
-        for (inst, expected) in cases {
-            with_mem!(write(core.virt_to_phys(core.pc), 4, inst as Word)).unwrap();
+        ] {
+            write_inst(&core, raw);
             assert_eq!(core.fetch().unwrap(), expected);
         }
-    }
-
-    fn setup_core() -> RVCore {
-        let mut core = RVCore::new();
-        core.pc = VirtAddr::from(CONFIG_MBASE);
-        core.npc = core.pc;
-        core.csr.set(CsrAddr::mtvec, 0x8000_0000);
-        core
     }
 
     #[test]
     fn step_ebreak_halts_without_trap() {
         let mut core = setup_core();
-        // ebreak encoding: 0x00100073
-        with_mem!(write(
-            core.virt_to_phys(core.pc),
-            4,
-            0x0010_0073_u32 as Word
-        ))
-        .unwrap();
+        write_inst(&core, 0x0010_0073); // ebreak
         core.step().unwrap();
         assert!(core.halted());
         assert_eq!(core.csr.get(CsrAddr::mepc), 0);
@@ -196,26 +200,14 @@ mod tests {
     #[test]
     fn step_normal_instruction_succeeds() {
         let mut core = setup_core();
-        // auipc t0, 0 → 0x00000297
-        with_mem!(write(
-            core.virt_to_phys(core.pc),
-            4,
-            0x0000_0297_u32 as Word
-        ))
-        .unwrap();
+        write_inst(&core, 0x0000_0297); // auipc t0, 0
         core.step().unwrap();
     }
 
     #[test]
     fn cycle_increments_on_trap_instret_does_not() {
         let mut core = setup_core();
-        // ecall encoding: 0x00000073
-        with_mem!(write(
-            core.virt_to_phys(core.pc),
-            4,
-            0x0000_0073_u32 as Word
-        ))
-        .unwrap();
+        write_inst(&core, 0x0000_0073); // ecall
         core.step().unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 0);
@@ -224,13 +216,7 @@ mod tests {
     #[test]
     fn cycle_and_instret_both_increment_on_normal_step() {
         let mut core = setup_core();
-        // auipc t0, 0
-        with_mem!(write(
-            core.virt_to_phys(core.pc),
-            4,
-            0x0000_0297_u32 as Word
-        ))
-        .unwrap();
+        write_inst(&core, 0x0000_0297); // auipc t0, 0
         core.step().unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 1);

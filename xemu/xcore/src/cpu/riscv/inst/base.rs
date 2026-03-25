@@ -8,7 +8,6 @@ use super::RVCore;
 use crate::error::XError;
 use crate::{
     config::{SWord, Word, word_to_shamt},
-    cpu::mem::MemOps,
     error::XResult,
     isa::RVReg,
     utils::sext_word,
@@ -366,20 +365,24 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::CONFIG_MBASE, memory::with_mem};
+    use crate::config::CONFIG_MBASE;
 
     const TEST_BASE: usize = CONFIG_MBASE + 0x1000;
 
-    fn phys(core: &RVCore, offset: usize) -> memory_addr::PhysAddr {
-        core.virt_to_phys(VirtAddr::from(TEST_BASE + offset))
-    }
-
     fn write_bytes(core: &RVCore, offset: usize, bytes: &[u8]) {
-        with_mem!(load_img(phys(core, offset), bytes)).expect("write_bytes failed");
+        core.bus
+            .lock()
+            .unwrap()
+            .load_ram(TEST_BASE + offset, bytes)
+            .expect("write_bytes failed");
     }
 
     fn read_word(core: &RVCore, offset: usize, size: usize) -> Word {
-        with_mem!(read(phys(core, offset), size)).expect("read_word failed")
+        core.bus
+            .lock()
+            .unwrap()
+            .read(TEST_BASE + offset, size)
+            .expect("read_word failed")
     }
 
     #[test]

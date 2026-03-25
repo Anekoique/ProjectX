@@ -8,7 +8,7 @@ use super::RVCore;
 use crate::config::SWord;
 #[cfg(isa32)]
 use crate::error::XError;
-use crate::{config::Word, cpu::mem::MemOps, error::XResult, isa::RVReg, utils::sext_word};
+use crate::{config::Word, error::XResult, isa::RVReg, utils::sext_word};
 
 // --- Helpers ---
 
@@ -58,14 +58,14 @@ impl RVCore {
         let addr = self.amo_addr(rs1);
         let paddr = self.virt_to_phys(addr);
         let val = self.load(addr, 4)? & 0xFFFF_FFFF;
-        self.reservation = Some(paddr.as_usize());
+        self.reservation = Some(paddr);
         self.set_gpr(rd, sext_word(val, 32))
     }
 
     pub(super) fn sc_w(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let addr = self.amo_addr(rs1);
         let paddr = self.virt_to_phys(addr);
-        let success = self.reservation.take() == Some(paddr.as_usize());
+        let success = self.reservation.take() == Some(paddr);
         if success {
             self.store(addr, 4, self.gpr[rs2] & 0xFFFF_FFFF)?;
         }
@@ -83,7 +83,7 @@ impl RVCore {
             let addr = self.amo_addr(rs1);
             let paddr = self.virt_to_phys(addr);
             let val = self.load(addr, 8)?;
-            self.reservation = Some(paddr.as_usize());
+            self.reservation = Some(paddr);
             self.set_gpr(rd, val)
         }
     }
@@ -98,7 +98,7 @@ impl RVCore {
         {
             let addr = self.amo_addr(rs1);
             let paddr = self.virt_to_phys(addr);
-            let success = self.reservation.take() == Some(paddr.as_usize());
+            let success = self.reservation.take() == Some(paddr);
             if success {
                 self.store(addr, 8, self.gpr[rs2])?;
             }
@@ -189,17 +189,12 @@ impl RVCore {
 
 #[cfg(test)]
 mod tests {
-    use memory_addr::PhysAddr;
-
     use super::*;
     use crate::{
         config::CONFIG_MBASE,
         cpu::riscv::trap::{Exception, TrapCause, test_helpers::assert_trap},
-        memory::with_mem,
     };
 
-    /// Each test uses a unique address to avoid interference under parallel
-    /// execution.
     const fn addr(slot: usize) -> usize {
         CONFIG_MBASE + 0x2000 + slot * 0x100
     }
@@ -208,12 +203,12 @@ mod tests {
         let a = addr(slot);
         let mut core = RVCore::new();
         core.gpr[RVReg::t0] = a as Word;
-        with_mem!(write(PhysAddr::from(a), size, mem_val)).unwrap();
+        core.bus.lock().unwrap().write(a, size, mem_val).unwrap();
         (core, a)
     }
 
-    fn read_mem(addr: usize, size: usize) -> Word {
-        with_mem!(read(PhysAddr::from(addr), size)).unwrap()
+    fn read_mem(core: &RVCore, addr: usize, size: usize) -> Word {
+        core.bus.lock().unwrap().read(addr, size).unwrap()
     }
 
     // --- AMO .w ---
@@ -224,7 +219,7 @@ mod tests {
         core.gpr[RVReg::t1] = 42;
         core.amoadd_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 100);
-        assert_eq!(read_mem(a, 4), 142);
+        assert_eq!(read_mem(&core, a, 4), 142);
     }
 
     #[test]
@@ -233,7 +228,7 @@ mod tests {
         core.gpr[RVReg::t1] = 0xBBBB;
         core.amoswap_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 0xAAAA);
-        assert_eq!(read_mem(a, 4), 0xBBBB);
+        assert_eq!(read_mem(&core, a, 4), 0xBBBB);
     }
 
     #[test]
@@ -242,7 +237,7 @@ mod tests {
         core.gpr[RVReg::t1] = 0x0FF0;
         core.amoxor_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 0xFF00);
-        assert_eq!(read_mem(a, 4), 0xF0F0);
+        assert_eq!(read_mem(&core, a, 4), 0xF0F0);
     }
 
     #[test]
@@ -251,12 +246,12 @@ mod tests {
         core.gpr[RVReg::t1] = 0x0F;
         core.amoand_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 0xFF);
-        assert_eq!(read_mem(a, 4), 0x0F);
+        assert_eq!(read_mem(&core, a, 4), 0x0F);
 
         core.gpr[RVReg::t1] = 0xF0;
         core.amoor_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 0x0F);
-        assert_eq!(read_mem(a, 4), 0xFF);
+        assert_eq!(read_mem(&core, a, 4), 0xFF);
     }
 
     #[test]
@@ -264,7 +259,7 @@ mod tests {
         let (mut core, a) = setup_core(4, (-5_i32) as u32 as Word, 4);
         core.gpr[RVReg::t1] = 3;
         core.amomin_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-        assert_eq!(read_mem(a, 4) as u32, (-5_i32) as u32);
+        assert_eq!(read_mem(&core, a, 4) as u32, (-5_i32) as u32);
     }
 
     #[test]
@@ -272,7 +267,7 @@ mod tests {
         let (mut core, a) = setup_core(5, (-5_i32) as u32 as Word, 4);
         core.gpr[RVReg::t1] = 3;
         core.amomax_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-        assert_eq!(read_mem(a, 4) as u32, 3);
+        assert_eq!(read_mem(&core, a, 4) as u32, 3);
     }
 
     #[test]
@@ -280,7 +275,7 @@ mod tests {
         let (mut core, a) = setup_core(6, 0xFFFF_FFFF, 4);
         core.gpr[RVReg::t1] = 1;
         core.amominu_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-        assert_eq!(read_mem(a, 4), 1);
+        assert_eq!(read_mem(&core, a, 4), 1);
     }
 
     #[test]
@@ -288,7 +283,7 @@ mod tests {
         let (mut core, a) = setup_core(7, 0xFFFF_FFFF, 4);
         core.gpr[RVReg::t1] = 1;
         core.amomaxu_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-        assert_eq!(read_mem(a, 4) as u32, 0xFFFF_FFFF);
+        assert_eq!(read_mem(&core, a, 4) as u32, 0xFFFF_FFFF);
     }
 
     #[test]
@@ -315,7 +310,7 @@ mod tests {
         core.gpr[RVReg::t1] = 5;
         core.amoadd_w(RVReg::zero, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::zero], 0);
-        assert_eq!(read_mem(a, 4), 15);
+        assert_eq!(read_mem(&core, a, 4), 15);
     }
 
     // --- LR/SC ---
@@ -330,7 +325,7 @@ mod tests {
         core.gpr[RVReg::t2] = 99;
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 0); // success
-        assert_eq!(read_mem(a, 4), 99);
+        assert_eq!(read_mem(&core, a, 4), 99);
         assert!(core.reservation.is_none());
     }
 
@@ -343,7 +338,7 @@ mod tests {
         core.gpr[RVReg::t2] = 99;
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 1); // failure
-        assert_eq!(read_mem(a, 4), 42); // unchanged
+        assert_eq!(read_mem(&core, a, 4), 42); // unchanged
     }
 
     #[test]
@@ -352,7 +347,7 @@ mod tests {
         core.gpr[RVReg::t1] = 99;
         core.sc_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 1);
-        assert_eq!(read_mem(a, 4), 42);
+        assert_eq!(read_mem(&core, a, 4), 42);
     }
 
     #[test]
@@ -368,7 +363,7 @@ mod tests {
         core.gpr[RVReg::t2] = 99;
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 1); // SC must fail
-        assert_eq!(read_mem(a, 4), 77); // only the SW value persists
+        assert_eq!(read_mem(&core, a, 4), 77); // only the SW value persists
     }
 
     #[test]
@@ -410,7 +405,7 @@ mod tests {
             core.gpr[RVReg::t1] = 0x2_0000_0000;
             core.amoadd_d(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
             assert_eq!(core.gpr[RVReg::t2], 0x1_0000_0000);
-            assert_eq!(read_mem(a, 8), 0x3_0000_0000);
+            assert_eq!(read_mem(&core, a, 8), 0x3_0000_0000);
         }
 
         #[test]
@@ -423,7 +418,7 @@ mod tests {
             core.gpr[RVReg::t2] = 0x1234_5678_9ABC_DEF0;
             core.sc_d(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
             assert_eq!(core.gpr[RVReg::t3], 0);
-            assert_eq!(read_mem(a, 8), 0x1234_5678_9ABC_DEF0);
+            assert_eq!(read_mem(&core, a, 8), 0x1234_5678_9ABC_DEF0);
         }
 
         #[test]
@@ -431,7 +426,7 @@ mod tests {
             let (mut core, a) = setup_core(16, (-10_i64) as Word, 8);
             core.gpr[RVReg::t1] = 5;
             core.amomin_d(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-            assert_eq!(read_mem(a, 8) as SWord, -10);
+            assert_eq!(read_mem(&core, a, 8) as SWord, -10);
         }
 
         #[test]
@@ -439,7 +434,7 @@ mod tests {
             let (mut core, a) = setup_core(17, Word::MAX, 8);
             core.gpr[RVReg::t1] = 1;
             core.amomaxu_d(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-            assert_eq!(read_mem(a, 8), Word::MAX);
+            assert_eq!(read_mem(&core, a, 8), Word::MAX);
         }
     }
 

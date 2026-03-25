@@ -1,16 +1,15 @@
 mod core;
-mod mem;
 
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
-use memory_addr::{PhysAddr, VirtAddr};
+use memory_addr::VirtAddr;
 use xlogger::ColorCode;
 
-use self::{core::CoreOps, mem::MemOps};
+use self::core::CoreOps;
 use crate::{
     config::Word,
+    device::bus::Bus,
     error::{XError, XResult},
-    memory::with_mem,
 };
 
 cfg_if::cfg_if! {
@@ -25,6 +24,8 @@ cfg_if::cfg_if! {
 
 pub static XCPU: LazyLock<Mutex<CPU<Core>>> = LazyLock::new(|| Mutex::new(CPU::new(Core::new())));
 
+const RESET_VECTOR: usize = 0x80000000;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum State {
     IDLE,
@@ -38,48 +39,44 @@ impl State {
     }
 }
 
-const RESET_VECTOR: usize = 0x80000000;
-
 #[allow(clippy::upper_case_acronyms)]
-pub struct CPU<Core: CoreOps + MemOps> {
+pub struct CPU<Core: CoreOps> {
     core: Core,
+    bus: Arc<Mutex<Bus>>,
     state: State,
     halt_pc: VirtAddr,
     halt_ret: Word,
 }
 
-impl<Core: CoreOps + MemOps> CPU<Core> {
+impl<Core: CoreOps> CPU<Core> {
     pub fn new(core: Core) -> Self {
-        Self {
-            core,
-            state: State::IDLE,
-            halt_pc: VirtAddr::from(0),
-            halt_ret: 0,
-        }
+        let bus = core.bus().clone();
+        Self { core, bus, state: State::IDLE, halt_pc: VirtAddr::from(0), halt_ret: 0 }
     }
 
     pub fn reset(&mut self) -> XResult {
         self.state = State::IDLE;
         self.core.reset()?;
-        self.core.init_memory(PhysAddr::from_usize(RESET_VECTOR))
+        let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
+        self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
     }
 
     pub fn load(&mut self, file: Option<String>) -> XResult<&mut Self> {
-        let addr = PhysAddr::from(RESET_VECTOR);
-        file.map_or_else(
-            || self.core.init_memory(addr),
-            |path| {
+        match file {
+            None => {
+                let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
+                self.bus
+                    .lock()
+                    .unwrap()
+                    .load_ram(RESET_VECTOR, image_bytes)?;
+            }
+            Some(path) => {
                 trace!("Loading file: {}", path);
-                std::fs::read(path)
-                    .map_err(|_| XError::FailedToRead)
-                    .and_then(|bytes| {
-                        with_mem!(load_img(addr, &bytes))?;
-                        info!("Loaded {} bytes @ {:#x}", bytes.len(), addr);
-                        Ok(())
-                    })
-            },
-        )?;
-
+                let bytes = std::fs::read(path).map_err(|_| XError::FailedToRead)?;
+                self.bus.lock().unwrap().load_ram(RESET_VECTOR, &bytes)?;
+                info!("Loaded {} bytes @ {:#x}", bytes.len(), RESET_VECTOR);
+            }
+        }
         Ok(self)
     }
 
@@ -96,7 +93,6 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
             info!("CPU is not running. Please reset or load a program first.");
             return Ok(());
         }
-
         for _ in 0..count {
             self.step()?;
             if self.state.is_terminated() {
@@ -119,9 +115,7 @@ impl<Core: CoreOps + MemOps> CPU<Core> {
 
     pub fn log_termination(&self) {
         match self.state {
-            State::ABORT => {
-                xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc);
-            }
+            State::ABORT => xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc),
             State::HALTED if self.halt_ret == 0 => {
                 xprintln!(ColorCode::Green, "HIT GOOD TRAP at pc={:#x}", self.halt_pc);
             }
@@ -185,7 +179,6 @@ mod tests {
         assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
         assert_eq!(cpu.state, State::IDLE);
 
-        // Reset again to verify idempotency
         cpu.state = State::HALTED;
         cpu.reset().unwrap();
         assert_eq!(cpu.state, State::IDLE);
@@ -196,9 +189,7 @@ mod tests {
     fn cpu_load_default_image() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        // After loading default IMG, memory at RESET_VECTOR should have the first
-        // instruction
-        let word = with_mem!(read(PhysAddr::from(RESET_VECTOR), 4)).unwrap();
+        let word = cpu.bus.lock().unwrap().read(RESET_VECTOR, 4).unwrap();
         assert_eq!(word as u32, crate::isa::IMG[0]);
     }
 
@@ -206,7 +197,6 @@ mod tests {
     fn cpu_run_skips_if_terminated() {
         let mut cpu = new_cpu();
         cpu.state = State::HALTED;
-        // Should not error, just skip
         cpu.run(100).unwrap();
         assert_eq!(cpu.state, State::HALTED);
     }
@@ -214,7 +204,6 @@ mod tests {
     #[test]
     fn cpu_set_terminated_captures_state() {
         let mut cpu = new_cpu();
-        // halt_ret reads from a0, which is 0 after reset
         cpu.set_terminated(State::HALTED);
         assert_eq!(cpu.state, State::HALTED);
         assert_eq!(cpu.halt_ret, 0);
@@ -240,10 +229,8 @@ mod tests {
     fn cpu_step_advances_pc() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        // The first IMG instruction is `auipc t0, 0` (0x00000297), a 32-bit inst
         let pc_before = cpu.core.pc();
         cpu.step().unwrap();
-        // PC should advance by 4
         assert_eq!(cpu.core.pc(), pc_before.wrapping_add(4));
     }
 
@@ -251,7 +238,6 @@ mod tests {
     fn cpu_run_executes_default_img_to_completion() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        // The default IMG ends with ebreak which halts the core
         cpu.run(100).unwrap();
         assert_eq!(cpu.state, State::HALTED);
     }
