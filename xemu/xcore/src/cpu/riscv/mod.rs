@@ -1,7 +1,9 @@
 pub mod csr;
 mod inst;
 mod mem;
+#[allow(dead_code)]
 pub(crate) mod mmu;
+#[allow(dead_code)]
 pub(crate) mod pmp;
 pub mod trap;
 

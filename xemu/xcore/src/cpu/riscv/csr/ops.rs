@@ -23,8 +23,24 @@ impl RVCore {
         }
         self.check_csr_access(addr, &desc)?;
         self.csr.write_with_desc(desc, val);
-        // TODO: flush TLB on satp write
+        self.csr_write_side_effects(addr);
         Ok(())
+    }
+
+    fn csr_write_side_effects(&mut self, addr: u16) {
+        const SATP: u16 = CsrAddr::satp as u16;
+        const MSTATUS: u16 = CsrAddr::mstatus as u16;
+        const SSTATUS: u16 = CsrAddr::sstatus as u16;
+
+        match addr {
+            SATP => self.mmu.update_satp(self.csr.get(CsrAddr::satp)),
+            MSTATUS | SSTATUS => {
+                let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
+                self.mmu
+                    .update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
+            }
+            _ => {}
+        }
     }
 
     fn is_read_only(addr: u16) -> bool {
