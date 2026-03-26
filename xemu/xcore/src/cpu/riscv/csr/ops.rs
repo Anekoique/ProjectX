@@ -2,32 +2,28 @@ use super::{AccessRule, CsrAddr, CsrDesc, MStatus, PrivilegeMode, counteren_bit,
 use crate::{config::Word, cpu::riscv::RVCore, error::XResult};
 
 impl RVCore {
-    /// CSR read with existence check, privilege check, and dynamic access
-    /// rules.
     pub(in crate::cpu::riscv) fn csr_read(&self, addr: u16) -> XResult<Word> {
-        let Some(desc) = find_desc(addr) else {
-            return self.illegal_inst();
-        };
+        let desc = find_desc(addr)
+            .filter(|_| !Self::is_illegal_csr(addr))
+            .ok_or(self.illegal_inst())?;
+
         self.check_csr_access(addr, &desc)?;
         Ok(self.csr.read_with_desc(desc))
     }
 
-    /// CSR write with existence check, read-only check, privilege check, and
-    /// side effects.
     pub(in crate::cpu::riscv) fn csr_write(&mut self, addr: u16, val: Word) -> XResult {
-        let Some(desc) = find_desc(addr) else {
-            return self.illegal_inst();
-        };
-        if Self::is_read_only(addr) {
-            return self.illegal_inst();
-        }
+        let desc = find_desc(addr)
+            .filter(|_| !Self::is_illegal_csr(addr))
+            .filter(|_| !Self::is_read_only(addr))
+            .ok_or(self.illegal_inst())?;
+
         self.check_csr_access(addr, &desc)?;
         self.csr.write_with_desc(desc, val);
-        self.csr_write_side_effects(addr);
+        self.csr_write_side_effects(addr, desc);
         Ok(())
     }
 
-    fn csr_write_side_effects(&mut self, addr: u16) {
+    fn csr_write_side_effects(&mut self, addr: u16, desc: CsrDesc) {
         match addr {
             0x180 /* satp */ => {
                 self.mmu.update_satp(self.csr.get(CsrAddr::satp));
@@ -36,19 +32,50 @@ impl RVCore {
                 let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
                 self.mmu.update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
             }
-            0x3A0..=0x3A3 /* pmpcfg0..3 */ => {
-                let val = self.csr.get_by_addr(addr);
-                let base = (addr - 0x3A0) as usize * std::mem::size_of::<Word>();
-                for i in 0..std::mem::size_of::<Word>() {
-                    self.pmp.update_cfg(base + i, (val >> (i * 8)) as u8);
+            0x3A0..=0x3A3 /* pmpcfg */ => {
+                if let Some(base) = Self::pmpcfg_base(addr) {
+                    let val = self.csr.get_by_addr(addr);
+                    let mut wb: Word = 0;
+                    for i in 0..std::mem::size_of::<Word>() {
+                        self.pmp.update_cfg(base + i, (val >> (i * 8)) as u8);
+                        wb |= (self.pmp.get_cfg(base + i) as Word) << (i * 8);
+                    }
+                    self.csr.write_with_desc(desc, wb);
                 }
             }
-            0x3B0..=0x3BF /* pmpaddr0..15 */ => {
+            0x3B0..=0x3BF /* pmpaddr */ => {
                 let idx = (addr - 0x3B0) as usize;
                 self.pmp.update_addr(idx, self.csr.get_by_addr(addr) as usize);
+                self.csr.write_with_desc(desc, self.pmp.get_addr(idx) as Word);
             }
             _ => {}
         }
+    }
+
+    /// RV64 pmpcfg base entry index, or None for illegal odd-indexed CSRs.
+    fn pmpcfg_base(addr: u16) -> Option<usize> {
+        #[cfg(isa64)]
+        {
+            match addr {
+                0x3A0 => Some(0),
+                0x3A2 => Some(8),
+                _ => None,
+            }
+        }
+        #[cfg(isa32)]
+        {
+            Some((addr - 0x3A0) as usize * 4)
+        }
+    }
+
+    #[cfg(isa64)]
+    fn is_illegal_csr(addr: u16) -> bool {
+        addr == CsrAddr::pmpcfg1 as u16 || addr == CsrAddr::pmpcfg3 as u16
+    }
+
+    #[cfg(isa32)]
+    fn is_illegal_csr(_addr: u16) -> bool {
+        false
     }
 
     fn is_read_only(addr: u16) -> bool {
@@ -57,39 +84,26 @@ impl RVCore {
 
     fn check_csr_access(&self, addr: u16, desc: &CsrDesc) -> XResult {
         let required = PrivilegeMode::from_bits(((addr >> 8) & 0x3) as Word);
-        if self.privilege < required {
-            return self.illegal_inst();
-        }
+        (self.privilege >= required).ok_or(self.illegal_inst())?;
         match desc.access {
-            AccessRule::Standard => Ok(()),
+            AccessRule::Standard => true,
             AccessRule::BlockedByMstatus(flag) => {
                 let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
-                if ms.contains(flag) && self.privilege == PrivilegeMode::Supervisor {
-                    return self.illegal_inst();
-                }
-                Ok(())
+                !(self.privilege == PrivilegeMode::Supervisor && ms.contains(flag))
             }
             AccessRule::CounterGated => {
                 let bit = counteren_bit(addr);
+                let m_ok = (self.csr.get(CsrAddr::mcounteren) >> bit) & 1 == 1;
+                let s_ok = (self.csr.get(CsrAddr::scounteren) >> bit) & 1 == 1;
+
                 match self.privilege {
-                    PrivilegeMode::Machine => Ok(()),
-                    PrivilegeMode::Supervisor => {
-                        if (self.csr.get(CsrAddr::mcounteren) >> bit) & 1 == 0 {
-                            return self.illegal_inst();
-                        }
-                        Ok(())
-                    }
-                    PrivilegeMode::User => {
-                        let m_ok = (self.csr.get(CsrAddr::mcounteren) >> bit) & 1 == 1;
-                        let s_ok = (self.csr.get(CsrAddr::scounteren) >> bit) & 1 == 1;
-                        if !(m_ok && s_ok) {
-                            return self.illegal_inst();
-                        }
-                        Ok(())
-                    }
+                    PrivilegeMode::Machine => true,
+                    PrivilegeMode::Supervisor => m_ok,
+                    PrivilegeMode::User => m_ok && s_ok,
                 }
             }
         }
+        .ok_or(self.illegal_inst())
     }
 }
 
@@ -100,20 +114,17 @@ mod tests {
 
     #[test]
     fn csr_read_unknown_traps() {
-        let core = RVCore::new();
-        assert_illegal_inst(core.csr_read(0xFFF));
+        assert_illegal_inst(RVCore::new().csr_read(0xFFF));
     }
 
     #[test]
     fn csr_write_unknown_traps() {
-        let mut core = RVCore::new();
-        assert_illegal_inst(core.csr_write(0xFFF, 0));
+        assert_illegal_inst(RVCore::new().csr_write(0xFFF, 0));
     }
 
     #[test]
-    fn csr_write_read_only_by_encoding_traps() {
-        let mut core = RVCore::new();
-        assert_illegal_inst(core.csr_write(CsrAddr::mvendorid as u16, 42));
+    fn csr_write_read_only_traps() {
+        assert_illegal_inst(RVCore::new().csr_write(CsrAddr::mvendorid as u16, 42));
     }
 
     #[test]
@@ -125,31 +136,23 @@ mod tests {
 
     #[test]
     fn counter_gated_m_mode_allowed() {
-        let core = RVCore::new();
-        assert!(core.csr_read(CsrAddr::cycle as u16).is_ok());
+        assert!(RVCore::new().csr_read(CsrAddr::cycle as u16).is_ok());
     }
 
     #[test]
-    fn counter_gated_s_mode_blocked_by_mcounteren() {
+    fn counter_gated_s_mode() {
         let mut core = RVCore::new();
         core.privilege = PrivilegeMode::Supervisor;
         core.csr.set(CsrAddr::mcounteren, 0);
         assert_illegal_inst(core.csr_read(CsrAddr::cycle as u16));
-    }
-
-    #[test]
-    fn counter_gated_s_mode_allowed_by_mcounteren() {
-        let mut core = RVCore::new();
-        core.privilege = PrivilegeMode::Supervisor;
         core.csr.set(CsrAddr::mcounteren, 0x7);
         assert!(core.csr_read(CsrAddr::cycle as u16).is_ok());
     }
 
     #[test]
-    fn counter_gated_u_mode_needs_both_counteren() {
+    fn counter_gated_u_mode_needs_both() {
         let mut core = RVCore::new();
         core.privilege = PrivilegeMode::User;
-
         core.csr.set(CsrAddr::mcounteren, 0x7);
         core.csr.set(CsrAddr::scounteren, 0);
         assert_illegal_inst(core.csr_read(CsrAddr::cycle as u16));

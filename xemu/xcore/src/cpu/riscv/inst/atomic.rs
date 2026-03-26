@@ -8,7 +8,7 @@ use super::RVCore;
 use crate::config::SWord;
 #[cfg(isa32)]
 use crate::error::XError;
-use crate::{config::Word, cpu::riscv::mmu::MemOp, error::XResult, isa::RVReg, utils::sext_word};
+use crate::{config::Word, cpu::riscv::mm::MemOp, error::XResult, isa::RVReg, utils::sext_word};
 
 // --- Helpers ---
 
@@ -52,7 +52,7 @@ impl RVCore {
 impl RVCore {
     pub(super) fn lr_w(&mut self, rd: RVReg, rs1: RVReg, _rs2: RVReg) -> XResult {
         let addr = self.amo_addr(rs1);
-        let paddr = self.translate(addr, MemOp::Amo)?;
+        let paddr = self.translate(addr, 4, MemOp::Load)?;
         let val = self.load(addr, 4)? & 0xFFFF_FFFF;
         self.reservation = Some(paddr);
         self.set_gpr(rd, sext_word(val, 32))
@@ -60,7 +60,7 @@ impl RVCore {
 
     pub(super) fn sc_w(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let addr = self.amo_addr(rs1);
-        let paddr = self.translate(addr, MemOp::Amo)?;
+        let paddr = self.translate(addr, 4, MemOp::Store)?;
         let success = self.reservation.take() == Some(paddr);
         if success {
             self.store(addr, 4, self.gpr[rs2] & 0xFFFF_FFFF)?;
@@ -77,7 +77,7 @@ impl RVCore {
         #[cfg(isa64)]
         {
             let addr = self.amo_addr(rs1);
-            let paddr = self.translate(addr, MemOp::Amo)?;
+            let paddr = self.translate(addr, 8, MemOp::Load)?;
             let val = self.load(addr, 8)?;
             self.reservation = Some(paddr);
             self.set_gpr(rd, val)
@@ -93,7 +93,7 @@ impl RVCore {
         #[cfg(isa64)]
         {
             let addr = self.amo_addr(rs1);
-            let paddr = self.translate(addr, MemOp::Amo)?;
+            let paddr = self.translate(addr, 8, MemOp::Store)?;
             let success = self.reservation.take() == Some(paddr);
             if success {
                 self.store(addr, 8, self.gpr[rs2])?;

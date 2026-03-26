@@ -322,7 +322,7 @@ impl RVCore {
     }
 
     pub(super) fn c_ebreak(&mut self, _inst: u32) -> XResult {
-        self.trap_exception(Exception::Breakpoint, self.pc.as_usize() as Word)
+        Err(self.trap_exception(Exception::Breakpoint, self.pc.as_usize() as Word))
     }
 
     pub(super) fn c_jalr(&mut self, inst: u32) -> XResult {

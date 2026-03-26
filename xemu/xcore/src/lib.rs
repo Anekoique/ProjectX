@@ -1,3 +1,5 @@
+#![feature(bool_to_result)]
+
 #[macro_use]
 extern crate log;
 #[macro_use]

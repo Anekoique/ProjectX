@@ -15,21 +15,17 @@ use crate::{
 
 impl RVCore {
     #[inline]
-    pub(in crate::cpu::riscv) fn trap<T>(&self, cause: TrapCause, tval: Word) -> XResult<T> {
-        Err(XError::Trap(PendingTrap { cause, tval }))
+    pub(in crate::cpu::riscv) fn trap(&self, cause: TrapCause, tval: Word) -> XError {
+        XError::Trap(PendingTrap { cause, tval })
     }
 
     #[inline]
-    pub(in crate::cpu::riscv) fn trap_exception<T>(
-        &self,
-        exc: Exception,
-        tval: Word,
-    ) -> XResult<T> {
+    pub(in crate::cpu::riscv) fn trap_exception(&self, exc: Exception, tval: Word) -> XError {
         self.trap(TrapCause::Exception(exc), tval)
     }
 
     #[inline]
-    pub(in crate::cpu::riscv) fn illegal_inst<T>(&self) -> XResult<T> {
+    pub(in crate::cpu::riscv) fn illegal_inst(&self) -> XError {
         self.trap_exception(Exception::IllegalInstruction, 0)
     }
 

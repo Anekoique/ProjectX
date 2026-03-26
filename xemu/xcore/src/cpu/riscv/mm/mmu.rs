@@ -1,209 +1,23 @@
 use std::sync::MutexGuard;
 
-use bitflags::bitflags;
 use memory_addr::VirtAddr;
 
-use super::pmp::Pmp;
+use super::{
+    MemOp, PAGE_SHIFT, PAGE_SIZE, Pte, Satp, SvConfig, SvMode,
+    pmp::Pmp,
+    tlb::{Tlb, TlbEntry},
+};
 use crate::{
     config::Word,
     cpu::riscv::csr::PrivilegeMode,
     device::bus::Bus,
+    ensure,
     error::{XError, XResult},
 };
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum MemOp {
-    Fetch,
-    Load,
-    Store,
-    Amo,
-}
-
-pub struct SvMode {
-    pub levels: usize,
-    pub pte_size: usize,
-    pub vpn_bits: usize,
-    pub va_bits: usize,
-}
-
-// Used conditionally via cfg(isa32/isa64) in satp_to_sv.
-#[cfg(isa32)]
-pub static SV32: SvMode = SvMode {
-    levels: 2,
-    pte_size: 4,
-    vpn_bits: 10,
-    va_bits: 32,
-};
-#[cfg(isa64)]
-pub static SV39: SvMode = SvMode {
-    levels: 3,
-    pte_size: 8,
-    vpn_bits: 9,
-    va_bits: 39,
-};
-#[cfg(isa64)]
-pub static SV48: SvMode = SvMode {
-    levels: 4,
-    pte_size: 8,
-    vpn_bits: 9,
-    va_bits: 48,
-};
-#[cfg(isa64)]
-pub static SV57: SvMode = SvMode {
-    levels: 5,
-    pte_size: 8,
-    vpn_bits: 9,
-    va_bits: 57,
-};
-
-const PAGE_SHIFT: usize = 12;
-const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
-
-// --- PTE ---
-
-bitflags! {
-    struct PteFlags: usize {
-        const V = 1 << 0; const R = 1 << 1; const W = 1 << 2; const X = 1 << 3;
-        const U = 1 << 4; const G = 1 << 5; const A = 1 << 6; const D = 1 << 7;
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Pte(usize);
-
-impl Pte {
-    fn flags(self) -> PteFlags {
-        PteFlags::from_bits_truncate(self.0)
-    }
-    fn is_valid(self) -> bool {
-        self.flags().contains(PteFlags::V)
-    }
-    fn is_leaf(self) -> bool {
-        self.flags().intersects(PteFlags::R | PteFlags::X)
-    }
-    fn is_reserved(self) -> bool {
-        self.flags().contains(PteFlags::W) && !self.flags().contains(PteFlags::R)
-    }
-    fn ppn(self, sv: &SvMode) -> usize {
-        (self.0 >> 10) & ((1 << (sv.levels * sv.vpn_bits + 2)) - 1)
-    }
-    fn superpage_aligned(self, level: usize, sv: &SvMode) -> bool {
-        level == 0 || (self.ppn(sv) & ((1 << (level * sv.vpn_bits)) - 1)) == 0
-    }
-    /// Pack R|W|X|U|G → u8 for TLB (R at bit 0).
-    fn perm_bits(self) -> u8 {
-        (self.flags() & (PteFlags::R | PteFlags::W | PteFlags::X | PteFlags::U | PteFlags::G))
-            .bits() as u8
-            >> 1
-    }
-}
-
-// --- TLB ---
-
-const TLB_SIZE: usize = 64;
-
-#[derive(Clone, Copy, Default)]
-struct TlbEntry {
-    vpn: usize,
-    ppn: usize,
-    asid: u16,
-    perm: u8, // R=0, W=1, X=2, U=3, G=4
-    level: u8,
-    valid: bool,
-}
-
-impl TlbEntry {
-    fn from_pte(pte: Pte, vaddr: VirtAddr, level: usize, sv: &SvMode, asid: u16) -> Self {
-        Self {
-            vpn: vaddr.as_usize() >> PAGE_SHIFT,
-            ppn: pte.ppn(sv),
-            asid,
-            perm: pte.perm_bits(),
-            level: level as u8,
-            valid: true,
-        }
-    }
-
-    fn translate(&self, vaddr: VirtAddr, sv: &SvMode) -> usize {
-        if self.level > 0 {
-            let mask = (1 << (self.level as usize * sv.vpn_bits + PAGE_SHIFT)) - 1;
-            (self.ppn << PAGE_SHIFT) & !mask | (vaddr.as_usize() & mask)
-        } else {
-            self.ppn << PAGE_SHIFT | (vaddr.as_usize() & (PAGE_SIZE - 1))
-        }
-    }
-
-    fn is_global(&self) -> bool {
-        self.perm & 16 != 0
-    }
-
-    fn matches(&self, vpn: usize, asid: u16) -> bool {
-        self.valid && self.vpn == vpn && (self.asid == asid || self.is_global())
-    }
-
-    fn permits(&self, op: MemOp, priv_mode: PrivilegeMode, sum: bool, mxr: bool) -> bool {
-        let (r, w, x, u) = (
-            self.perm & 1 != 0,
-            self.perm & 2 != 0,
-            self.perm & 4 != 0,
-            self.perm & 8 != 0,
-        );
-        let perm_ok = match op {
-            MemOp::Fetch => x,
-            MemOp::Load => r || (mxr && x),
-            _ => w,
-        };
-        let priv_ok = if u {
-            priv_mode == PrivilegeMode::User || (priv_mode == PrivilegeMode::Supervisor && sum)
-        } else {
-            priv_mode != PrivilegeMode::User
-        };
-        perm_ok && priv_ok
-    }
-}
-
-pub(super) struct Tlb {
-    entries: [TlbEntry; TLB_SIZE],
-}
-
-impl Tlb {
-    pub fn new() -> Self {
-        Self {
-            entries: [TlbEntry::default(); TLB_SIZE],
-        }
-    }
-
-    fn get(&self, vpn: usize) -> &TlbEntry {
-        &self.entries[vpn & (TLB_SIZE - 1)]
-    }
-
-    fn insert(&mut self, entry: TlbEntry) {
-        self.entries[entry.vpn & (TLB_SIZE - 1)] = entry;
-    }
-
-    pub fn flush(&mut self, vpn: Option<usize>, asid: Option<u16>) {
-        for e in &mut self.entries {
-            if !e.valid {
-                continue;
-            }
-            let flush = match (vpn, asid) {
-                (None, None) => true,
-                (Some(v), None) => e.vpn == v,
-                (None, Some(a)) => e.asid == a && !e.is_global(),
-                (Some(v), Some(a)) => e.vpn == v && e.asid == a && !e.is_global(),
-            };
-            if flush {
-                e.valid = false;
-            }
-        }
-    }
-}
-
-// --- MMU ---
-
 pub struct Mmu {
-    pub(super) tlb: Tlb,
-    sv: Option<&'static SvMode>,
+    pub(in crate::cpu::riscv) tlb: Tlb,
+    sv: SvMode,
     ppn: usize,
     asid: u16,
     sum: bool,
@@ -214,7 +28,7 @@ impl Mmu {
     pub fn new() -> Self {
         Self {
             tlb: Tlb::new(),
-            sv: None,
+            sv: SvMode::Bare,
             ppn: 0,
             asid: 0,
             sum: false,
@@ -222,10 +36,11 @@ impl Mmu {
         }
     }
 
-    pub fn update_satp(&mut self, satp: Word) {
-        self.sv = satp_to_sv(satp);
-        self.ppn = satp_ppn(satp);
-        self.asid = satp_asid(satp);
+    pub fn update_satp(&mut self, raw: Word) {
+        let satp = Satp::parse(raw);
+        self.sv = satp.mode;
+        self.ppn = satp.ppn;
+        self.asid = satp.asid;
         self.tlb.flush(None, None);
     }
 
@@ -242,21 +57,19 @@ impl Mmu {
         pmp: &Pmp,
         bus: &MutexGuard<'_, Bus>,
     ) -> XResult<usize> {
-        let Some(sv) = self.sv else {
-            return Ok(vaddr.as_usize());
-        };
-        if priv_mode == PrivilegeMode::Machine {
+        if self.sv == SvMode::Bare || priv_mode == PrivilegeMode::Machine {
             return Ok(vaddr.as_usize());
         }
-
+        let sv = self.sv.config();
         let vpn = vaddr.as_usize() >> PAGE_SHIFT;
+
         let entry = self.tlb.get(vpn);
-        if entry.matches(vpn, self.asid) && entry.permits(op, priv_mode, self.sum, self.mxr) {
-            return Ok(entry.translate(vaddr, sv));
+        if entry.matches(vpn, self.asid) && entry.flags.permits(op, priv_mode, self.sum, self.mxr) {
+            return Ok(entry.translate(vaddr, &sv));
         }
 
-        let entry = self.page_walk(vaddr, op, priv_mode, sv, pmp, bus)?;
-        let paddr = entry.translate(vaddr, sv);
+        let entry = self.page_walk(vaddr, op, priv_mode, &sv, pmp, bus)?;
+        let paddr = entry.translate(vaddr, &sv);
         self.tlb.insert(entry);
         Ok(paddr)
     }
@@ -266,100 +79,57 @@ impl Mmu {
         vaddr: VirtAddr,
         op: MemOp,
         priv_mode: PrivilegeMode,
-        sv: &SvMode,
+        sv: &SvConfig,
         pmp: &Pmp,
         bus: &MutexGuard<'_, Bus>,
     ) -> XResult<TlbEntry> {
-        if !is_canonical(vaddr, sv) {
-            return Err(XError::PageFault);
-        }
+        ensure!(is_canonical(vaddr, sv), XError::PageFault);
 
         let mut base = self.ppn * PAGE_SIZE;
         for level in (0..sv.levels).rev() {
             let pte_addr = base + vpn_index(vaddr, level, sv) * sv.pte_size;
-            pmp.check(pte_addr, MemOp::Load, PrivilegeMode::Supervisor)?;
+            pmp.check(
+                pte_addr,
+                sv.pte_size,
+                MemOp::Load,
+                PrivilegeMode::Supervisor,
+            )?;
             let pte = bus
                 .read_ram(pte_addr, sv.pte_size)
                 .map(|w| Pte(w as usize))?;
 
-            if !pte.is_valid() || pte.is_reserved() {
-                return Err(XError::PageFault);
-            }
+            ensure!(
+                pte.is_valid() && !pte.is_reserved() && !pte.has_high_reserved_bits(sv),
+                XError::PageFault
+            );
             if pte.is_leaf() {
-                if !pte.superpage_aligned(level, sv) || !self.check_perm(pte, op, priv_mode) {
-                    return Err(XError::PageFault);
-                }
-                return Ok(TlbEntry::from_pte(pte, vaddr, level, sv, self.asid));
+                ensure!(
+                    pte.superpage_aligned(level, sv)
+                        && pte.flags().permits(op, priv_mode, self.sum, self.mxr),
+                    XError::PageFault
+                );
+                return Ok(TlbEntry::new(
+                    pte.flags(),
+                    pte.ppn(sv),
+                    vaddr,
+                    level,
+                    self.asid,
+                ));
             }
+            ensure!(!pte.has_nonleaf_reserved_bits(), XError::PageFault);
             base = pte.ppn(sv) * PAGE_SIZE;
         }
         Err(XError::PageFault)
     }
-
-    fn check_perm(&self, pte: Pte, op: MemOp, priv_mode: PrivilegeMode) -> bool {
-        let f = pte.flags();
-        let perm_ok = match op {
-            MemOp::Fetch => f.contains(PteFlags::X),
-            MemOp::Load => f.contains(PteFlags::R) || (self.mxr && f.contains(PteFlags::X)),
-            _ => f.contains(PteFlags::W),
-        };
-        let priv_ok = if f.contains(PteFlags::U) {
-            priv_mode == PrivilegeMode::User || (priv_mode == PrivilegeMode::Supervisor && self.sum)
-        } else {
-            priv_mode != PrivilegeMode::User
-        };
-        let ad_ok = f.contains(PteFlags::A)
-            && (!matches!(op, MemOp::Store | MemOp::Amo) || f.contains(PteFlags::D));
-        perm_ok && priv_ok && ad_ok
-    }
 }
 
-// --- satp helpers ---
-
-fn satp_to_sv(satp: Word) -> Option<&'static SvMode> {
-    #[cfg(isa32)]
-    {
-        if satp >> 31 == 1 {
-            return Some(&SV32);
-        }
-    }
-    #[cfg(isa64)]
-    match satp >> 60 {
-        8 => return Some(&SV39),
-        9 => return Some(&SV48),
-        10 => return Some(&SV57),
-        _ => {}
-    }
-    None
-}
-
-fn satp_ppn(satp: Word) -> usize {
-    #[cfg(isa64)]
-    {
-        (satp & ((1u64 << 44) - 1)) as usize
-    }
-    #[cfg(isa32)]
-    {
-        (satp & ((1u32 << 22) - 1)) as usize
-    }
-}
-
-fn satp_asid(satp: Word) -> u16 {
-    #[cfg(isa64)]
-    {
-        ((satp >> 44) & 0xFFFF) as u16
-    }
-    #[cfg(isa32)]
-    {
-        ((satp >> 22) & 0x1FF) as u16
-    }
-}
-
-fn vpn_index(vaddr: VirtAddr, level: usize, sv: &SvMode) -> usize {
+#[inline]
+fn vpn_index(vaddr: VirtAddr, level: usize, sv: &SvConfig) -> usize {
     (vaddr.as_usize() >> (PAGE_SHIFT + level * sv.vpn_bits)) & ((1 << sv.vpn_bits) - 1)
 }
 
-fn is_canonical(vaddr: VirtAddr, sv: &SvMode) -> bool {
+#[inline]
+fn is_canonical(vaddr: VirtAddr, sv: &SvConfig) -> bool {
     let va = vaddr.as_usize() as isize;
     let shift = usize::BITS as usize - sv.va_bits;
     (va << shift) >> shift == va
@@ -372,7 +142,7 @@ mod tests {
     use memory_addr::VirtAddr;
 
     use super::*;
-    use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
+    use crate::config::{CONFIG_MBASE, CONFIG_MSIZE, Word};
 
     fn test_bus() -> Mutex<Bus> {
         Mutex::new(Bus::new(CONFIG_MBASE, CONFIG_MSIZE))

@@ -1,103 +1,104 @@
+use std::ops::Range;
+
 use super::{Device, ram::Ram};
 use crate::{
     config::Word,
     error::{XError, XResult},
 };
 
+fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
+    a.start < b.end && b.start < a.end
+}
+
 struct MmioRegion {
     name: &'static str,
-    base: usize,
-    size: usize,
+    range: Range<usize>,
     dev: Box<dyn Device>,
+}
+
+impl MmioRegion {
+    #[inline]
+    fn contains(&self, addr: usize, end: usize) -> bool {
+        addr >= self.range.start && end <= self.range.end
+    }
 }
 
 pub struct Bus {
     ram: Ram,
-    ram_base: usize,
     mmio: Vec<MmioRegion>,
 }
 
 impl Bus {
     pub fn new(ram_base: usize, ram_size: usize) -> Self {
         Self {
-            ram: Ram::new(ram_size),
-            ram_base,
+            ram: Ram::new(ram_base, ram_size),
             mmio: Vec::new(),
         }
     }
 
-    /// Register an MMIO device. Panics on overlap with RAM or existing regions.
     pub fn add_mmio(&mut self, name: &'static str, base: usize, size: usize, dev: Box<dyn Device>) {
         assert!(size > 0, "region size must be non-zero");
-        let end = base
-            .checked_add(size)
-            .expect("region overflows address space");
-        let overlaps = |lo: usize, hi: usize| base < hi && lo < end;
+        let range = base..base.checked_add(size).expect("address overflow");
         assert!(
-            !overlaps(self.ram_base, self.ram_base + self.ram.len()),
-            "MMIO '{name}' [{base:#x}..{end:#x}) overlaps RAM"
+            !overlaps(&range, self.ram.range()),
+            "MMIO '{name}' overlaps RAM"
         );
-        for r in &self.mmio {
-            assert!(
-                !overlaps(r.base, r.base + r.size),
-                "MMIO '{name}' [{base:#x}..{end:#x}) overlaps '{}'",
-                r.name
-            );
+
+        if let Some(r) = self.mmio.iter().find(|r| overlaps(&range, &r.range)) {
+            panic!("MMIO '{name}' overlaps '{}'", r.name);
         }
-        self.mmio.push(MmioRegion {
-            name,
-            base,
-            size,
-            dev,
-        });
-    }
 
-    pub fn read(&mut self, addr: usize, size: usize) -> XResult<Word> {
-        if let Some(off) = self.ram_offset(addr, size) {
-            return self.ram.read(off, size);
-        }
-        let (dev, off) = self.find_mmio(addr, size)?;
-        dev.read(off, size)
-    }
-
-    pub fn write(&mut self, addr: usize, size: usize, value: Word) -> XResult {
-        if let Some(off) = self.ram_offset(addr, size) {
-            return self.ram.write(off, size, value);
-        }
-        let (dev, off) = self.find_mmio(addr, size)?;
-        dev.write(off, size, value)
-    }
-
-    /// Read from RAM only. Used by page table walks.
-    pub fn read_ram(&self, addr: usize, size: usize) -> XResult<Word> {
-        let off = self.ram_offset(addr, size).ok_or(XError::BadAddress)?;
-        self.ram.read(off, size)
-    }
-
-    /// Bulk load bytes directly into RAM (for image/ELF loading).
-    pub fn load_ram(&mut self, addr: usize, data: &[u8]) -> XResult {
-        let off = self
-            .ram_offset(addr, data.len())
-            .ok_or(XError::BadAddress)?;
-        self.ram.load(off, data)
-    }
-
-    fn ram_offset(&self, addr: usize, size: usize) -> Option<usize> {
-        let off = addr.checked_sub(self.ram_base)?;
-        if off + size <= self.ram.len() {
-            Some(off)
-        } else {
-            None
-        }
+        self.mmio.push(MmioRegion { name, range, dev });
     }
 
     fn find_mmio(&mut self, addr: usize, size: usize) -> XResult<(&mut dyn Device, usize)> {
-        for r in &mut self.mmio {
-            if addr >= r.base && addr + size <= r.base + r.size {
-                return Ok((r.dev.as_mut(), addr - r.base));
-            }
+        let end = addr.checked_add(size).ok_or(XError::BadAddress)?;
+
+        let r = self
+            .mmio
+            .iter_mut()
+            .find(|r| r.contains(addr, end))
+            .ok_or(XError::BadAddress)?;
+
+        Ok((r.dev.as_mut(), addr - r.range.start))
+    }
+
+    fn dispatch<T, F>(&mut self, addr: usize, size: usize, f: F) -> XResult<T>
+    where
+        F: FnOnce(&mut dyn Device, usize) -> XResult<T>,
+    {
+        if let Some(off) = self.ram_offset(addr, size) {
+            return f(&mut self.ram, off);
         }
-        Err(XError::BadAddress)
+
+        let (dev, off) = self.find_mmio(addr, size)?;
+        f(dev, off)
+    }
+
+    pub fn read(&mut self, addr: usize, size: usize) -> XResult<Word> {
+        self.dispatch(addr, size, |dev, off| dev.read(off, size))
+    }
+
+    pub fn write(&mut self, addr: usize, size: usize, value: Word) -> XResult {
+        self.dispatch(addr, size, |dev, off| dev.write(off, size, value))
+    }
+
+    pub fn read_ram(&self, addr: usize, size: usize) -> XResult<Word> {
+        self.ram_offset(addr, size)
+            .ok_or(XError::BadAddress)
+            .and_then(|off| self.ram.read(off, size))
+    }
+
+    pub fn load_ram(&mut self, addr: usize, data: &[u8]) -> XResult {
+        self.ram_offset(addr, data.len())
+            .ok_or(XError::BadAddress)
+            .and_then(|off| self.ram.load(off, data))
+    }
+
+    fn ram_offset(&self, addr: usize, size: usize) -> Option<usize> {
+        let off = addr.checked_sub(self.ram.range().start)?;
+        let end = off.checked_add(size)?;
+        (end <= self.ram.len()).then_some(off)
     }
 }
 
@@ -156,8 +157,6 @@ mod tests {
         assert!(bus.load_ram(CONFIG_MBASE - 4, &[0u8; 4]).is_err());
     }
 
-    // --- MMIO ---
-
     struct StubDevice(Word);
     impl StubDevice {
         fn new() -> Self {
@@ -165,7 +164,7 @@ mod tests {
         }
     }
     impl Device for StubDevice {
-        fn read(&mut self, _: usize, _: usize) -> XResult<Word> {
+        fn read(&self, _: usize, _: usize) -> XResult<Word> {
             Ok(self.0)
         }
         fn write(&mut self, _: usize, _: usize, v: Word) -> XResult {

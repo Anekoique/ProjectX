@@ -54,7 +54,7 @@ impl XError {
 macro_rules! ensure {
     ($predicate:expr, $context_selector:expr $(,)?) => {
         if !$predicate {
-            return $context_selector;
+            return Err($context_selector);
         }
     };
 }

@@ -13,16 +13,16 @@ impl RVCore {
             PrivilegeMode::Supervisor => Exception::EcallFromS,
             PrivilegeMode::Machine => Exception::EcallFromM,
         };
-        self.trap_exception(exc, 0)
+        Err(self.trap_exception(exc, 0))
     }
 
     pub(super) fn ebreak(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
-        self.trap_exception(Exception::Breakpoint, self.pc.as_usize() as Word)
+        Err(self.trap_exception(Exception::Breakpoint, self.pc.as_usize() as Word))
     }
 
     pub(super) fn mret(&mut self, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
         if self.privilege < PrivilegeMode::Machine {
-            return self.illegal_inst();
+            return Err(self.illegal_inst());
         }
         self.do_mret();
         Ok(())
@@ -30,11 +30,11 @@ impl RVCore {
 
     pub(super) fn sret(&mut self, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
         if self.privilege < PrivilegeMode::Supervisor {
-            return self.illegal_inst();
+            return Err(self.illegal_inst());
         }
         let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
         if ms.contains(MStatus::TSR) && self.privilege == PrivilegeMode::Supervisor {
-            return self.illegal_inst();
+            return Err(self.illegal_inst());
         }
         self.do_sret();
         Ok(())
@@ -42,12 +42,12 @@ impl RVCore {
 
     pub(super) fn sfence_vma(&mut self, _rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         if self.privilege == PrivilegeMode::User {
-            return self.illegal_inst();
+            return Err(self.illegal_inst());
         }
         if self.privilege == PrivilegeMode::Supervisor {
             let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
             if ms.contains(MStatus::TVM) {
-                return self.illegal_inst();
+                return Err(self.illegal_inst());
             }
         }
         let vpn = if rs1 != RVReg::zero {

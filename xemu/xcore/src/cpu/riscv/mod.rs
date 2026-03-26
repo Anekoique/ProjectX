@@ -1,8 +1,6 @@
 pub mod csr;
 mod inst;
-mod mem;
-pub(crate) mod mmu;
-pub(crate) mod pmp;
+pub(crate) mod mm;
 pub mod trap;
 
 use std::sync::{Arc, Mutex};
@@ -12,8 +10,7 @@ use memory_addr::{MemoryAddr, VirtAddr};
 pub use self::{RVCore as Core, trap::PendingTrap};
 use self::{
     csr::{CsrFile, PrivilegeMode},
-    mmu::Mmu,
-    pmp::Pmp,
+    mm::{Mmu, Pmp},
     trap::TrapCause,
 };
 use super::{CoreOps, RESET_VECTOR};
@@ -107,6 +104,8 @@ impl CoreOps for RVCore {
         self.privilege = PrivilegeMode::Machine;
         self.pending_trap = None;
         self.reservation = None;
+        self.mmu = Mmu::new();
+        self.pmp = Pmp::new();
         self.halted = false;
         Ok(())
     }
