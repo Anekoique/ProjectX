@@ -1,21 +1,21 @@
 # xemu Development Plan
 
-## Current Status (2026-03-23)
+## Current Status (2026-03-26)
 
-xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, and interrupt routing.
+xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, and virtual memory.
 
 ### What Works
 
 - **ISA**: RV32I/RV64I base, M (mul/div), A (atomics: LR/SC + 9 AMO ops), C (compressed), Zicsr
-- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus)
+- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus), satp with MMU side effects, pmpcfg/pmpaddr with lock semantics
 - **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
-- **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
-- **Memory**: Flat 128 MB physical memory, identity-mapped virt→phys
+- **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint, page faults), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
+- **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, Svade), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics), sfence.vma
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: step, continue, load, reset
 - **Logging**: Colored, timestamped, configurable log levels
-- **Tests**: 196 unit tests passing, 31 cpu-tests-rs (integration)
+- **Tests**: 223 unit tests passing, 31 cpu-tests-rs (integration)
 - **CI**: GitHub Actions pipeline
 
 ---
@@ -31,9 +31,9 @@ xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore,
 | Atomic (A ext) | Full (LR/SC + AMO) | No |
 | CSR registers | Full WARL + shadows | Full (mstatus, mtvec, satp, etc.) |
 | Privilege modes | M/S/U with delegation | M/S/U with delegation |
-| MMU / Virtual memory | Identity mapping | SV39 + TLB (2048 entries) |
+| MMU / Virtual memory | SV32/SV39, TLB (64), PMP (16) | SV39 + TLB (2048 entries) |
 | Interrupts/Exceptions | Full (priority, delegation, vectored) | Full (PLIC, timer, ecall trap) |
-| Devices | None | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
+| Devices | Bus + MMIO routing (no devices yet) | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
 | Difftest | None | QEMU via GDB protocol |
 | Debugger | step/continue/load/reset | + breakpoints, watchpoints, expression eval, backtrace |
 | Instruction cache | None | Set-associative IBuf (16K entries) |
@@ -41,7 +41,7 @@ xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore,
 | Performance profiling | None | Per-instruction counters |
 
 **Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic extensions, clean WARL CSR model.
-**Key gaps**: No MMU, no devices, no debugging beyond step.
+**Key gaps**: No devices, no debugging beyond step.
 
 ### vs remu (~3,800 lines, RV32)
 
@@ -51,15 +51,15 @@ xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore,
 | Atomic (A ext) | Full (LR/SC + AMO .w/.d) | LR/SC, AMO operations |
 | CSR registers | Full WARL + shadows | Full 4096-entry array |
 | Privilege modes | M/S/U with delegation | M/S/U with delegation |
-| MMU / Virtual memory | Identity mapping | SV32 page tables |
+| MMU / Virtual memory | SV32/SV39, TLB, PMP | SV32 page tables |
 | Interrupts/Exceptions | Full trap framework | CLINT + PLIC, M/S-mode traps |
-| Devices | None | CLINT, PLIC, UART, Timer, VGA, Keyboard, Audio, Disk |
+| Devices | Bus + MMIO routing (no devices yet) | CLINT, PLIC, UART, Timer, VGA, Keyboard, Audio, Disk |
 | Tracing | Log only | 7 ring-buffered traces (itrace, mtrace, ftrace, dtrace, etc.) |
 | Configuration | Makefile env vars | Kconfig system (.config -> config.rs) |
 | Linux boot | No | Boots OpenSBI + Linux 5.15 |
 
 **Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation.
-**Key gaps**: Cannot run any OS — missing MMU and devices.
+**Key gaps**: Cannot run any OS — missing devices (UART, CLINT, PLIC).
 
 ### Architectural Advantages of xemu
 
@@ -94,23 +94,25 @@ xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore,
 - [x] **Exception handling** — ecall (per mode), illegal instruction, breakpoint, page fault causes defined
 - [x] **Interrupt framework** — priority-based interrupt selection, MIE/SIE gating, global enable, delegation routing, vectored mtvec/stvec
 
-### Phase 3: Memory Management ← NEXT
+### Phase 3: Memory Management — COMPLETE
 
-**Goal**: Virtual memory and address translation.
+**Goal**: Virtual memory, address translation, and device bus.
 
-- [ ] **SV39 page tables** (RV64) / **SV32** (RV32) — multi-level page walk
-- [ ] **TLB** — translation lookaside buffer with flush on satp write/sfence.vma
-- [ ] **Permission checks** — R/W/X/U bits, page fault generation
-- [ ] **MMIO routing** — address-range based dispatch to devices vs physical memory
+- [x] **Device trait + Bus** — `Device` trait (read/write), `Bus` with Ram + MMIO dispatch, `Arc<Mutex<Bus>>` shared ownership
+- [x] **SV39 page tables** (RV64) / **SV32** (RV32) — multi-level page walk with Svade A/D enforcement
+- [x] **TLB** — 64-entry direct-mapped, ASID-tagged, global page support, sfence.vma flush
+- [x] **PMP** — 16 entries, TOR/NA4/NAPOT matching, partial-overlap detection, lock semantics
+- [x] **Permission checks** — R/W/X/U bits, SUM/MXR, MPRV effective privilege, page fault generation
+- [x] **CSR side effects** — satp→MMU, mstatus→SUM/MXR, pmpcfg/pmpaddr→PMP with lock writeback
 
-### Phase 4: Device Emulation
+### Phase 4: Device Emulation ← NEXT
 
-**Goal**: Minimal device set for console I/O and timer.
+**Goal**: Minimal device set for console I/O, timer, and interrupt routing.
 
-- [ ] **UART** — serial output (printf support for running programs)
-- [ ] **Timer/RTC** — mtime/mtimecmp for OS scheduler
-- [ ] **CLINT** — core-local interruptor (software + timer interrupts)
+- [ ] **UART 16550** — serial I/O (console for running programs)
+- [ ] **CLINT** — core-local interruptor (msip + mtime/mtimecmp)
 - [ ] **PLIC** — platform-level interrupt controller (external interrupt routing)
+- [ ] **Integration** — wire devices into Bus, connect interrupt lines to CPU
 
 ### Phase 5: Debugging & Observability
 
@@ -148,7 +150,7 @@ xemu is a RISC-V emulator (~6,000 lines) in a multi-crate Rust workspace (xcore,
 
 The critical path to OS boot is:
 
-1. **Phase 3 (MMU)** — the only remaining blocker for Phase 4 and OS boot
+1. ~~**Phase 3 (MMU)**~~ — COMPLETE
 2. **Phase 4 (Devices)** — UART + CLINT/Timer are minimum for console output and scheduling
 3. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
 4. **Phase 5 (Debugging)** — can develop in parallel with phases 3-4
@@ -162,4 +164,5 @@ The critical path to OS boot is:
 - **cfg-based ISA flexibility**: Maintain RV32/RV64 dual support. New features must work for both widths.
 - **Trait-based extensibility**: Device bus, MMU, and ISA all use trait abstraction for pluggability.
 - **Minimal dependencies**: Avoid heavy frameworks. The emulator core should remain lean.
-- **Immutability where possible**: Prefer returning new values over mutating shared state. Use `with_xcpu!` / `with_mem!` patterns to scope mutation.
+- **Immutability where possible**: Prefer returning new values over mutating shared state. Use functional chains (`.and_then().map_err()`) to scope mutation.
+- **Single-lock access path**: Hold one `MutexGuard` across translate→PMP→bus to avoid double-lock overhead.
