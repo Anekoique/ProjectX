@@ -9,14 +9,19 @@ use memory_addr::{MemoryAddr, VirtAddr};
 
 pub use self::{RVCore as Core, trap::PendingTrap};
 use self::{
-    csr::{CsrFile, PrivilegeMode},
+    csr::{CsrAddr, CsrFile, PrivilegeMode},
     mm::{Mmu, Pmp},
     trap::TrapCause,
 };
 use super::{CoreOps, RESET_VECTOR};
 use crate::{
     config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
-    device::bus::Bus,
+    device::{
+        HW_IP_MASK, IrqState, SSIP,
+        bus::Bus,
+        intc::{aclint::Aclint, plic::Plic},
+        uart::Uart,
+    },
     error::XResult,
     isa::{DECODER, DecodedInst, RVReg},
 };
@@ -32,15 +37,35 @@ pub struct RVCore {
     pub(crate) bus: Arc<Mutex<Bus>>,
     pub(crate) mmu: Mmu,
     pub(crate) pmp: Pmp,
+    irq: IrqState,
     halted: bool,
 }
 
 impl RVCore {
     pub fn new() -> Self {
-        Self::with_bus(Arc::new(Mutex::new(Bus::new(CONFIG_MBASE, CONFIG_MSIZE))))
+        let irq = IrqState::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE);
+        bus.add_mmio(
+            "aclint",
+            0x0200_0000,
+            0x1_0000,
+            Box::new(Aclint::new(irq.clone(), bus.ssip_flag())),
+            0,
+        );
+        let plic_idx = bus.mmio.len();
+        bus.add_mmio(
+            "plic",
+            0x0C00_0000,
+            0x400_0000,
+            Box::new(Plic::new(irq.clone())),
+            0,
+        );
+        bus.set_irq_sink(plic_idx);
+        bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
+        Self::with_bus(Arc::new(Mutex::new(bus)), irq)
     }
 
-    pub fn with_bus(bus: Arc<Mutex<Bus>>) -> Self {
+    pub fn with_bus(bus: Arc<Mutex<Bus>>, irq: IrqState) -> Self {
         Self {
             gpr: [0; 32],
             pc: VirtAddr::from(0),
@@ -52,8 +77,20 @@ impl RVCore {
             bus,
             mmu: Mmu::new(),
             pmp: Pmp::new(),
+            irq,
             halted: false,
         }
+    }
+
+    /// Merge hardware interrupt bits from devices into mip.
+    /// SSIP is handled separately via ACLINT edge-triggered SSWI.
+    fn sync_interrupts(&mut self) {
+        let ext = self.irq.load() as Word;
+        let mip = self.csr.get(CsrAddr::mip);
+        // Merge hardware-wired bits (MSIP, MTIP, SEIP, MEIP); SSIP stays
+        // software-controlled
+        self.csr
+            .set(CsrAddr::mip, (mip & !HW_IP_MASK) | (ext & HW_IP_MASK));
     }
 
     pub fn raise_trap(&mut self, cause: TrapCause, tval: Word) {
@@ -106,11 +143,23 @@ impl CoreOps for RVCore {
         self.reservation = None;
         self.mmu = Mmu::new();
         self.pmp = Pmp::new();
+        self.irq.reset();
+        self.bus.lock().unwrap().reset_devices(); // IR-004
         self.halted = false;
         Ok(())
     }
 
     fn step(&mut self) -> XResult {
+        {
+            let mut bus = self.bus.lock().unwrap();
+            bus.tick();
+            if bus.take_ssip() {
+                let mip = self.csr.get(CsrAddr::mip);
+                self.csr.set(CsrAddr::mip, mip | SSIP as Word);
+            }
+        }
+        self.sync_interrupts();
+
         if self.check_pending_interrupts() {
             self.retire();
             return Ok(());
@@ -227,5 +276,43 @@ mod tests {
         core.step().unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 1);
+    }
+
+    #[test]
+    fn sswi_edge_delivered_once_and_clearable() {
+        use crate::device::SSIP;
+        let mut core = setup_core();
+        write_inst(&core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
+
+        // Write SETSSIP=1 via ACLINT MMIO (base=0x0200_0000, offset=0xC000)
+        core.bus.lock().unwrap().write(0x0200_C000, 4, 1).unwrap();
+
+        // Step: SSIP should be set in mip after step
+        core.step().unwrap();
+        assert_ne!(
+            core.csr.get(CsrAddr::mip) as u64 & SSIP,
+            0,
+            "SSIP should be set after SSWI"
+        );
+
+        // Guest clears SSIP via CSR write (mip bit 1 is software-writable)
+        let mip = core.csr.get(CsrAddr::mip);
+        core.csr.set(CsrAddr::mip, mip & !(SSIP as Word));
+        assert_eq!(
+            core.csr.get(CsrAddr::mip) as u64 & SSIP,
+            0,
+            "SSIP should be cleared"
+        );
+
+        // Re-write the instruction for next step
+        write_inst(&core, 0x0000_0297);
+
+        // Step again: SSIP should NOT be reasserted (no new SETSSIP write)
+        core.step().unwrap();
+        assert_eq!(
+            core.csr.get(CsrAddr::mip) as u64 & SSIP,
+            0,
+            "SSIP must not be reasserted without new SETSSIP"
+        );
     }
 }

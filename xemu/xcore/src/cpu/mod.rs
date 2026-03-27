@@ -87,11 +87,26 @@ impl<Core: CoreOps> CPU<Core> {
     }
 
     pub fn step(&mut self) -> XResult {
-        self.core.step()?;
-        if self.core.halted() {
-            self.set_terminated(State::HALTED).log_termination();
+        match self.core.step() {
+            Err(XError::ProgramExit(code)) => {
+                let state = if code == 0 {
+                    State::HALTED
+                } else {
+                    State::ABORT
+                };
+                self.set_terminated(state);
+                self.halt_ret = code as Word; // override after set_terminated
+                self.log_termination();
+                Ok(())
+            }
+            result => {
+                result?;
+                if self.core.halted() {
+                    self.set_terminated(State::HALTED).log_termination();
+                }
+                Ok(())
+            }
         }
-        Ok(())
     }
 
     pub fn run(&mut self, count: u64) -> XResult {

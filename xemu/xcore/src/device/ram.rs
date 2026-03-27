@@ -1,40 +1,20 @@
 use std::ops::Range;
 
 use super::Device;
-use crate::{config::Word, error::XResult};
+use crate::{
+    config::Word,
+    error::{XError, XResult},
+};
 
 pub struct Ram {
     range: Range<usize>,
     data: Vec<u8>,
 }
 
-impl Device for Ram {
-    /// Raw little-endian read. No alignment checks.
-    fn read(&self, offset: usize, size: usize) -> XResult<Word> {
-        let end = offset
-            .checked_add(size)
-            .filter(|&e| e <= self.data.len() && size <= std::mem::size_of::<Word>())
-            .ok_or(crate::error::XError::BadAddress)?;
-        let mut buf = [0u8; std::mem::size_of::<Word>()];
-        buf[..size].copy_from_slice(&self.data[offset..end]);
-        Ok(Word::from_le_bytes(buf))
-    }
-
-    /// Raw little-endian write. No alignment checks.
-    fn write(&mut self, offset: usize, size: usize, value: Word) -> XResult {
-        let end = offset
-            .checked_add(size)
-            .filter(|&e| e <= self.data.len() && size <= std::mem::size_of::<Word>())
-            .ok_or(crate::error::XError::BadAddress)?;
-        self.data[offset..end].copy_from_slice(&value.to_le_bytes()[..size]);
-        Ok(())
-    }
-}
-
 impl Ram {
-    pub fn new(ram_base: usize, size: usize) -> Self {
+    pub fn new(base: usize, size: usize) -> Self {
         Self {
-            range: ram_base..ram_base + size,
+            range: base..base.checked_add(size).expect("RAM range overflow"),
             data: vec![0; size],
         }
     }
@@ -42,18 +22,44 @@ impl Ram {
     pub fn range(&self) -> &Range<usize> {
         &self.range
     }
-
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
-    /// Bulk byte copy for image loading.
+    /// Little-endian read. Pure `&self` — used by both `Device::read` and
+    /// `Bus::read_ram`.
+    pub(crate) fn get(&self, offset: usize, size: usize) -> XResult<Word> {
+        let end = self.check_bounds(offset, size)?;
+        let mut buf = [0u8; std::mem::size_of::<Word>()];
+        buf[..size].copy_from_slice(&self.data[offset..end]);
+        Ok(Word::from_le_bytes(buf))
+    }
+
     pub fn load(&mut self, offset: usize, data: &[u8]) -> XResult {
         let end = offset
             .checked_add(data.len())
             .filter(|&e| e <= self.data.len())
-            .ok_or(crate::error::XError::BadAddress)?;
+            .ok_or(XError::BadAddress)?;
         self.data[offset..end].copy_from_slice(data);
+        Ok(())
+    }
+
+    fn check_bounds(&self, offset: usize, size: usize) -> XResult<usize> {
+        offset
+            .checked_add(size)
+            .filter(|&e| e <= self.data.len() && size <= std::mem::size_of::<Word>())
+            .ok_or(XError::BadAddress)
+    }
+}
+
+impl Device for Ram {
+    fn read(&mut self, offset: usize, size: usize) -> XResult<Word> {
+        self.get(offset, size)
+    }
+
+    fn write(&mut self, offset: usize, size: usize, value: Word) -> XResult {
+        let end = self.check_bounds(offset, size)?;
+        self.data[offset..end].copy_from_slice(&value.to_le_bytes()[..size]);
         Ok(())
     }
 }
@@ -65,8 +71,7 @@ mod tests {
     #[test]
     fn roundtrip_all_sizes() {
         let mut ram = Ram::new(0, 64);
-        let cases: &[(usize, usize, Word)] = &[(0, 1, 0xAB), (2, 2, 0xBEEF), (4, 4, 0xDEADBEEF)];
-        for &(off, sz, val) in cases {
+        for &(off, sz, val) in &[(0, 1, 0xAB), (2, 2, 0xBEEF), (4, 4, 0xDEADBEEF)] {
             ram.write(off, sz, val).unwrap();
             assert_eq!(ram.read(off, sz).unwrap(), val);
         }

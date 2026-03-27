@@ -18,6 +18,8 @@ pub enum XError {
     // IO errors
     FailedToRead,
     FailedToWrite,
+    // Device
+    ProgramExit(u32),
     // Not yet implemented
     Unimplemented,
 }
@@ -45,6 +47,7 @@ impl XError {
             XError::InvalidReg => "invalid register",
             XError::FailedToRead => "failed to read",
             XError::FailedToWrite => "failed to write",
+            XError::ProgramExit(_) => "program exit",
             XError::Unimplemented => "unimplemented",
         }
     }
@@ -63,6 +66,7 @@ impl fmt::Display for XError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             XError::Trap(trap) => write!(f, "trap {trap:?} thrown"),
+            XError::ProgramExit(code) => write!(f, "program exit (code={code})"),
             _ => write!(f, "{}", self.as_str()),
         }
     }

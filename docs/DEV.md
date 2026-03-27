@@ -1,8 +1,8 @@
 # xemu Development Plan
 
-## Current Status (2026-03-26)
+## Current Status (2026-03-27)
 
-xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, and virtual memory.
+xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, virtual memory, and device emulation.
 
 ### What Works
 
@@ -11,11 +11,12 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
 - **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint, page faults), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
 - **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, Svade), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics), sfence.vma
+- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout, opt-in TCP RX), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: step, continue, load, reset
 - **Logging**: Colored, timestamped, configurable log levels
-- **Tests**: 223 unit tests passing, 31 cpu-tests-rs (integration)
+- **Tests**: 269 unit tests passing, 31 cpu-tests-rs (integration)
 - **CI**: GitHub Actions pipeline
 
 ---
@@ -33,7 +34,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Privilege modes | M/S/U with delegation | M/S/U with delegation |
 | MMU / Virtual memory | SV32/SV39, TLB (64), PMP (16) | SV39 + TLB (2048 entries) |
 | Interrupts/Exceptions | Full (priority, delegation, vectored) | Full (PLIC, timer, ecall trap) |
-| Devices | Bus + MMIO routing (no devices yet) | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
+| Devices | ACLINT, PLIC, UART 16550 | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
 | Difftest | None | QEMU via GDB protocol |
 | Debugger | step/continue/load/reset | + breakpoints, watchpoints, expression eval, backtrace |
 | Instruction cache | None | Set-associative IBuf (16K entries) |
@@ -41,7 +42,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Performance profiling | None | Per-instruction counters |
 
 **Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic extensions, clean WARL CSR model.
-**Key gaps**: No devices, no debugging beyond step.
+**Key gaps**: No VGA, no difftest, limited debugging.
 
 ### vs remu (~3,800 lines, RV32)
 
@@ -53,13 +54,13 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Privilege modes | M/S/U with delegation | M/S/U with delegation |
 | MMU / Virtual memory | SV32/SV39, TLB, PMP | SV32 page tables |
 | Interrupts/Exceptions | Full trap framework | CLINT + PLIC, M/S-mode traps |
-| Devices | Bus + MMIO routing (no devices yet) | CLINT, PLIC, UART, Timer, VGA, Keyboard, Audio, Disk |
+| Devices | ACLINT, PLIC, UART 16550 | CLINT, PLIC, UART, Timer, VGA, Keyboard, Audio, Disk |
 | Tracing | Log only | 7 ring-buffered traces (itrace, mtrace, ftrace, dtrace, etc.) |
 | Configuration | Makefile env vars | Kconfig system (.config -> config.rs) |
 | Linux boot | No | Boots OpenSBI + Linux 5.15 |
 
 **Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation.
-**Key gaps**: Cannot run any OS — missing devices (UART, CLINT, PLIC).
+**Key gaps**: No VGA, audio, disk. Fewer device types overall.
 
 ### Architectural Advantages of xemu
 
@@ -105,14 +106,14 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [x] **Permission checks** — R/W/X/U bits, SUM/MXR, MPRV effective privilege, page fault generation
 - [x] **CSR side effects** — satp→MMU, mstatus→SUM/MXR, pmpcfg/pmpaddr→PMP with lock writeback
 
-### Phase 4: Device Emulation ← NEXT
+### Phase 4: Device Emulation — COMPLETE
 
 **Goal**: Minimal device set for console I/O, timer, and interrupt routing.
 
-- [ ] **UART 16550** — serial I/O (console for running programs)
-- [ ] **CLINT** — core-local interruptor (msip + mtime/mtimecmp)
-- [ ] **PLIC** — platform-level interrupt controller (external interrupt routing)
-- [ ] **Integration** — wire devices into Bus, connect interrupt lines to CPU
+- [x] **ACLINT** — MSWI (msip → MSIP), MTIMER (mtime 10MHz + mtimecmp → MTIP), SSWI (setssip → SSIP)
+- [x] **PLIC** — 32 sources, 2 contexts (M/S), level-triggered, claim/complete with claimed-exclusion
+- [x] **UART 16550** — TX (stdout), opt-in TCP RX, DLAB register switching, PLIC source 10
+- [x] **Integration** — `IrqState` lock-free interrupt delivery, `Bus::tick()` + `set_irq_sink()`, `sync_interrupts()` in step(), device reset
 
 ### Phase 5: Debugging & Observability
 
@@ -151,7 +152,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 The critical path to OS boot is:
 
 1. ~~**Phase 3 (MMU)**~~ — COMPLETE
-2. **Phase 4 (Devices)** — UART + CLINT/Timer are minimum for console output and scheduling
+2. ~~**Phase 4 (Devices)**~~ — COMPLETE
 3. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
 4. **Phase 5 (Debugging)** — can develop in parallel with phases 3-4
 5. **Phase 7 (OS boot)** — the culmination of all previous work
