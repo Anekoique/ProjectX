@@ -1,0 +1,33 @@
+# `{Feature Name}` IMPL MASTER `{NN}`
+
+> Status: Active | Resolved
+> Feature: `{feature-name}`
+> Iteration: `{NN}`
+> Owner: Master
+> Target Impl: `{NN_IMPL.md}`
+> Related Review: `{NN_IMPL_REVIEW.md}`
+
+---
+
+## Decision
+
+{Final judgment for this implementation round.}
+
+## Directives
+
+### IM-001 `{short title}`
+- Decision: {what must be done}
+- Scope: Fix | Validation | Behavior | Cleanup | Follow-up Plan
+- Requirement: MUST | SHOULD
+- Reason: {short rationale}
+
+### IM-002 `{short title}`
+- Decision: {what must be done}
+- Scope: ...
+- Requirement: MUST | SHOULD
+- Reason: ...
+
+## Status
+
+- Implementation Status: Accepted | Accepted with Directives | Not Accepted
+- Ready for Commit: Yes | No

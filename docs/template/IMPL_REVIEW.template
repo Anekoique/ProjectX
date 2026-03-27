@@ -1,0 +1,69 @@
+# `{Feature Name}` IMPL REVIEW `{NN}`
+
+> Status: Open | Closed
+> Feature: `{feature-name}`
+> Iteration: `{NN}`
+> Owner: Reviewer
+> Target Impl: `{NN_IMPL.md}`
+
+---
+
+## Verdict
+
+- Decision: Accepted | Accepted with Revisions | Rejected
+- Blocking Issues: `{count}`
+- Non-Blocking Issues: `{count}`
+
+## Summary
+
+{A short overall assessment of the implementation result:
+whether it matches the approved plan, satisfies constraints, and is sufficiently validated.}
+
+---
+
+## Findings
+
+### IR-001 `{short title}`
+
+- Severity: CRITICAL | HIGH | MEDIUM | LOW
+- Section: `{Implementation Scope / Plan Compliance / Verification Results / Acceptance Mapping / ...}`
+- Type: Correctness | Plan Compliance | Validation | Behavior | Regression | Maintainability
+- Problem:
+  {What is wrong / missing / inconsistent.}
+- Why it matters:
+  {Why this affects correctness, acceptance, or future maintenance.}
+- Recommendation:
+  {Concrete fix or follow-up action.}
+
+### IR-002 `{short title}`
+
+- Severity: ...
+- Section: `...`
+- Type: `...`
+- Problem:
+  ...
+- Why it matters:
+  ...
+- Recommendation:
+  ...
+
+---
+
+## Positive Notes
+
+- {What is well implemented}
+- {What is properly validated}
+
+---
+
+## Approval Conditions
+
+### Must Fix
+- IR-001
+
+### Should Improve
+- IR-002
+
+### Ready for Merge / Release
+- Yes | No
+- Reason: {short justification}

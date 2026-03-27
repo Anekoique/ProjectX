@@ -1,0 +1,109 @@
+# `{Feature Name}` IMPL `{NN}`
+
+> Status: In Progress | Ready for Review | Accepted | Needs Revision
+> Feature: `{feature-name}`
+> Iteration: `{NN}`
+> Owner: Executor
+> Based on:
+>
+> - Approved Plan: `{NN_PLAN.md}`
+> - Related Review: `{NN_REVIEW.md | none}`
+> - Related Master: `{NN_MASTER.md | none}`
+
+---
+
+## Summary
+
+{A concise summary of what was implemented in this iteration.}
+
+## Implementation Scope
+
+[**Completed**]
+- {implemented item}
+- {implemented item}
+
+[**Partially Completed**]
+- {item}
+- {remaining gap}
+
+[**Not Implemented**]
+- {item intentionally deferred or not finished}
+
+---
+
+## Plan Compliance
+
+[**Implemented as Planned**]
+- {part aligned with approved plan}
+
+[**Deviations from Plan**]
+- D-001: {what changed}
+  - Reason: {why the deviation happened}
+  - Impact: {what it affects}
+- D-002: ...
+
+[**Unresolved Gaps**]
+- G-001: {missing behavior / missing validation / unfinished edge case}
+
+---
+
+## Code Changes
+
+[**Modules / Files**]
+- `{path}`: {what changed}
+- `{path}`: {what changed}
+
+[**Core Logic**]
+- {main logic implemented}
+- {main logic implemented}
+
+[**API / Behavior Changes**]
+- {behavior change}
+- {semantic change, if any}
+
+---
+
+## Verification Results
+
+[**Formatting / Lint / Build**]
+- `make fmt`: Pass | Fail
+- `make clippy`: Pass | Fail
+- `make run`: Pass | Fail
+- `make test`: Pass | Fail
+
+[**Unit Tests**]
+- {test result summary}
+
+[**Integration Tests**]
+- {test result summary}
+
+[**Failure / Robustness Validation**]
+- {result}
+- {result}
+
+[**Edge Case Validation**]
+- {result}
+- {result}
+
+---
+
+## Acceptance Mapping
+
+| Goal / Constraint | Status | Evidence |
+| ----------------- | ------ | -------- |
+| G-1               | Pass / Partial / Fail | {test / impl evidence} |
+| C-1               | Pass / Partial / Fail | {evidence} |
+| C-2               | Pass / Partial / Fail | {evidence} |
+
+---
+
+## Known Issues
+
+- K-001: ...
+- K-002: ...
+
+## Next Action
+
+- Ready for `IMPL_REVIEW`
+- Requires follow-up implementation
+- Requires reopening PLAN iteration
