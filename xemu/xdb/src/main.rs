@@ -31,8 +31,11 @@ pub fn xdb_mainloop() -> Result<(), String> {
     let file = option_env!("X_FILE")
         .filter(|s| !s.is_empty())
         .map(String::from);
+    // Load file if provided (both batch and interactive modes)
+    xcore::with_xcpu(|cpu| cpu.load(file).map(|_| ())).map_err(|e| format!("Load error: {e}"))?;
+
     match option_env!("X_MODE") {
-        Some("y") => with_xcpu!(load(file)?.run(u64::MAX)).or_else(|e| {
+        Some("y") => with_xcpu!(run(u64::MAX)).or_else(|e| {
             terminate!(e);
             Ok(())
         }),

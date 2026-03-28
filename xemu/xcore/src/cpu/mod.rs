@@ -39,6 +39,7 @@ impl State {
     }
 }
 
+// TODO: support multi-core and add concurrent control.
 #[allow(clippy::upper_case_acronyms)]
 pub struct CPU<Core: CoreOps> {
     core: Core,

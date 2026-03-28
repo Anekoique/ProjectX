@@ -1,10 +1,7 @@
-KERNEL        := $(K)
-KERNEL_NAME   := $(basename $(notdir $(KERNEL)))
-
 WORK_DIR      := $(shell pwd)
 BUILD_DIR     := $(WORK_DIR)/build
 OUT_DIR       := $(BUILD_DIR)/$(ARCH)-$(PLATFORM)
-OUT_ELF       := $(OUT_DIR)/$(KERNEL_NAME)_$(PLATFORM).elf
+OUT_ELF       := $(OUT_DIR)/$(K)_$(PLATFORM).elf
 OUT_BIN       := $(patsubst %.elf,%.bin,$(OUT_ELF))
 OUT_MAP       := $(patsubst %.elf,%.map,$(OUT_ELF))
 OUT_TXT       := $(patsubst %.elf,%.txt,$(OUT_ELF))
@@ -24,12 +21,9 @@ LD_SCRIPT     := $(ARTIFACT_DIR)/linker_$(PLATFORM).lds
 LDFLAGS        = -T $(LD_SCRIPT) -Map $(OUT_MAP)
 LINKAGE       :=
 
-ifneq ($(wildcard $(abspath $(KERNEL))/Cargo.toml),)
-  KERNEL_DIR  := $(abspath $(KERNEL))
+ifneq ($(wildcard $(abspath $(K))/Cargo.toml),)
   include $(AM_HOME)/scripts/build.mk
 else
-  KERNEL_DIR  := $(dir $(abspath $(KERNEL)))
-  VPATH       += $(KERNEL_DIR)
   include $(AM_HOME)/scripts/build_c.mk
 endif
 
@@ -46,9 +40,9 @@ disasm: $(OUT_ELF)
 kernel: $(OUT_BIN) disasm
 
 run: kernel
-	@$(MAKE) -C $(XEMU_HOME) run FILE=$(OUT_BIN) BATCH=y
+	@$(MAKE) -C $(XEMU_HOME) run FILE=$(OUT_BIN)
 
-clean:: 
+clean::
 	@rm -rf $(BUILD_DIR)
 
 .PHONY: kernel clean

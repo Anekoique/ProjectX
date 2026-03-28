@@ -1,13 +1,14 @@
 XLIB_HOME      ?= $(abspath $(AM_HOME)/../xlib)
 LIBXLIB        := $(XLIB_HOME)/build/$(ARCH)-$(PLATFORM)-$(MODE)/libxlib.a
 
-OBJS            = $(addprefix $(OUT_DIR)/, $(addsuffix .o, $(KERNEL_NAME)))
+OBJS            = $(addprefix $(OUT_DIR)/, $(notdir $(patsubst %.c,%.o,$(patsubst %.S,%.o,$(SRCS)))))
 LINKAGE        += $(OBJS) $(LIBXLIB) $(LIBXHAL)
+VPATH          += $(sort $(dir $(SRCS)))
 
-INC_PATH       += $(XLIB_HOME)/include $(WORK_DIR)/include $(KERNEL_DIR)/../include
+INC_PATH       += $(XLIB_HOME)/include $(WORK_DIR)/include
 INCFLAGS       += $(addprefix -I, $(INC_PATH))
 
-CFLAGS         += -Wall -Werror 
+CFLAGS         += -Wall -Werror
 CFLAGS         += -ffreestanding -fno-builtin -fno-stack-protector
 CFLAGS         += $(INCFLAGS)
 CXXFLAGS       += ${CFLAGS}

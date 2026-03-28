@@ -1,5 +1,8 @@
 .PHONY: all run clean latest $(ALL)
 
+export BATCH ?= y
+export LOG   ?= off
+
 RESULT = .result
 $(shell > $(RESULT))
 
@@ -15,7 +18,7 @@ all: $(addprefix Makefile., $(ALL))
 $(ALL): %: Makefile.%
 
 Makefile.%: %/Cargo.toml latest
-	@printf "NAME = $*\nK = $*\ninclude $${AM_HOME}/Makefile\n" > $@
+	@printf "K = $*\nSRCS = $*\ninclude $${AM_HOME}/Makefile\n" > $@
 	@if make -s -f $@ run; then \
 		printf "[%14s] $(COLOR_GREEN)PASS$(COLOR_NONE)\n" $* >> $(RESULT); \
 	else \

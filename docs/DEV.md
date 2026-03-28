@@ -1,6 +1,6 @@
 # xemu Development Plan
 
-## Current Status (2026-03-27)
+## Current Status (2026-03-28)
 
 xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, virtual memory, and device emulation.
 
@@ -14,10 +14,11 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout, opt-in TCP RX), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
-- **Debugger (xdb)**: step, continue, load, reset
+- **Debugger (xdb)**: step, continue, load, reset; BATCH=n loads file before REPL
 - **Logging**: Colored, timestamped, configurable log levels
-- **Tests**: 269 unit tests passing, 31 cpu-tests-rs (integration)
-- **CI**: GitHub Actions pipeline
+- **Tests**: 269 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts)
+- **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests)
+- **xam HAL**: `_putch` (UART console), `mtime`/`set_mtimecmp` (ACLINT timer), `init_trap`/`TrapFrame` (trap entry), `mainargs` (compile-time argument passing)
 
 ---
 

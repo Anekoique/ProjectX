@@ -1,6 +1,9 @@
 .PHONY: all run clean latest $(ALL)
 
-RESULT = .result
+export BATCH ?= y
+export LOG   ?= off
+
+RESULT  = .result
 $(shell > $(RESULT))
 
 COLOR_RED   = \033[1;31m
@@ -15,7 +18,7 @@ all: $(addprefix Makefile., $(ALL))
 $(ALL): %: Makefile.%
 
 Makefile.%: tests/%.c latest
-	@printf "NAME = $*\nK = $<\ninclude $${AM_HOME}/Makefile\n" > $@
+	@printf "K = $*\nSRCS = $<\ninclude $${AM_HOME}/Makefile\n" > $@
 	@if make -s -f $@ run; then \
 		printf "[%14s] $(COLOR_GREEN)PASS$(COLOR_NONE)\n" $* >> $(RESULT); \
 	else \
