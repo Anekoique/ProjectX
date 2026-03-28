@@ -39,6 +39,7 @@ fn gen_linker_script(arch: &str, platform: &str) -> Result<()> {
         "%KERNEL_BASE%",
         &format!("{:#x}", xconfig::plat::KERNEL_BASE),
     );
+    let ld_content = ld_content.replace("%MEM_SIZE%", &format!("{:#x}", xconfig::plat::MEM_SIZE));
 
     // target/<target_triple>/<mode>/build/axhal-xxxx/out
     let out_dir = std::env::var("OUT_DIR").unwrap();

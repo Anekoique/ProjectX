@@ -1,13 +1,24 @@
 #ifndef __BENCHMARK_H__
 #define __BENCHMARK_H__
 
-#include <am.h>
-#include <klib.h>
-#include <klib-macros.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <assert.h>
+
+#define ROUNDUP(a, sz)  ((((uintptr_t)(a)) + ((sz) - 1)) & ~((sz) - 1))
+#define LENGTH(arr)     (sizeof(arr) / sizeof((arr)[0]))
+
+extern char _heap_start[];
+extern char _heap_end[];
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern void halt(int code);
+extern uint64_t uptime(void);
 
 #define MB * 1024 * 1024
 #define KB * 1024

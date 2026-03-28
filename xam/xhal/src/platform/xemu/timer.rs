@@ -19,6 +19,12 @@ pub extern "C" fn mtime() -> u64 {
     }
 }
 
+/// Microseconds since boot. xemu ACLINT mtime ticks at 10 MHz.
+#[unsafe(no_mangle)]
+pub extern "C" fn uptime() -> u64 {
+    mtime() / 10
+}
+
 /// Write 64-bit mtimecmp using split lo/hi access.
 /// Sets hi to MAX first to prevent spurious timer fire during partial write.
 #[unsafe(no_mangle)]

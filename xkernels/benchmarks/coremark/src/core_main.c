@@ -101,8 +101,6 @@ MAIN_RETURN_TYPE main(int argc, char *argv[]) {
 	ee_u8 stack_memblock[TOTAL_DATA_SIZE*MULTITHREAD];
 #endif
 
-  ioe_init();
-
   ee_printf("Running CoreMark for %d iterations\n", ITERATIONS);
 
 	/* first call any initializations needed */

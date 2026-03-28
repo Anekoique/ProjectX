@@ -350,11 +350,13 @@
 
 /* variables for time measurement: */
 
-#include <am.h>
-#include <klib.h>
-#include <klib-macros.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <stdbool.h>
 
-static uint32_t uptime_ms() { return io_read(AM_TIMER_UPTIME).us / 1000; }
+extern uint64_t uptime(void);
+static uint32_t uptime_ms(void) { return (uint32_t)(uptime() / 1000); }
 #define Start_Timer() Begin_Time = uptime_ms()
 #define Stop_Timer()  End_Time   = uptime_ms()
 
@@ -426,7 +428,7 @@ char            Ch_1_Glob,
 int             Arr_1_Glob [50];
 int             Arr_2_Glob [50] [50];
 
-Enumeration     Func_1 ();
+Enumeration     Func_1 (Capital_Letter, Capital_Letter);
   /* forward declaration necessary since Enumeration may not simply be int */
 
 #ifndef REG
@@ -759,8 +761,6 @@ int main ()
         Str_30          Str_2_Loc;
   REG   int             Run_Index;
   REG   int             Number_Of_Runs;
-
-  ioe_init();
 
  Number_Of_Runs = NUMBER_OF_RUNS;
 
