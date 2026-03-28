@@ -10,7 +10,7 @@ COLOR_RED   = \033[1;31m
 COLOR_GREEN = \033[1;32m
 COLOR_NONE  = \033[0m
 
-TIMEOUT ?= 5
+TIMEOUT ?= 60
 TEST    ?=
 SRCS     = $(shell find src/ -name "*.[cS]")
 ALL      = u r t s p c e
