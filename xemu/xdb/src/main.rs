@@ -34,7 +34,7 @@ pub fn xdb_mainloop() -> Result<(), String> {
     // Load file if provided (both batch and interactive modes)
     xcore::with_xcpu(|cpu| cpu.load(file).map(|_| ())).map_err(|e| format!("Load error: {e}"))?;
 
-    match option_env!("X_MODE") {
+    match option_env!("X_BATCH") {
         Some("y") => with_xcpu!(run(u64::MAX)).or_else(|e| {
             terminate!(e);
             Ok(())

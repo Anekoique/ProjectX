@@ -14,3 +14,8 @@ xdb = { path = "./xdb" }
 xlogger = { path = "./tools/xlogger" }
 
 log = "0.4.28"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

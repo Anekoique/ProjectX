@@ -6,9 +6,10 @@
 #ifndef CORE_PORTME_H
 #define CORE_PORTME_H
 
-#include <am.h>
-#include <klib.h>
-#include <klib-macros.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
 #define ITERATIONS 1000
 #define MEM_METHOD MEM_STATIC
@@ -147,7 +148,7 @@ typedef size_t ee_size_t;
 	This flag only matters if MULTITHREAD has been defined to a value greater then 1.
 */
 #ifndef MAIN_HAS_NOARGC
-#define MAIN_HAS_NOARGC 0
+#define MAIN_HAS_NOARGC 1
 #endif
 
 /* Configuration : MAIN_HAS_NORETURN

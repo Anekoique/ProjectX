@@ -1,14 +1,12 @@
-#include <am.h>
 #include <benchmark.h>
 #include <limits.h>
-#include <klib-macros.h>
+
+const char mainargs[] = MAINARGS;
 
 Benchmark *current;
 Setting *setting;
 
 static char *hbrk;
-
-static uint64_t uptime() { return io_read(AM_TIMER_UPTIME).us; }
 
 static char *format_time(uint64_t us) {
   static char buf[32];
@@ -44,7 +42,7 @@ static void bench_prepare(Result *res) {
 }
 
 static void bench_reset() {
-  hbrk = (void *)ROUNDUP(heap.start, 8);
+  hbrk = (void *)ROUNDUP(_heap_start, 8);
 }
 
 static void bench_done(Result *res) {
@@ -52,7 +50,7 @@ static void bench_done(Result *res) {
 }
 
 static const char *bench_check(Benchmark *bench) {
-  uintptr_t freesp = (uintptr_t)heap.end - (uintptr_t)heap.start;
+  uintptr_t freesp = (uintptr_t)_heap_end - (uintptr_t)_heap_start;
   if (freesp < setting->mlim) {
     return "(insufficient memory)";
   }
@@ -90,8 +88,6 @@ int main(const char *args) {
            "must be in {test, train, ref, huge}\n", setting_name);
     halt(1);
   }
-
-  ioe_init();
 
   printf("======= Running MicroBench [input *%s*] =======\n", setting_name);
 
@@ -158,11 +154,11 @@ void* bench_alloc(size_t size) {
   size  = (size_t)ROUNDUP(size, 8);
   char *old = hbrk;
   hbrk += size;
-  assert((uintptr_t)heap.start <= (uintptr_t)hbrk && (uintptr_t)hbrk < (uintptr_t)heap.end);
+  assert((uintptr_t)_heap_start <= (uintptr_t)hbrk && (uintptr_t)hbrk < (uintptr_t)_heap_end);
   for (uint64_t *p = (uint64_t *)old; p != (uint64_t *)hbrk; p ++) {
     *p = 0;
   }
-  assert((uintptr_t)hbrk - (uintptr_t)heap.start <= setting->mlim);
+  assert((uintptr_t)hbrk - (uintptr_t)_heap_start <= setting->mlim);
   return old;
 }
 

@@ -19,6 +19,7 @@ static const char *descriptions[256] = {
     ['p'] = "plic-access: PLIC register r/w",
     ['c'] = "csr-warl:    CSR WARL masks",
     ['e'] = "trap-ecall:  ecall roundtrip",
+    ['R'] = "rtc:         clock accuracy (interactive)",
     ['a'] = "Run all tests",
     ['h'] = "Show this help",
 };
@@ -37,6 +38,7 @@ int main(const char *args) {
         CASE('p', test_plic_access);
         CASE('c', test_csr_warl);
         CASE('e', test_trap_ecall);
+        CASE('R', test_rtc);
     case 'a':
         printf("=== am-tests ===\n");
         test_uart_putc();

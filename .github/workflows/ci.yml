@@ -208,3 +208,92 @@ jobs:
       - name: Run am-tests
         working-directory: xkernels/tests/am-tests
         run: make run
+
+  test-alu:
+    name: ALU Tests
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - name: Install riscv64 musl cross toolchain
+        run: |
+          curl -fsSL -o /tmp/musl-cross.tar.xz \
+            "https://github.com/cross-tools/musl-cross/releases/download/20250929/riscv64-unknown-linux-musl.tar.xz"
+          tar xf /tmp/musl-cross.tar.xz -C /opt
+          echo "/opt/riscv64-unknown-linux-musl/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            xemu/target
+            xam/target
+            xlib/build
+          key: test-alu-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'xlib/src/**', 'xlib/include/**') }}
+          restore-keys: test-alu-${{ runner.os }}-
+
+      - name: Install axconfig-gen
+        run: command -v axconfig-gen || cargo install axconfig-gen
+
+      - name: Build xemu
+        working-directory: xemu
+        run: cargo build
+
+      - name: Run alu-tests
+        working-directory: xkernels/tests/alu-tests
+        run: make run
+
+  bench:
+    name: Benchmarks
+    needs: [fmt, clippy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        run: rustup target add riscv64gc-unknown-none-elf
+
+      - name: Install riscv64 musl cross toolchain
+        run: |
+          curl -fsSL -o /tmp/musl-cross.tar.xz \
+            "https://github.com/cross-tools/musl-cross/releases/download/20250929/riscv64-unknown-linux-musl.tar.xz"
+          tar xf /tmp/musl-cross.tar.xz -C /opt
+          echo "/opt/riscv64-unknown-linux-musl/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            xemu/target
+            xam/target
+            xlib/build
+          key: bench-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'xlib/src/**', 'xlib/include/**') }}
+          restore-keys: bench-${{ runner.os }}-
+
+      - name: Install axconfig-gen
+        run: command -v axconfig-gen || cargo install axconfig-gen
+
+      - name: Build xemu
+        working-directory: xemu
+        run: cargo build
+
+      - name: Run microbench
+        working-directory: xkernels/benchmarks/microbench
+        run: make MAINARGS=test run
+
+      - name: Run coremark
+        working-directory: xkernels/benchmarks/coremark
+        run: make run
+
+      - name: Run dhrystone
+        working-directory: xkernels/benchmarks/dhrystone
+        run: make run

@@ -61,8 +61,11 @@ SECTIONS
     }
 
     _ekernel = .;
+    _heap_start = .;
 
     /DISCARD/ : {
         *(.comment) *(.gnu*) *(.note*) *(.eh_frame*)
     }
 }
+
+_heap_end = %KERNEL_BASE% + %MEM_SIZE%;
