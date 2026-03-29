@@ -62,6 +62,7 @@ impl DebugOps for RVCore {
             .map(word_to_u64)
     }
 
+    #[allow(clippy::unnecessary_cast)]
     fn fetch_inst(&self, paddr: usize) -> XResult<u32> {
         let bus = self.bus.lock().map_err(|_| XError::FailedToRead)?;
         let lo = bus.read_ram(paddr, 2)? as u32;
