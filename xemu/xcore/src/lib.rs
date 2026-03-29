@@ -12,7 +12,11 @@ mod error;
 mod isa;
 mod utils;
 
-pub use cpu::{State, XCPU, with_xcpu};
+pub use cpu::{
+    State, XCPU,
+    debug::{Breakpoint, DebugOps},
+    with_xcpu,
+};
 pub use error::{XError, XResult};
 
 pub fn init_xcore() -> XResult {

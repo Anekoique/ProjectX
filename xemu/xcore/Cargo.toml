@@ -7,6 +7,7 @@ repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu/xcore"
 
 [features]
 default = []
+debug = []
 
 [dependencies]
 log.workspace = true

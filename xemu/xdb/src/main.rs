@@ -5,6 +5,10 @@ extern crate xcore;
 
 mod cli;
 mod cmd;
+mod expr;
+mod watchpoint;
+
+use watchpoint::WatchManager;
 
 pub fn main() {
     crate::init_xdb();
@@ -34,6 +38,8 @@ pub fn xdb_mainloop() -> Result<(), String> {
     // Load file if provided (both batch and interactive modes)
     xcore::with_xcpu(|cpu| cpu.load(file).map(|_| ())).map_err(|e| format!("Load error: {e}"))?;
 
+    let mut watch_mgr = WatchManager::new();
+
     match option_env!("X_BATCH") {
         Some("y") => with_xcpu!(run(u64::MAX)).or_else(|e| {
             terminate!(e);
@@ -46,7 +52,7 @@ pub fn xdb_mainloop() -> Result<(), String> {
                 continue;
             }
 
-            match cli::respond(line) {
+            match cli::respond(line, &mut watch_mgr) {
                 Ok(true) => {}
                 Ok(false) => return Ok(()),
                 Err(err) => print!("{err}"),

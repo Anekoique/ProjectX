@@ -1,6 +1,6 @@
 # xemu Development Plan
 
-## Current Status (2026-03-28)
+## Current Status (2026-03-29)
 
 xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, virtual memory, and device emulation.
 
@@ -14,8 +14,8 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout, opt-in TCP RX), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
-- **Debugger (xdb)**: step, continue, load, reset; BATCH=n loads file before REPL
-- **Logging**: Colored, timestamped, configurable log levels
+- **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser
+- **Logging**: Colored, timestamped, configurable levels. Per-instruction trace (`LOG=trace`), device/CSR debug (`LOG=debug`), lifecycle info (`LOG=info`). Comprehensive coverage across trap handler, memory access, CSR side effects, PLIC, ACLINT, UART, Bus.
 - **Tests**: 269 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), alu-tests (22k+ arithmetic checks), rtc clock test
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
@@ -118,17 +118,17 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [x] **UART 16550** — TX (stdout), opt-in TCP RX, DLAB register switching, PLIC source 10
 - [x] **Integration** — `IrqState` lock-free interrupt delivery, `Bus::tick()` + `set_irq_sink()`, `sync_interrupts()` in step(), device reset
 
-### Phase 5: Debugging & Observability
+### Phase 5: Debugging & Observability — COMPLETE
 
-**Goal**: Match Nemu-rust/remu debugging capabilities.
+**Goal**: Debugger commands and execution observability.
 
-- [ ] **Breakpoints** — address-based pause
-- [ ] **Watchpoints** — expression-based pause on value change
-- [ ] **Expression evaluator** — arithmetic, register refs, memory deref in debugger
-- [ ] **Instruction trace** — ring-buffered itrace for post-mortem analysis
-- [ ] **Memory trace** — mtrace for debugging memory issues
-- [ ] **Function trace** — ftrace with ELF symbol resolution
-- [ ] **Disassembly** — inline disasm of current instruction
+- [x] **Breakpoints** — address-based with stable IDs, `skip_bp_once` for step-after-hit
+- [x] **Watchpoints** — expression-based value-change detection, validated at creation
+- [x] **Expression evaluator** — `$reg`, `*addr` deref, arithmetic, comparisons, parentheses
+- [x] **Disassembly** — `x/Ni addr` using `DebugOps` + `format_mnemonic()` for all instruction formats
+- [x] **Memory examine** — `x/Nx addr` (hex words), `x/Nb addr` (bytes)
+- [x] **Register inspect** — `info reg [name]` with GPR/CSR/PC name resolution
+- [x] **Execution logging** — `trace!()` per instruction, `debug!()` per memory/device/trap, `info!()` lifecycle events. Replaces ring-buffered traces with `log!()` levels via xlogger.
 
 ### Phase 6: Validation & Performance
 
@@ -156,8 +156,8 @@ The critical path to OS boot is:
 
 1. ~~**Phase 3 (MMU)**~~ — COMPLETE
 2. ~~**Phase 4 (Devices)**~~ — COMPLETE
-3. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
-4. **Phase 5 (Debugging)** — can develop in parallel with phases 3-4
+3. ~~**Phase 5 (Debugging)**~~ — COMPLETE
+4. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
 5. **Phase 7 (OS boot)** — the culmination of all previous work
 
 ---

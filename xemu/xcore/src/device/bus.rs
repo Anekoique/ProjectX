@@ -75,6 +75,7 @@ impl Bus {
         if let Some(r) = self.mmio.iter().find(|r| overlaps(&range, &r.range)) {
             panic!("MMIO '{name}' overlaps '{}'", r.name);
         }
+        info!("bus: add_mmio '{}' base={:#x} size={:#x}", name, base, size);
         self.mmio.push(MmioRegion {
             name,
             range,
@@ -105,6 +106,7 @@ impl Bus {
 
     /// Reset all MMIO devices to initial state.
     pub fn reset_devices(&mut self) {
+        debug!("bus: resetting all devices");
         for r in &mut self.mmio {
             r.dev.reset();
         }

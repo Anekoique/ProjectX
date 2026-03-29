@@ -1,4 +1,5 @@
 mod core;
+pub mod debug;
 
 use std::sync::{Arc, LazyLock, Mutex};
 
@@ -62,6 +63,7 @@ impl<Core: CoreOps> CPU<Core> {
     }
 
     pub fn reset(&mut self) -> XResult {
+        info!("cpu: reset");
         self.state = State::IDLE;
         self.core.reset()?;
         let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
@@ -90,6 +92,7 @@ impl<Core: CoreOps> CPU<Core> {
     pub fn step(&mut self) -> XResult {
         match self.core.step() {
             Err(XError::ProgramExit(code)) => {
+                info!("cpu: program exit with code {}", code);
                 let state = if code == 0 {
                     State::HALTED
                 } else {
@@ -131,6 +134,14 @@ impl<Core: CoreOps> CPU<Core> {
         self
     }
 
+    pub fn pc(&self) -> usize {
+        self.core.pc().as_usize()
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        self.state.is_terminated()
+    }
+
     pub fn is_exit_normal(&self) -> bool {
         self.state == State::HALTED && self.halt_ret == 0
     }
@@ -151,6 +162,28 @@ impl<Core: CoreOps> CPU<Core> {
             }
             State::IDLE => {}
         }
+    }
+}
+
+impl<Core: CoreOps + debug::DebugOps> CPU<Core> {
+    pub fn add_breakpoint(&mut self, addr: usize) -> u32 {
+        self.core.add_breakpoint(addr)
+    }
+
+    pub fn remove_breakpoint(&mut self, id: u32) -> bool {
+        self.core.remove_breakpoint(id)
+    }
+
+    pub fn list_breakpoints(&self) -> &[debug::Breakpoint] {
+        self.core.list_breakpoints()
+    }
+
+    pub fn set_skip_bp(&mut self) {
+        self.core.set_skip_bp();
+    }
+
+    pub fn debug_ops(&self) -> &dyn debug::DebugOps {
+        &self.core
     }
 }
 

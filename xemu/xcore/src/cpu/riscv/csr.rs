@@ -59,6 +59,16 @@ macro_rules! csr_table {
                 _ => None,
             }
         }
+
+        impl CsrAddr {
+            /// Lookup CSR by name (e.g., "mstatus", "mepc").
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name {
+                    $( stringify!($name) => Some(Self::$name), )*
+                    _ => None,
+                }
+            }
+        }
     };
 
     // RW(wmask) — normal register

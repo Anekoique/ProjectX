@@ -43,6 +43,12 @@ pub enum RVReg {
 }
 
 impl RVReg {
+    const NAMES: [&str; 32] = [
+        "zero", "ra", "sp", "gp", "tp", "t0", "t1", "t2", "s0", "s1", "a0", "a1", "a2", "a3", "a4",
+        "a5", "a6", "a7", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "t3", "t4",
+        "t5", "t6",
+    ];
+
     #[inline]
     pub fn from_u8(value: u8) -> XResult<Self> {
         Self::try_from(value).map_err(|_| XError::InvalidReg)
@@ -53,6 +59,27 @@ impl RVReg {
         u8::try_from(value)
             .map_err(|_| XError::InvalidReg)
             .and_then(Self::from_u8)
+    }
+
+    /// ABI name of this register (e.g., "a0", "sp").
+    pub fn name(self) -> &'static str {
+        Self::NAMES[self as usize]
+    }
+
+    /// Lookup register by ABI name or "x0".."x31" numeric name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::NAMES
+            .iter()
+            .position(|&n| n == name)
+            .and_then(|i| Self::try_from(i as u8).ok())
+            .or_else(|| {
+                // Try "x0".."x31", "fp" alias
+                name.strip_prefix('x')
+                    .and_then(|n| n.parse::<u8>().ok())
+                    .filter(|&i| i < 32)
+                    .and_then(|i| Self::try_from(i).ok())
+                    .or_else(|| (name == "fp").then_some(Self::s0))
+            })
     }
 }
 

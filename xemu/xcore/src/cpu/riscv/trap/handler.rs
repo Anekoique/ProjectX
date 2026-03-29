@@ -42,6 +42,7 @@ impl RVCore {
             };
 
             if enabled {
+                debug!("interrupt selected: {:?}, delegated={}", irq, delegated);
                 self.raise_trap(TrapCause::Interrupt(irq), 0);
                 return true;
             }
@@ -56,7 +57,13 @@ impl RVCore {
             self.halted = true;
             return;
         }
-        if self.is_delegated(&trap.cause) {
+        let delegated = self.is_delegated(&trap.cause);
+        let target = if delegated { "S" } else { "M" };
+        info!(
+            "trap: {:?} -> {}-mode (tval={:#x})",
+            trap.cause, target, trap.tval
+        );
+        if delegated {
             self.trap_to_s_mode(&trap);
         } else {
             self.trap_to_m_mode(&trap);
@@ -75,6 +82,7 @@ impl RVCore {
         self.csr.set(CsrAddr::mstatus, ms.bits());
         self.privilege = PrivilegeMode::Supervisor;
         self.npc = Self::trap_vector(self.csr.get(CsrAddr::stvec), &trap.cause);
+        debug!("trap_to_s_mode: handler={:#x}", self.npc.as_usize());
     }
 
     fn trap_to_m_mode(&mut self, trap: &PendingTrap) {
@@ -89,6 +97,7 @@ impl RVCore {
         self.csr.set(CsrAddr::mstatus, ms.bits());
         self.privilege = PrivilegeMode::Machine;
         self.npc = Self::trap_vector(self.csr.get(CsrAddr::mtvec), &trap.cause);
+        debug!("trap_to_m_mode: handler={:#x}", self.npc.as_usize());
     }
 
     fn trap_vector(tvec: Word, cause: &TrapCause) -> VirtAddr {
@@ -113,6 +122,11 @@ impl RVCore {
         self.csr.set(CsrAddr::mstatus, ms.bits());
         self.privilege = mpp;
         self.npc = VirtAddr::from(self.csr.get(CsrAddr::mepc) as usize);
+        debug!(
+            "mret: pc={:#x} -> {:?}",
+            self.npc.as_usize(),
+            self.privilege
+        );
     }
 
     pub fn do_sret(&mut self) {
@@ -125,6 +139,11 @@ impl RVCore {
         self.csr.set(CsrAddr::mstatus, ms.bits());
         self.privilege = spp;
         self.npc = VirtAddr::from(self.csr.get(CsrAddr::sepc) as usize);
+        debug!(
+            "sret: pc={:#x} -> {:?}",
+            self.npc.as_usize(),
+            self.privilege
+        );
     }
 
     fn is_delegated(&self, cause: &TrapCause) -> bool {

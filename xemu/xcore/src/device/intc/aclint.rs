@@ -46,6 +46,7 @@ impl Aclint {
 
     fn set_msip(&mut self, v: u32) {
         self.msip = v;
+        debug!("aclint: msip={}", v);
         if v != 0 {
             self.irq.set(MSIP);
         } else {
@@ -54,8 +55,15 @@ impl Aclint {
     }
 
     fn check_timer(&mut self) {
+        let was_set = self.irq.load() & MTIP != 0;
         if self.mtime >= self.mtimecmp {
             self.irq.set(MTIP);
+            if !was_set {
+                debug!(
+                    "aclint: timer interrupt fired (mtime={:#x} >= mtimecmp={:#x})",
+                    self.mtime, self.mtimecmp
+                );
+            }
         } else {
             self.irq.clear(MTIP);
         }
@@ -81,13 +89,16 @@ impl Device for Aclint {
             Some(Reg::Msip) => self.set_msip(val as u32 & 1),
             Some(Reg::MtimecmpLo) => {
                 self.mtimecmp = (self.mtimecmp & !0xFFFF_FFFF) | val as u32 as u64;
+                debug!("aclint: mtimecmp={:#x}", self.mtimecmp);
                 self.check_timer();
             }
             Some(Reg::MtimecmpHi) => {
                 self.mtimecmp = (self.mtimecmp & 0xFFFF_FFFF) | ((val as u32 as u64) << 32);
+                debug!("aclint: mtimecmp={:#x}", self.mtimecmp);
                 self.check_timer();
             }
             Some(Reg::Setssip) if val as u32 & 1 != 0 => {
+                debug!("aclint: setssip");
                 self.ssip.store(true, Relaxed);
             }
             _ => {}

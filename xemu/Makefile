@@ -18,10 +18,15 @@ build_args := \
 	$(build_args-$(MODE)) \
 	$(verbose)
 
+# Enable debug features in interactive mode (BATCH=n)
+ifeq ($(BATCH),n)
+  feature_args := --features debug
+endif
+
 all: run
 
 run:
-	cargo run $(build_args)
+	cargo run $(build_args) $(feature_args)
 
 clippy:
 	cargo clippy
@@ -35,4 +40,4 @@ test:
 clean:
 	cargo clean
 
-.PHONY: all run clean
+.PHONY: all run clippy fmt test clean

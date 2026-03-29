@@ -89,6 +89,7 @@ impl Plic {
             .map(|s| {
                 self.pending &= !(1 << s);
                 self.claimed[ctx] = s as u32;
+                debug!("plic: claim src={} for ctx={}", s, ctx);
                 s as u32
             })
             .unwrap_or(0);
@@ -98,6 +99,7 @@ impl Plic {
 
     fn complete(&mut self, ctx: usize, src: u32) {
         if ctx < NUM_CTX && self.claimed[ctx] == src {
+            debug!("plic: complete src={} for ctx={}", src, ctx);
             self.claimed[ctx] = 0;
         }
         self.evaluate();
@@ -109,6 +111,7 @@ impl Plic {
 
     fn evaluate(&mut self) {
         for (ctx, &ip) in CTX_IP.iter().enumerate() {
+            let was_active = self.irq.load() & ip != 0;
             let active = (1..NUM_SRC).any(|s| {
                 self.pending & (1 << s) != 0
                     && self.enable[ctx] & (1 << s) != 0
@@ -118,6 +121,9 @@ impl Plic {
                 self.irq.set(ip);
             } else {
                 self.irq.clear(ip);
+            }
+            if active != was_active {
+                debug!("plic: ctx={} EIP {} -> {}", ctx, was_active, active);
             }
         }
     }

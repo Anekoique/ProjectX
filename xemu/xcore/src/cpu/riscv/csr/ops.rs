@@ -26,13 +26,16 @@ impl RVCore {
     fn csr_write_side_effects(&mut self, addr: u16, desc: CsrDesc) {
         match addr {
             0x180 /* satp */ => {
-                self.mmu.update_satp(self.csr.get(CsrAddr::satp));
+                let satp = self.csr.get(CsrAddr::satp);
+                debug!("satp write: {:#x}", satp);
+                self.mmu.update_satp(satp);
             }
             0x300 /* mstatus */ | 0x100 /* sstatus */ => {
                 let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
                 self.mmu.update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
             }
             0x3A0..=0x3A3 /* pmpcfg */ => {
+                debug!("pmpcfg write: csr={:#x} val={:#x}", addr, self.csr.get_by_addr(addr));
                 if let Some(base) = Self::pmpcfg_base(addr) {
                     let val = self.csr.get_by_addr(addr);
                     let mut wb: Word = 0;
@@ -45,6 +48,7 @@ impl RVCore {
             }
             0x3B0..=0x3BF /* pmpaddr */ => {
                 let idx = (addr - 0x3B0) as usize;
+                debug!("pmpaddr write: idx={} val={:#x}", idx, self.csr.get_by_addr(addr));
                 self.pmp.update_addr(idx, self.csr.get_by_addr(addr) as usize);
                 self.csr.write_with_desc(desc, self.pmp.get_addr(idx) as Word);
             }

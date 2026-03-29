@@ -20,6 +20,8 @@ pub enum XError {
     FailedToWrite,
     // Device
     ProgramExit(u32),
+    // Debug
+    DebugBreak(usize),
     // Not yet implemented
     Unimplemented,
 }
@@ -48,6 +50,7 @@ impl XError {
             XError::FailedToRead => "failed to read",
             XError::FailedToWrite => "failed to write",
             XError::ProgramExit(_) => "program exit",
+            XError::DebugBreak(_) => "breakpoint hit",
             XError::Unimplemented => "unimplemented",
         }
     }
@@ -67,6 +70,7 @@ impl fmt::Display for XError {
         match self {
             XError::Trap(trap) => write!(f, "trap {trap:?} thrown"),
             XError::ProgramExit(code) => write!(f, "program exit (code={code})"),
+            XError::DebugBreak(pc) => write!(f, "breakpoint at {pc:#x}"),
             _ => write!(f, "{}", self.as_str()),
         }
     }

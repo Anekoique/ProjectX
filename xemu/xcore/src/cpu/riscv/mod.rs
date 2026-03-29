@@ -1,4 +1,5 @@
 pub mod csr;
+pub mod debug;
 mod inst;
 pub(crate) mod mm;
 pub mod trap;
@@ -39,6 +40,9 @@ pub struct RVCore {
     pub(crate) pmp: Pmp,
     irq: IrqState,
     halted: bool,
+    breakpoints: Vec<crate::cpu::debug::Breakpoint>,
+    next_bp_id: u32,
+    skip_bp_once: bool,
 }
 
 impl RVCore {
@@ -79,6 +83,9 @@ impl RVCore {
             pmp: Pmp::new(),
             irq,
             halted: false,
+            breakpoints: Vec::new(),
+            next_bp_id: 1,
+            skip_bp_once: false,
         }
     }
 
@@ -160,6 +167,16 @@ impl CoreOps for RVCore {
         }
         self.sync_interrupts();
 
+        // Breakpoint check (before instruction execution)
+        #[cfg(feature = "debug")]
+        {
+            let pc = self.pc.as_usize();
+            if !self.skip_bp_once && self.breakpoints.iter().any(|bp| bp.addr == pc) {
+                return Err(crate::error::XError::DebugBreak(pc));
+            }
+            self.skip_bp_once = false;
+        }
+
         if self.check_pending_interrupts() {
             self.retire();
             return Ok(());
@@ -168,6 +185,15 @@ impl CoreOps for RVCore {
         self.trap_on_err(|core| {
             let raw = core.fetch()?;
             let inst = core.decode(raw)?;
+
+            #[cfg(feature = "debug")]
+            trace!(
+                "{:#010x}: {:08x}  {}",
+                core.pc.as_usize(),
+                raw,
+                debug::format_mnemonic(&inst),
+            );
+
             core.execute(inst)
         })?;
 

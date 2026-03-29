@@ -108,6 +108,15 @@ impl Device for Uart {
         match offset {
             0 if self.dlab() => self.dll = b,
             0 => {
+                trace!(
+                    "uart: tx {:#04x} '{}'",
+                    b,
+                    if b.is_ascii_graphic() || b == b' ' {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                );
                 use std::io::Write;
                 let _ = std::io::stdout()
                     .lock()
@@ -140,6 +149,7 @@ impl Device for Uart {
     /// from the same connection continue to arrive, just like real hardware
     /// where a FIFO reset does not disconnect the serial line.
     fn reset(&mut self) {
+        debug!("uart: reset");
         self.ier = 0;
         self.lcr = 0x03;
         self.mcr = 0;

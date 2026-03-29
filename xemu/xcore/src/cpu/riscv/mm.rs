@@ -281,12 +281,26 @@ impl RVCore {
 
     pub(super) fn load(&mut self, addr: VirtAddr, size: usize) -> XResult<Word> {
         self.validate_alignment(addr, size, Exception::LoadMisaligned)?;
-        self.checked_read(addr, size, MemOp::Load)
+        let val = self.checked_read(addr, size, MemOp::Load)?;
+        trace!(
+            "load: addr={:#x} size={} val={:#x}",
+            addr.as_usize(),
+            size,
+            val
+        );
+        Ok(val)
     }
 
     pub(super) fn store(&mut self, addr: VirtAddr, size: usize, value: Word) -> XResult {
         self.validate_alignment(addr, size, Exception::StoreMisaligned)?;
-        self.checked_write(addr, size, value, MemOp::Store)
+        self.checked_write(addr, size, value, MemOp::Store)?;
+        trace!(
+            "store: addr={:#x} size={} val={:#x}",
+            addr.as_usize(),
+            size,
+            value
+        );
+        Ok(())
     }
 
     pub(super) fn amo_load(&mut self, addr: VirtAddr, size: usize) -> XResult<Word> {
