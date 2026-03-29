@@ -130,23 +130,32 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [x] **Register inspect** — `info reg [name]` with GPR/CSR/PC name resolution
 - [x] **Execution logging** — `trace!()` per instruction, `debug!()` per memory/device/trap, `info!()` lifecycle events. Replaces ring-buffered traces with `log!()` levels via xlogger.
 
-### Phase 6: Validation & Performance
+### Phase 6: Difftest
 
-**Goal**: Correctness verification and optimization.
+**Goal**: Correctness verification via reference comparison.
 
-- [ ] **Difftest** — compare execution with QEMU/Spike via GDB protocol
-- [ ] **Instruction cache** — decoded instruction buffer to skip re-decoding hot paths
-- [ ] **Performance counters** — per-instruction statistics, IPC tracking
+- [ ] **Difftest framework** — compare execution with QEMU/Spike, per-instruction state comparison
+- [ ] **GDB protocol client** — connect to QEMU/Spike GDB stub for reference state reads
+- [ ] **State snapshot & diff** — capture {PC, GPR, CSR} after each instruction, report first divergence
+- [ ] **CI integration** — run difftest against reference on existing test programs
 
-### Phase 7: OS Boot (Long-term)
+### Phase 7: OS Boot
 
 **Goal**: Boot a real operating system.
 
 - [ ] **OpenSBI** — boot SBI firmware in M-mode
-- [ ] **Linux kernel** — boot minimal Linux (requires phases 2-4 complete)
+- [ ] **Linux kernel** — boot minimal Linux (requires phases 2-6 complete)
 - [ ] **VGA framebuffer** — graphical output
 - [ ] **Keyboard** — input device for interactive programs
 - [ ] **Disk** — block device for filesystem support
+
+### Phase 8: Performance Optimization (Post-boot)
+
+**Goal**: Optimize emulation speed after correctness is established.
+
+- [ ] **Instruction cache** — decoded instruction buffer to skip re-decoding hot paths
+- [ ] **Performance counters** — per-instruction statistics, IPC tracking
+- [ ] **Hot-path profiling** — identify and optimize critical execution paths
 
 ---
 
@@ -159,6 +168,7 @@ The critical path to OS boot is:
 3. ~~**Phase 5 (Debugging)**~~ — COMPLETE
 4. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
 5. **Phase 7 (OS boot)** — the culmination of all previous work
+6. **Phase 8 (Performance)** — optimize after correctness is proven
 
 ---
 
