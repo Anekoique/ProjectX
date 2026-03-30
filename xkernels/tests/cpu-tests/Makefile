@@ -1,6 +1,6 @@
 .PHONY: all run clean latest $(ALL)
 
-export BATCH ?= y
+export DEBUG ?= n
 export LOG   ?= off
 
 RESULT  = .result

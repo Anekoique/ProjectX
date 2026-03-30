@@ -2,7 +2,7 @@ ARCH     ?= riscv64
 PLATFORM ?= xemu
 MODE     ?= release
 
-export BATCH ?= y
+export DEBUG ?= n
 export LOG   ?= off
 
 MAINARGS ?= ref
