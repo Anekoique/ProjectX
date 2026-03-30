@@ -4,6 +4,7 @@
 
 - **Technical Research**: Always use web search to retrieve the latest official documentation.
 - **Code Excellence**: Maintain a **clean, concise, and elegant** codebase. All implementations must strictly conform to the existing framework's architectural style.
+- **Code Style:** Use a moderate amount of **functional** programming techniques.
 - **Verification**: After making any coding-related modification, you must run `make fmt`, `make clippy`, `make run`, and `make test` to ensure correctness.
 
 ## Development Workflow

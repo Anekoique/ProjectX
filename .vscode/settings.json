@@ -1,0 +1,6 @@
+{
+  "rust-analyzer.linkedProjects": ["xemu/Cargo.toml"],
+  "rust-analyzer.cargo.cfgs": ["riscv", "isa64"],
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.procMacro.enable": true
+}
