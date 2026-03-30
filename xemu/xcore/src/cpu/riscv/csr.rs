@@ -41,11 +41,35 @@ pub(super) fn counteren_bit(addr: u16) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
-// csr_table! macro — generates CsrAddr enum + find_desc match
+// csr_table! macro — generates CsrAddr enum + find_desc + difftest whitelist
 // ---------------------------------------------------------------------------
+//
+// Each CSR entry: `name = addr => [spec]` with optional trailing `, difftest`
+// or `, difftest(mask)`.  Entries tagged `difftest` are collected into the
+// auto-generated `DIFFTEST_CSRS` array.  Plain `difftest` defaults mask to
+// `u64::MAX`; `difftest(mask)` uses a custom comparison mask.
 
 macro_rules! csr_table {
-    ( $( $name:ident = $addr:expr => [ $($spec:tt)* ] ),* $(,)? ) => {
+    // Internal: collect all entries, then dispatch to @emit
+    ( $( $name:ident = $addr:expr => [ $($spec:tt)* ] $(@ difftest $(( $mask:expr ))? )? ),* $(,)? ) => {
+        csr_table!(@emit [] [] $( [$name $addr [$($spec)*] $(difftest $(($mask))? )? ] )* );
+    };
+
+    // Accumulate: entry WITH difftest(mask) — mask is an expr wrapped in parens from call site
+    (@emit [$($all:tt)*] [$($dt:tt)*] [$name:ident $addr:tt [$($spec:tt)*] difftest ($($mask:tt)*)] $($rest:tt)*) => {
+        csr_table!(@emit [$($all)* [$name $addr [$($spec)*]]] [$($dt)* ($name, $($mask)*)] $($rest)*);
+    };
+    // Accumulate: entry WITH difftest (default mask)
+    (@emit [$($all:tt)*] [$($dt:tt)*] [$name:ident $addr:tt [$($spec:tt)*] difftest] $($rest:tt)*) => {
+        csr_table!(@emit [$($all)* [$name $addr [$($spec)*]]] [$($dt)* ($name, u64::MAX)] $($rest)*);
+    };
+    // Accumulate: entry WITHOUT difftest
+    (@emit [$($all:tt)*] [$($dt:tt)*] [$name:ident $addr:tt [$($spec:tt)*]] $($rest:tt)*) => {
+        csr_table!(@emit [$($all)* [$name $addr [$($spec)*]]] [$($dt)*] $($rest)*);
+    };
+
+    // Terminal: generate everything
+    (@emit [ $([$name:ident $addr:tt [$($spec:tt)*]])* ] [ $(($dt_name:ident, $($dt_mask:tt)*))* ]) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[repr(u16)]
         #[allow(non_camel_case_types, dead_code)]
@@ -61,14 +85,24 @@ macro_rules! csr_table {
         }
 
         impl CsrAddr {
-            /// Lookup CSR by name (e.g., "mstatus", "mepc").
             pub fn from_name(name: &str) -> Option<Self> {
                 match name {
                     $( stringify!($name) => Some(Self::$name), )*
                     _ => None,
                 }
             }
+
+            pub fn name(self) -> &'static str {
+                match self {
+                    $( Self::$name => stringify!($name), )*
+                }
+            }
         }
+
+        /// Auto-generated difftest CSR whitelist from `@ difftest` annotations.
+        pub const DIFFTEST_CSRS: &[(CsrAddr, u64)] = &[
+            $( (CsrAddr::$dt_name, $($dt_mask)*), )*
+        ];
     };
 
     // RW(wmask) — normal register
@@ -107,20 +141,20 @@ const SIP_MASK: Word = 1 << 1; // Only SSIP writable from S-mode
 
 csr_table! {
     // ---- M-mode Trap Setup ----
-    mstatus    = 0x300 => [RW(MSTATUS_WMASK)],
+    mstatus    = 0x300 => [RW(MSTATUS_WMASK)] @ difftest(!0xF_0000_0000_u64),
     misa       = 0x301 => [RO],
-    medeleg    = 0x302 => [RW(0xB3FF)],
-    mideleg    = 0x303 => [RW(0x222)],
-    mie        = 0x304 => [RW(MIE_WMASK)],
-    mtvec      = 0x305 => [RW(!(0x2 as Word))],
+    medeleg    = 0x302 => [RW(0xB3FF)] @ difftest,
+    mideleg    = 0x303 => [RW(0x222)] @ difftest,
+    mie        = 0x304 => [RW(MIE_WMASK)] @ difftest,
+    mtvec      = 0x305 => [RW(!(0x2 as Word))] @ difftest,
     mcounteren = 0x306 => [RW(0x7)],
 
     // ---- M-mode Trap Handling ----
     mscratch   = 0x340 => [RW(!0)],
-    mepc       = 0x341 => [RW(!(0x1 as Word))],
-    mcause     = 0x342 => [RW(!0)],
-    mtval      = 0x343 => [RW(!0)],
-    mip        = 0x344 => [RW(MIP_WMASK)],
+    mepc       = 0x341 => [RW(!(0x1 as Word))] @ difftest,
+    mcause     = 0x342 => [RW(!0)] @ difftest,
+    mtval      = 0x343 => [RW(!0)] @ difftest,
+    mip        = 0x344 => [RW(MIP_WMASK)] @ difftest(!0x82_u64),
 
     // ---- S-mode Shadows ----
     sstatus    = 0x100 => [RW(SSTATUS_WMASK) => mstatus(SSTATUS_VMASK)],
@@ -128,13 +162,13 @@ csr_table! {
     sip        = 0x144 => [RW(SIP_MASK) => mip(SIP_MASK)],
 
     // ---- S-mode Own Registers ----
-    stvec      = 0x105 => [RW(!(0x2 as Word))],
+    stvec      = 0x105 => [RW(!(0x2 as Word))] @ difftest,
     scounteren = 0x106 => [RW(0x7)],
     sscratch   = 0x140 => [RW(!0)],
-    sepc       = 0x141 => [RW(!(0x1 as Word))],
-    scause     = 0x142 => [RW(!0)],
-    stval      = 0x143 => [RW(!0)],
-    satp       = 0x180 => [RW(!0), blocked_by(TVM)],
+    sepc       = 0x141 => [RW(!(0x1 as Word))] @ difftest,
+    scause     = 0x142 => [RW(!0)] @ difftest,
+    stval      = 0x143 => [RW(!0)] @ difftest,
+    satp       = 0x180 => [RW(!0), blocked_by(TVM)] @ difftest,
 
     // ---- PMP ----
     pmpcfg0    = 0x3A0 => [RW(!0)],

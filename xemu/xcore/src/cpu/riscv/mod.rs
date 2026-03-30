@@ -1,3 +1,4 @@
+pub mod context;
 pub mod csr;
 pub mod debug;
 mod inst;
@@ -8,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use memory_addr::{MemoryAddr, VirtAddr};
 
-pub use self::{RVCore as Core, trap::PendingTrap};
+pub use self::{RVCore as Core, context::RVCoreContext as CoreContext, trap::PendingTrap};
 use self::{
     csr::{CsrAddr, CsrFile, PrivilegeMode},
     mm::{Mmu, Pmp},

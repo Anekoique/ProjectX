@@ -25,18 +25,18 @@ cfg_if::cfg_if! {
 
 pub static XCPU: LazyLock<Mutex<CPU<Core>>> = LazyLock::new(|| Mutex::new(CPU::new(Core::new())));
 
-const RESET_VECTOR: usize = 0x80000000;
+pub const RESET_VECTOR: usize = 0x80000000;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum State {
-    IDLE,
-    HALTED,
-    ABORT,
+    Idle,
+    Halted,
+    Abort,
 }
 
 impl State {
     pub fn is_terminated(self) -> bool {
-        matches!(self, State::HALTED | State::ABORT)
+        matches!(self, State::Halted | State::Abort)
     }
 }
 
@@ -56,7 +56,7 @@ impl<Core: CoreOps> CPU<Core> {
         Self {
             core,
             bus,
-            state: State::IDLE,
+            state: State::Idle,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
         }
@@ -64,24 +64,16 @@ impl<Core: CoreOps> CPU<Core> {
 
     pub fn reset(&mut self) -> XResult {
         info!("cpu: reset");
-        self.state = State::IDLE;
+        self.state = State::Idle;
         self.core.reset()?;
-        let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-        self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
+        self.load_default_image()
     }
 
     pub fn load(&mut self, file: Option<String>) -> XResult<&mut Self> {
         match file {
-            None => {
-                let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-                self.bus
-                    .lock()
-                    .unwrap()
-                    .load_ram(RESET_VECTOR, image_bytes)?;
-            }
+            None => self.load_default_image()?,
             Some(path) => {
-                trace!("Loading file: {}", path);
-                let bytes = std::fs::read(path).map_err(|_| XError::FailedToRead)?;
+                let bytes = std::fs::read(&path).map_err(|_| XError::FailedToRead)?;
                 self.bus.lock().unwrap().load_ram(RESET_VECTOR, &bytes)?;
                 info!("Loaded {} bytes @ {:#x}", bytes.len(), RESET_VECTOR);
             }
@@ -89,14 +81,19 @@ impl<Core: CoreOps> CPU<Core> {
         Ok(self)
     }
 
+    fn load_default_image(&mut self) -> XResult {
+        let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
+        self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
+    }
+
     pub fn step(&mut self) -> XResult {
         match self.core.step() {
             Err(XError::ProgramExit(code)) => {
                 info!("cpu: program exit with code {}", code);
                 let state = if code == 0 {
-                    State::HALTED
+                    State::Halted
                 } else {
-                    State::ABORT
+                    State::Abort
                 };
                 self.set_terminated(state);
                 self.halt_ret = code as Word; // override after set_terminated
@@ -106,7 +103,7 @@ impl<Core: CoreOps> CPU<Core> {
             result => {
                 result?;
                 if self.core.halted() {
-                    self.set_terminated(State::HALTED).log_termination();
+                    self.set_terminated(State::Halted).log_termination();
                 }
                 Ok(())
             }
@@ -143,16 +140,16 @@ impl<Core: CoreOps> CPU<Core> {
     }
 
     pub fn is_exit_normal(&self) -> bool {
-        self.state == State::HALTED && self.halt_ret == 0
+        self.state == State::Halted && self.halt_ret == 0
     }
 
     pub fn log_termination(&self) {
         match self.state {
-            State::ABORT => xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc),
-            State::HALTED if self.halt_ret == 0 => {
+            State::Abort => xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc),
+            State::Halted if self.halt_ret == 0 => {
                 xprintln!(ColorCode::Green, "HIT GOOD TRAP at pc={:#x}", self.halt_pc);
             }
-            State::HALTED => {
+            State::Halted => {
                 xprintln!(
                     ColorCode::Red,
                     "HIT BAD TRAP at pc={:#x} (exit code: {})",
@@ -160,7 +157,7 @@ impl<Core: CoreOps> CPU<Core> {
                     self.halt_ret
                 );
             }
-            State::IDLE => {}
+            State::Idle => {}
         }
     }
 }
@@ -185,6 +182,15 @@ impl<Core: CoreOps + debug::DebugOps> CPU<Core> {
     pub fn debug_ops(&self) -> &dyn debug::DebugOps {
         &self.core
     }
+
+    pub fn context(&self) -> CoreContext {
+        self.core.context()
+    }
+
+    #[cfg(feature = "difftest")]
+    pub fn bus_take_mmio_flag(&self) -> bool {
+        self.bus.lock().unwrap().take_mmio_flag()
+    }
 }
 
 pub fn with_xcpu<R>(f: impl FnOnce(&mut CPU<Core>) -> R) -> R {
@@ -204,7 +210,7 @@ macro_rules! terminate {
     ($e:expr) => {{
         error!("{}", $e);
         $crate::with_xcpu(|cpu| {
-            cpu.set_terminated($crate::State::ABORT).log_termination();
+            cpu.set_terminated($crate::State::Abort).log_termination();
         });
     }};
 }
@@ -223,20 +229,20 @@ mod tests {
 
     #[test]
     fn state_is_terminated() {
-        assert!(!State::IDLE.is_terminated());
-        assert!(State::HALTED.is_terminated());
-        assert!(State::ABORT.is_terminated());
+        assert!(!State::Idle.is_terminated());
+        assert!(State::Halted.is_terminated());
+        assert!(State::Abort.is_terminated());
     }
 
     #[test]
     fn cpu_reset_sets_pc_to_reset_vector() {
         let mut cpu = new_cpu();
         assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
-        assert_eq!(cpu.state, State::IDLE);
+        assert_eq!(cpu.state, State::Idle);
 
-        cpu.state = State::HALTED;
+        cpu.state = State::Halted;
         cpu.reset().unwrap();
-        assert_eq!(cpu.state, State::IDLE);
+        assert_eq!(cpu.state, State::Idle);
         assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
     }
 
@@ -251,16 +257,16 @@ mod tests {
     #[test]
     fn cpu_run_skips_if_terminated() {
         let mut cpu = new_cpu();
-        cpu.state = State::HALTED;
+        cpu.state = State::Halted;
         cpu.run(100).unwrap();
-        assert_eq!(cpu.state, State::HALTED);
+        assert_eq!(cpu.state, State::Halted);
     }
 
     #[test]
     fn cpu_set_terminated_captures_state() {
         let mut cpu = new_cpu();
-        cpu.set_terminated(State::HALTED);
-        assert_eq!(cpu.state, State::HALTED);
+        cpu.set_terminated(State::Halted);
+        assert_eq!(cpu.state, State::Halted);
         assert_eq!(cpu.halt_ret, 0);
         assert_eq!(cpu.halt_pc, cpu.core.pc());
     }
@@ -268,14 +274,14 @@ mod tests {
     #[test]
     fn cpu_is_exit_normal_only_when_halted_with_zero() {
         let mut cpu = new_cpu();
-        cpu.state = State::HALTED;
+        cpu.state = State::Halted;
         cpu.halt_ret = 0;
         assert!(cpu.is_exit_normal());
 
         cpu.halt_ret = 1;
         assert!(!cpu.is_exit_normal());
 
-        cpu.state = State::ABORT;
+        cpu.state = State::Abort;
         cpu.halt_ret = 0;
         assert!(!cpu.is_exit_normal());
     }
@@ -294,6 +300,6 @@ mod tests {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
         cpu.run(100).unwrap();
-        assert_eq!(cpu.state, State::HALTED);
+        assert_eq!(cpu.state, State::Halted);
     }
 }

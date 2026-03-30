@@ -1,15 +1,51 @@
 use xcore::{XResult, with_xcpu};
 
+#[cfg(feature = "difftest")]
+use crate::difftest::{DiffHarness, qemu::QemuBackend};
 use crate::{expr::eval_expr, watchpoint::WatchManager};
 
 // ── Execution ──
 
-pub fn cmd_step(count: u64, watch_mgr: &mut WatchManager) -> XResult {
+/// Run difftest check after a DUT step.
+/// Returns `Ok(true)` on mismatch, `Ok(false)` to continue, `Err(())` on
+/// backend failure. Callers treat both `Ok(true)` and `Err(())` as stop
+/// conditions.
+#[cfg(feature = "difftest")]
+fn run_difftest(diff: &mut Option<DiffHarness>, done: bool) -> Result<bool, ()> {
+    let Some(h) = diff.as_mut() else {
+        return Ok(false);
+    };
+    let (ctx, mmio) = with_xcpu(|cpu| (cpu.context(), cpu.bus_take_mmio_flag()));
+    match h.check_step(&ctx, mmio, done) {
+        Ok(Some(m)) => {
+            DiffHarness::report_mismatch(&m);
+            Ok(true)
+        }
+        Ok(None) => Ok(false),
+        Err(e) => {
+            println!("Difftest error: {e}");
+            *diff = None;
+            Err(())
+        }
+    }
+}
+
+pub fn cmd_step(
+    count: u64,
+    watch_mgr: &mut WatchManager,
+    #[cfg(feature = "difftest")] diff: &mut Option<DiffHarness>,
+) -> XResult {
     for _ in 0..count {
         let done = with_xcpu(|cpu| -> XResult<bool> {
             cpu.step()?;
             Ok(cpu.is_terminated())
         })?;
+
+        #[cfg(feature = "difftest")]
+        if run_difftest(diff, done) != Ok(false) {
+            return Ok(());
+        }
+
         if done {
             break;
         }
@@ -21,15 +57,29 @@ pub fn cmd_step(count: u64, watch_mgr: &mut WatchManager) -> XResult {
     Ok(())
 }
 
-pub fn cmd_continue(watch_mgr: &mut WatchManager) -> XResult {
-    if watch_mgr.is_empty() {
+pub fn cmd_continue(
+    watch_mgr: &mut WatchManager,
+    #[cfg(feature = "difftest")] diff: &mut Option<DiffHarness>,
+) -> XResult {
+    let has_hooks = !watch_mgr.is_empty();
+    #[cfg(feature = "difftest")]
+    let has_hooks = has_hooks || diff.is_some();
+
+    if !has_hooks {
         return with_xcpu(|cpu| cpu.run(u64::MAX));
     }
+
     loop {
         let done = with_xcpu(|cpu| -> XResult<bool> {
             cpu.step()?;
             Ok(cpu.is_terminated())
         })?;
+
+        #[cfg(feature = "difftest")]
+        if run_difftest(diff, done) != Ok(false) {
+            return Ok(());
+        }
+
         if done {
             break;
         }
@@ -176,24 +226,23 @@ pub fn cmd_print(expr_str: &str) -> XResult {
 
 pub fn cmd_info(what: &str, name: Option<&str>) -> XResult {
     match what {
-        "reg" | "r" => with_xcpu(|cpu| {
-            let ops = cpu.debug_ops();
-            match name {
-                Some(n) => match ops.read_register(n) {
-                    Some(val) => println!("{n} = {val:#x}"),
-                    None => println!("Unknown register: {n}"),
-                },
-                None => {
-                    for (i, (name, val)) in ops.dump_registers().iter().enumerate() {
-                        print!("{name:>10} = {val:#018x}");
-                        if (i + 1) % 4 == 0 {
-                            println!();
-                        } else {
-                            print!("  ");
-                        }
+        "reg" | "r" => with_xcpu(|cpu| match name {
+            Some(n) => match cpu.debug_ops().read_register(n) {
+                Some(val) => println!("{n} = {val:#x}"),
+                None => println!("Unknown register: {n}"),
+            },
+            None => {
+                let ctx = cpu.context();
+                println!("{:>10} = {:#018x}", "pc", ctx.pc);
+                for (i, (name, val)) in ctx.gprs.iter().enumerate() {
+                    print!("{name:>10} = {val:#018x}");
+                    if (i + 1) % 4 == 0 {
+                        println!();
+                    } else {
+                        print!("  ");
                     }
-                    println!();
                 }
+                println!();
             }
         }),
         _ => println!("Unknown info target: {what}. Try: reg"),
@@ -253,9 +302,74 @@ pub fn cmd_reset() -> XResult {
     with_xcpu!(reset())
 }
 
+// ── Difftest ──
+
+#[cfg(feature = "difftest")]
+pub fn cmd_dt_attach(
+    backend: &str,
+    binary_path: &Option<String>,
+    harness: &mut Option<DiffHarness>,
+) -> XResult {
+    if harness.is_some() {
+        println!("Already attached. Use 'dt detach' first.");
+        return Ok(());
+    }
+    let path = match binary_path.as_deref() {
+        Some(p) if !p.is_empty() => p,
+        _ => {
+            println!("No binary loaded. Use 'load' first.");
+            return Ok(());
+        }
+    };
+    let ctx = with_xcpu(|cpu| cpu.context());
+    let result: Result<Box<dyn crate::difftest::DiffBackend>, String> = match backend {
+        "qemu" => QemuBackend::new(path, xcore::RESET_VECTOR, &ctx).map(|b| Box::new(b) as _),
+        "spike" => crate::difftest::spike::SpikeBackend::new(path, xcore::RESET_VECTOR, &ctx)
+            .map(|b| Box::new(b) as _),
+        _ => {
+            println!("Unknown backend '{backend}'. Available: qemu, spike");
+            return Ok(());
+        }
+    };
+    match result {
+        Ok(be) => {
+            println!("Difftest attached ({backend}).");
+            *harness = Some(DiffHarness::new(be));
+        }
+        Err(e) => println!("Attach failed: {e}"),
+    }
+    Ok(())
+}
+
+#[cfg(feature = "difftest")]
+pub fn cmd_dt_detach(harness: &mut Option<DiffHarness>) -> XResult {
+    if harness.take().is_some() {
+        println!("Difftest detached.");
+    } else {
+        println!("Not attached.");
+    }
+    Ok(())
+}
+
+#[cfg(feature = "difftest")]
+pub fn cmd_dt_status(harness: &Option<DiffHarness>) {
+    match harness {
+        Some(h) => println!(
+            "Difftest: active ({}), {} instructions checked",
+            h.backend_name(),
+            h.inst_count()
+        ),
+        None => println!("Difftest: not attached"),
+    }
+}
+
 // ── Helpers ──
 
 fn parse_addr(s: &str) -> Result<usize, String> {
-    let s = s.trim().trim_start_matches("0x").trim_start_matches("0X");
-    usize::from_str_radix(s, 16).map_err(|e| e.to_string())
+    let s = s.trim();
+    let hex = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    usize::from_str_radix(hex, 16).map_err(|e| e.to_string())
 }

@@ -1,4 +1,10 @@
 {
-    "rust-analyzer.cargo.cfgs": ["riscv", "isa64"],
+    "rust-analyzer.cargo.cfgs": [
+        "riscv",
+        "isa64"
+    ],
+    "rust-analyzer.cargo.features": [
+        "difftest"
+    ],
     "rust-analyzer.procMacro.enable": true
 }

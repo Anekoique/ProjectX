@@ -8,6 +8,7 @@ repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu/xdb"
 [features]
 default = []
 debug = ["xcore/debug"]
+difftest = ["xcore/difftest"]
 
 [dependencies]
 xcore.workspace = true
@@ -17,3 +18,6 @@ log.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 regex = "1"
 shlex = "1.3"
+
+[build-dependencies]
+cc = "1"

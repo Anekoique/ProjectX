@@ -1,4 +1,7 @@
-use super::{RVCore, csr::CsrAddr};
+use super::{
+    RVCore,
+    csr::{CsrAddr, find_desc},
+};
 use crate::{
     config::Word,
     cpu::debug::{Breakpoint, DebugOps},
@@ -35,23 +38,49 @@ impl DebugOps for RVCore {
         self.skip_bp_once = true;
     }
 
+    fn context(&self) -> crate::cpu::CoreContext {
+        use super::csr::DIFFTEST_CSRS;
+        super::context::RVCoreContext {
+            pc: self.pc.as_usize() as u64,
+            gprs: (0u8..32)
+                .map(|i| {
+                    (
+                        RVReg::from_u8(i).unwrap().name(),
+                        word_to_u64(self.gpr[i as usize]),
+                    )
+                })
+                .collect(),
+            privilege: self.privilege as u64,
+            csrs: DIFFTEST_CSRS
+                .iter()
+                .map(|&(addr, mask)| {
+                    (
+                        addr as u16,
+                        addr.name(),
+                        mask,
+                        word_to_u64(self.csr.get(addr)),
+                    )
+                })
+                .collect(),
+            word_size: std::mem::size_of::<Word>(),
+            isa: if cfg!(isa64) { "rv64imac" } else { "rv32imac" },
+        }
+    }
+
+    /// Descriptor-aware register read — handles shadow CSRs (sstatus, sie,
+    /// sip).
     fn read_register(&self, name: &str) -> Option<u64> {
         match name {
             "pc" => Some(self.pc.as_usize() as u64),
             "privilege" => Some(self.privilege as u64),
             _ => RVReg::from_name(name)
                 .map(|r| word_to_u64(self.gpr[r as usize]))
-                .or_else(|| CsrAddr::from_name(name).map(|a| word_to_u64(self.csr.get(a)))),
+                .or_else(|| {
+                    CsrAddr::from_name(name).and_then(|a| {
+                        find_desc(a as u16).map(|desc| word_to_u64(self.csr.read_with_desc(desc)))
+                    })
+                }),
         }
-    }
-
-    fn dump_registers(&self) -> Vec<(&'static str, u64)> {
-        std::iter::once(("pc", self.pc.as_usize() as u64))
-            .chain((0u8..32).map(|i| {
-                let r = RVReg::from_u8(i).unwrap();
-                (r.name(), word_to_u64(self.gpr[i as usize]))
-            }))
-            .collect()
     }
 
     fn read_memory(&self, paddr: usize, size: usize) -> XResult<u64> {
@@ -127,7 +156,7 @@ pub fn format_mnemonic(inst: &DecodedInst) -> String {
                 "{} {}, {:#x}",
                 kind.as_str(),
                 rd.name(),
-                ((*imm as u64) >> 12) & 0xFFFFF
+                ((*imm as u32 as u64) >> 12) & 0xFFFFF
             )
         }
         DecodedInst::J { kind, rd, imm } => {

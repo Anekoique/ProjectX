@@ -13,14 +13,18 @@ export X_FILE  = $(FILE)
 export X_BATCH = $(BATCH)
 
 build_args-release := --release
+verbose := $(if $(VERBOSE),--verbose,)
 build_args := \
 	-Z unstable-options \
 	$(build_args-$(MODE)) \
 	$(verbose)
 
-# Enable debug features in interactive mode (BATCH=n)
 ifeq ($(BATCH),n)
   feature_args := --features debug
+endif
+
+ifeq ($(DIFFTEST),1)
+  feature_args += --features difftest
 endif
 
 all: run

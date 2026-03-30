@@ -14,7 +14,8 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout, opt-in TCP RX), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
-- **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser
+- **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser, difftest (`dt attach qemu|spike`)
+- **Difftest**: Per-instruction DUT/REF comparison against QEMU (GDB RSP) and Spike (FFI). Compares PC + GPR + privilege + 14 whitelisted CSRs (masked). MMIO-skip with raw-value sync. `csr_table!` macro `@ difftest` annotation auto-generates whitelist. Feature-gated (`DIFFTEST=1`)
 - **Logging**: Colored, timestamped, configurable levels. Per-instruction trace (`LOG=trace`), device/CSR debug (`LOG=debug`), lifecycle info (`LOG=info`). Comprehensive coverage across trap handler, memory access, CSR side effects, PLIC, ACLINT, UART, Bus.
 - **Tests**: 269 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), alu-tests (22k+ arithmetic checks), rtc clock test
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
@@ -130,14 +131,16 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [x] **Register inspect** — `info reg [name]` with GPR/CSR/PC name resolution
 - [x] **Execution logging** — `trace!()` per instruction, `debug!()` per memory/device/trap, `info!()` lifecycle events. Replaces ring-buffered traces with `log!()` levels via xlogger.
 
-### Phase 6: Difftest
+### Phase 6: Difftest — COMPLETE
 
 **Goal**: Correctness verification via reference comparison.
 
-- [ ] **Difftest framework** — compare execution with QEMU/Spike, per-instruction state comparison
-- [ ] **GDB protocol client** — connect to QEMU/Spike GDB stub for reference state reads
-- [ ] **State snapshot & diff** — capture {PC, GPR, CSR} after each instruction, report first divergence
-- [ ] **CI integration** — run difftest against reference on existing test programs
+- [x] **Difftest framework** — `DiffBackend` trait, `DiffHarness`, `diff_contexts()` free function. Per-instruction comparison of PC + GPR + privilege + 14 whitelisted CSRs (masked). MMIO-skip with raw-value sync
+- [x] **QEMU backend** — GDB RSP client, `sstep=0x7` (NOIRQ+NOTIMER), `PhyMemMode:1`, initial state sync
+- [x] **Spike backend** — FFI via C++ wrapper (`tools/difftest/spike/`), links libriscv/libsoftfloat/libfesvr/libdisasm
+- [x] **CoreContext** — arch-dispatched snapshot (`RVCoreContext as CoreContext`). `csr_table!` macro `@ difftest` annotation auto-generates whitelist
+- [x] **Monitor integration** — `dt attach qemu|spike`, `dt detach`, `dt status`. Hooks in `cmd_step`/`cmd_continue`
+- [ ] **CI integration** — run difftest against reference on existing test programs (deferred: requires QEMU/Spike in CI)
 
 ### Phase 7: OS Boot
 
@@ -166,7 +169,7 @@ The critical path to OS boot is:
 1. ~~**Phase 3 (MMU)**~~ — COMPLETE
 2. ~~**Phase 4 (Devices)**~~ — COMPLETE
 3. ~~**Phase 5 (Debugging)**~~ — COMPLETE
-4. **Phase 6 (Difftest)** — critical for catching bugs as complexity grows
+4. ~~**Phase 6 (Difftest)**~~ — COMPLETE (framework + QEMU backend; CI integration deferred)
 5. **Phase 7 (OS boot)** — the culmination of all previous work
 6. **Phase 8 (Performance)** — optimize after correctness is proven
 

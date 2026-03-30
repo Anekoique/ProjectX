@@ -35,6 +35,8 @@ pub struct Bus {
     pub(crate) mmio: Vec<MmioRegion>,
     plic_idx: Option<usize>,
     ssip_pending: Arc<AtomicBool>,
+    #[cfg(feature = "difftest")]
+    mmio_accessed: AtomicBool,
 }
 
 impl Bus {
@@ -44,6 +46,8 @@ impl Bus {
             mmio: Vec::new(),
             plic_idx: None,
             ssip_pending: Arc::new(AtomicBool::new(false)),
+            #[cfg(feature = "difftest")]
+            mmio_accessed: AtomicBool::new(false),
         }
     }
 
@@ -131,6 +135,8 @@ impl Bus {
         if let Some(off) = self.ram_offset(addr, size) {
             return f(&mut self.ram, off);
         }
+        #[cfg(feature = "difftest")]
+        self.mmio_accessed.store(true, Relaxed);
         let (dev, off) = self.find_mmio(addr, size)?;
         f(dev, off)
     }
@@ -147,6 +153,12 @@ impl Bus {
         self.ram_offset(addr, size)
             .ok_or(XError::BadAddress)
             .and_then(|off| self.ram.get(off, size))
+    }
+
+    /// Returns and clears the MMIO-accessed flag (for difftest MMIO-skip).
+    #[cfg(feature = "difftest")]
+    pub fn take_mmio_flag(&self) -> bool {
+        self.mmio_accessed.swap(false, Relaxed)
     }
 
     pub fn load_ram(&mut self, addr: usize, data: &[u8]) -> XResult {

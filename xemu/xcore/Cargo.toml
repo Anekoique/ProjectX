@@ -8,6 +8,7 @@ repository = "https://github.com/Anekoique/ProjectX/tree/main/xemu/xcore"
 [features]
 default = []
 debug = []
+difftest = ["debug"]
 
 [dependencies]
 log.workspace = true

@@ -5,6 +5,8 @@ extern crate xcore;
 
 mod cli;
 mod cmd;
+#[cfg(feature = "difftest")]
+pub mod difftest;
 mod expr;
 mod watchpoint;
 
@@ -36,11 +38,18 @@ pub fn xdb_mainloop() -> Result<(), String> {
         .filter(|s| !s.is_empty())
         .map(String::from);
     // Load file if provided (both batch and interactive modes)
-    xcore::with_xcpu(|cpu| cpu.load(file).map(|_| ())).map_err(|e| format!("Load error: {e}"))?;
+    xcore::with_xcpu(|cpu| cpu.load(file.clone()).map(|_| ()))
+        .map_err(|e| format!("Load error: {e}"))?;
 
     let mut watch_mgr = WatchManager::new();
+    #[cfg(feature = "difftest")]
+    let mut loaded_binary_path: Option<String> =
+        std::env::var("X_FILE").ok().filter(|s| !s.is_empty());
+    #[cfg(feature = "difftest")]
+    let mut diff_harness: Option<difftest::DiffHarness> = None;
 
     match option_env!("X_BATCH") {
+        // Batch mode: no difftest (interactive-only workflow)
         Some("y") => with_xcpu!(run(u64::MAX)).or_else(|e| {
             terminate!(e);
             Ok(())
@@ -52,7 +61,14 @@ pub fn xdb_mainloop() -> Result<(), String> {
                 continue;
             }
 
-            match cli::respond(line, &mut watch_mgr) {
+            match cli::respond(
+                line,
+                &mut watch_mgr,
+                #[cfg(feature = "difftest")]
+                &mut loaded_binary_path,
+                #[cfg(feature = "difftest")]
+                &mut diff_harness,
+            ) {
                 Ok(true) => {}
                 Ok(false) => return Ok(()),
                 Err(err) => print!("{err}"),

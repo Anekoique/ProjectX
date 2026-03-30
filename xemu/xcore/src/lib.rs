@@ -13,11 +13,12 @@ mod isa;
 mod utils;
 
 pub use cpu::{
-    State, XCPU,
+    CoreContext, RESET_VECTOR, State, XCPU,
     debug::{Breakpoint, DebugOps},
     with_xcpu,
 };
 pub use error::{XError, XResult};
+pub use isa::RVReg;
 
 pub fn init_xcore() -> XResult {
     info!("Hello xcore!");

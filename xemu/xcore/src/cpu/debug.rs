@@ -17,13 +17,16 @@ pub trait DebugOps: super::CoreOps {
     fn list_breakpoints(&self) -> &[Breakpoint];
     fn set_skip_bp(&mut self);
 
+    // ── State snapshot ──
+
+    /// Capture architectural state as a lightweight, cloneable context.
+    /// Used by difftest (state comparison) and debugger (`info reg`).
+    fn context(&self) -> super::CoreContext;
+
     // ── Read-only inspection ──
 
-    /// Read named register: "pc", "a0", "sp", "mstatus", "privilege", etc.
+    /// Read named register (descriptor-aware for shadow CSRs).
     fn read_register(&self, name: &str) -> Option<u64>;
-
-    /// All registers as (name, value) pairs.
-    fn dump_registers(&self) -> Vec<(&'static str, u64)>;
 
     /// Read physical memory (RAM only, side-effect-free).
     fn read_memory(&self, paddr: usize, size: usize) -> XResult<u64>;
