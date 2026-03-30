@@ -3,10 +3,11 @@ pub mod debug;
 
 use std::sync::{Arc, LazyLock, Mutex};
 
+use inherit_methods_macro::inherit_methods;
 use memory_addr::VirtAddr;
 use xlogger::ColorCode;
 
-use self::core::CoreOps;
+use self::{core::CoreOps, debug::DebugOps};
 use crate::{
     config::Word,
     device::bus::Bus,
@@ -50,7 +51,7 @@ pub struct CPU<Core: CoreOps> {
     halt_ret: Word,
 }
 
-impl<Core: CoreOps> CPU<Core> {
+impl<Core: CoreOps + DebugOps> CPU<Core> {
     pub fn new(core: Core) -> Self {
         let bus = core.bus().clone();
         Self {
@@ -143,6 +144,11 @@ impl<Core: CoreOps> CPU<Core> {
         self.state == State::Halted && self.halt_ret == 0
     }
 
+    /// Replace a named MMIO device on the bus (e.g. swap in a PTY-backed UART).
+    pub fn replace_device(&self, name: &str, dev: Box<dyn crate::device::Device>) {
+        self.bus.lock().unwrap().replace_device(name, dev);
+    }
+
     pub fn log_termination(&self) {
         match self.state {
             State::Abort => xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc),
@@ -160,37 +166,23 @@ impl<Core: CoreOps> CPU<Core> {
             State::Idle => {}
         }
     }
-}
-
-impl<Core: CoreOps + debug::DebugOps> CPU<Core> {
-    pub fn add_breakpoint(&mut self, addr: usize) -> u32 {
-        self.core.add_breakpoint(addr)
-    }
-
-    pub fn remove_breakpoint(&mut self, id: u32) -> bool {
-        self.core.remove_breakpoint(id)
-    }
-
-    pub fn list_breakpoints(&self) -> &[debug::Breakpoint] {
-        self.core.list_breakpoints()
-    }
-
-    pub fn set_skip_bp(&mut self) {
-        self.core.set_skip_bp();
-    }
-
-    pub fn debug_ops(&self) -> &dyn debug::DebugOps {
+    pub fn debug_ops(&self) -> &dyn DebugOps {
         &self.core
-    }
-
-    pub fn context(&self) -> CoreContext {
-        self.core.context()
     }
 
     #[cfg(feature = "difftest")]
     pub fn bus_take_mmio_flag(&self) -> bool {
         self.bus.lock().unwrap().take_mmio_flag()
     }
+}
+
+#[inherit_methods(from = "self.core")]
+impl<Core: CoreOps + DebugOps> CPU<Core> {
+    pub fn add_breakpoint(&mut self, addr: usize) -> u32;
+    pub fn remove_breakpoint(&mut self, id: u32) -> bool;
+    pub fn list_breakpoints(&self) -> &[debug::Breakpoint];
+    pub fn set_skip_bp(&mut self);
+    pub fn context(&self) -> CoreContext;
 }
 
 pub fn with_xcpu<R>(f: impl FnOnce(&mut CPU<Core>) -> R) -> R {

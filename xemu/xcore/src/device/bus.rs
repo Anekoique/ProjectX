@@ -88,6 +88,15 @@ impl Bus {
         });
     }
 
+    /// Swap the device backing a named MMIO region.
+    pub fn replace_device(&mut self, name: &str, dev: Box<dyn Device>) {
+        self.mmio
+            .iter_mut()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("bus: no device named '{name}'"))
+            .dev = dev;
+    }
+
     /// Designate a device as the interrupt controller (receives `notify()` with
     /// irq_lines).
     pub fn set_irq_sink(&mut self, idx: usize) {
@@ -291,5 +300,23 @@ mod tests {
         bus.add_mmio("plic", MMIO_BASE, MMIO_SIZE, stub(), 0);
         bus.set_irq_sink(0);
         assert_eq!(bus.plic_idx, Some(0));
+    }
+
+    #[test]
+    fn replace_device_swaps_named_region() {
+        let mut bus = new_bus();
+        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub(), 0);
+        bus.write(MMIO_BASE, 4, 0x42).unwrap();
+        assert_eq!(bus.read(MMIO_BASE, 4).unwrap(), 0x42);
+
+        bus.replace_device("stub", Box::new(StubDevice(0x99)));
+        assert_eq!(bus.read(MMIO_BASE, 4).unwrap(), 0x99);
+    }
+
+    #[test]
+    #[should_panic(expected = "no device named")]
+    fn replace_device_panics_on_unknown_name() {
+        let mut bus = new_bus();
+        bus.replace_device("nonexistent", stub());
     }
 }

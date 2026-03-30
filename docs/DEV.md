@@ -1,6 +1,6 @@
 # xemu Development Plan
 
-## Current Status (2026-03-29)
+## Current Status (2026-03-30)
 
 xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, virtual memory, and device emulation.
 
@@ -11,13 +11,13 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
 - **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint, page faults), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
 - **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, Svade), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics), sfence.vma
-- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout, opt-in TCP RX), `IrqState` lock-free interrupt delivery
+- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX + PTY-based RX via `Uart::with_pty()`), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser, difftest (`dt attach qemu|spike`)
 - **Difftest**: Per-instruction DUT/REF comparison against QEMU (GDB RSP) and Spike (FFI). Compares PC + GPR + privilege + 14 whitelisted CSRs (masked). MMIO-skip with raw-value sync. `csr_table!` macro `@ difftest` annotation auto-generates whitelist. Feature-gated (`DIFFTEST=1`)
 - **Logging**: Colored, timestamped, configurable levels. Per-instruction trace (`LOG=trace`), device/CSR debug (`LOG=debug`), lifecycle info (`LOG=info`). Comprehensive coverage across trap handler, memory access, CSR side effects, PLIC, ACLINT, UART, Bus.
-- **Tests**: 269 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), alu-tests (22k+ arithmetic checks), rtc clock test
+- **Tests**: 269 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
 - **xam HAL**: `_putch` (UART console), `mtime`/`set_mtimecmp` (ACLINT timer), `uptime()` (microseconds), `init_trap`/`TrapFrame` (trap entry), `mainargs` (compile-time argument passing), `_heap_start`/`_heap_end` (linker symbols)
@@ -38,15 +38,15 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Privilege modes | M/S/U with delegation | M/S/U with delegation |
 | MMU / Virtual memory | SV32/SV39, TLB (64), PMP (16) | SV39 + TLB (2048 entries) |
 | Interrupts/Exceptions | Full (priority, delegation, vectored) | Full (PLIC, timer, ecall trap) |
-| Devices | ACLINT, PLIC, UART 16550 | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
-| Difftest | None | QEMU via GDB protocol |
+| Devices | ACLINT, PLIC, UART 16550 (PTY RX) | UART16550, VGA, Timer, RTC, Keyboard, PLIC, CLINT |
+| Difftest | QEMU (GDB RSP) + Spike (FFI) | QEMU via GDB protocol |
 | Debugger | step/continue/load/reset | + breakpoints, watchpoints, expression eval, backtrace |
 | Instruction cache | None | Set-associative IBuf (16K entries) |
 | Disassembly | None | LLVM-based disassembler |
 | Performance profiling | None | Per-instruction counters |
 
-**Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic extensions, clean WARL CSR model.
-**Key gaps**: No VGA, no difftest, limited debugging.
+**Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic extensions, clean WARL CSR model, dual-backend difftest.
+**Key gaps**: No VGA, no disk.
 
 ### vs remu (~3,800 lines, RV32)
 
@@ -63,7 +63,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Configuration | Makefile env vars | Kconfig system (.config -> config.rs) |
 | Linux boot | No | Boots OpenSBI + Linux 5.15 |
 
-**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation.
+**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation, dual-backend difftest.
 **Key gaps**: No VGA, audio, disk. Fewer device types overall.
 
 ### Architectural Advantages of xemu
@@ -142,6 +142,15 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [x] **Monitor integration** — `dt attach qemu|spike`, `dt detach`, `dt status`. Hooks in `cmd_step`/`cmd_continue`
 - [ ] **CI integration** — run difftest against reference on existing test programs (deferred: requires QEMU/Spike in CI)
 
+### Keyboard (UART Serial Console) — COMPLETE
+
+**Goal**: Guest serial input via separate terminal for interactive post-boot I/O.
+
+- [x] **PTY-backed UART** — `Uart::with_pty()` creates pseudo-terminal pair; master fd for TX/RX, slave for user attachment via `screen`
+- [x] **Bus device replacement** — `Bus::replace_device()` + `CPU::replace_device()` for binary-layer UART injection
+- [x] **Build system** — `BATCH` replaced with `DEBUG` feature flag; am-tests batch execution clean
+- [x] **Keyboard am-test** — interactive echo test (`TEST=k`), polls UART RBR
+
 ### Phase 7: OS Boot
 
 **Goal**: Boot a real operating system.
@@ -149,7 +158,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [ ] **OpenSBI** — boot SBI firmware in M-mode
 - [ ] **Linux kernel** — boot minimal Linux (requires phases 2-6 complete)
 - [ ] **VGA framebuffer** — graphical output
-- [ ] **Keyboard** — input device for interactive programs
+- [x] **Keyboard** — PTY-based UART serial console (completed as prerequisite)
 - [ ] **Disk** — block device for filesystem support
 
 ### Phase 8: Performance Optimization (Post-boot)
@@ -169,9 +178,10 @@ The critical path to OS boot is:
 1. ~~**Phase 3 (MMU)**~~ — COMPLETE
 2. ~~**Phase 4 (Devices)**~~ — COMPLETE
 3. ~~**Phase 5 (Debugging)**~~ — COMPLETE
-4. ~~**Phase 6 (Difftest)**~~ — COMPLETE (framework + QEMU backend; CI integration deferred)
-5. **Phase 7 (OS boot)** — the culmination of all previous work
-6. **Phase 8 (Performance)** — optimize after correctness is proven
+4. ~~**Phase 6 (Difftest)**~~ — COMPLETE (framework + QEMU/Spike backends; CI integration deferred)
+5. ~~**Keyboard**~~ — COMPLETE (PTY-based UART serial console)
+6. **Phase 7 (OS boot)** — the culmination of all previous work
+7. **Phase 8 (Performance)** — optimize after correctness is proven
 
 ---
 

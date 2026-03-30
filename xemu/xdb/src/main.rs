@@ -10,15 +10,17 @@ pub mod difftest;
 mod expr;
 mod watchpoint;
 
-use watchpoint::WatchManager;
-
 pub fn main() {
-    crate::init_xdb();
+    init_xdb();
     if let Err(e) = xcore::init_xcore() {
         error!("XCore Error: {e}");
         std::process::exit(1);
     }
-    if let Err(e) = crate::xdb_mainloop() {
+    match xcore::Uart::with_pty() {
+        Ok(uart) => xcore::with_xcpu(|cpu| cpu.replace_device("uart0", Box::new(uart))),
+        Err(e) => warn!("PTY UART unavailable ({e}), TX-only via stdout"),
+    }
+    if let Err(e) = engine_start() {
         error!("XDB Error: {e}");
         std::process::exit(1);
     }
@@ -27,52 +29,53 @@ pub fn main() {
     }
 }
 
-pub fn init_xdb() {
+fn init_xdb() {
     xlogger::init();
     xlogger::set_max_level(option_env!("X_LOG").unwrap_or(""));
     info!("Hello, xdb!");
 }
 
-pub fn xdb_mainloop() -> Result<(), String> {
+fn engine_start() -> Result<(), String> {
     let file = option_env!("X_FILE")
         .filter(|s| !s.is_empty())
         .map(String::from);
-    // Load file if provided (both batch and interactive modes)
-    xcore::with_xcpu(|cpu| cpu.load(file.clone()).map(|_| ()))
-        .map_err(|e| format!("Load error: {e}"))?;
+    xcore::with_xcpu(|cpu| cpu.load(file).map(|_| ())).map_err(|e| format!("Load error: {e}"))?;
 
-    let mut watch_mgr = WatchManager::new();
+    if cfg!(feature = "debug") {
+        xdb_mainloop()
+    } else {
+        with_xcpu!(run(u64::MAX)).or_else(|e| {
+            terminate!(e);
+            Ok(())
+        })
+    }
+}
+
+fn xdb_mainloop() -> Result<(), String> {
+    let mut watch_mgr = watchpoint::WatchManager::new();
     #[cfg(feature = "difftest")]
     let mut loaded_binary_path: Option<String> =
         std::env::var("X_FILE").ok().filter(|s| !s.is_empty());
     #[cfg(feature = "difftest")]
     let mut diff_harness: Option<difftest::DiffHarness> = None;
 
-    match option_env!("X_BATCH") {
-        // Batch mode: no difftest (interactive-only workflow)
-        Some("y") => with_xcpu!(run(u64::MAX)).or_else(|e| {
-            terminate!(e);
-            Ok(())
-        }),
-        _ => loop {
-            let line = cli::readline()?;
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-
-            match cli::respond(
-                line,
-                &mut watch_mgr,
-                #[cfg(feature = "difftest")]
-                &mut loaded_binary_path,
-                #[cfg(feature = "difftest")]
-                &mut diff_harness,
-            ) {
-                Ok(true) => {}
-                Ok(false) => return Ok(()),
-                Err(err) => print!("{err}"),
-            }
-        },
+    loop {
+        let line = cli::readline()?;
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match cli::respond(
+            line,
+            &mut watch_mgr,
+            #[cfg(feature = "difftest")]
+            &mut loaded_binary_path,
+            #[cfg(feature = "difftest")]
+            &mut diff_harness,
+        ) {
+            Ok(true) => {}
+            Ok(false) => return Ok(()),
+            Err(err) => print!("{err}"),
+        }
     }
 }

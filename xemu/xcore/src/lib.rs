@@ -17,6 +17,7 @@ pub use cpu::{
     debug::{Breakpoint, DebugOps},
     with_xcpu,
 };
+pub use device::uart::Uart;
 pub use error::{XError, XResult};
 pub use isa::RVReg;
 

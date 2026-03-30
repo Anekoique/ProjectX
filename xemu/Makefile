@@ -1,16 +1,15 @@
 PROJECT := xemu
 LOG     ?= trace
 ARCH    ?= riscv64
-BATCH   ?= n
 FILE    ?=
 MODE    ?= release
+DEBUG   ?= y
 VERBOSE ?=
 
 export X_LOG   = $(LOG)
 export X_ARCH  = $(ARCH)
 export X_MODE  = $(MODE)
 export X_FILE  = $(FILE)
-export X_BATCH = $(BATCH)
 
 build_args-release := --release
 verbose := $(if $(VERBOSE),--verbose,)
@@ -19,7 +18,7 @@ build_args := \
 	$(build_args-$(MODE)) \
 	$(verbose)
 
-ifeq ($(BATCH),n)
+ifeq ($(DEBUG),y)
   feature_args := --features debug
 endif
 

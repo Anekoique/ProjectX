@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    os::fd::OwnedFd,
     sync::{Arc, Mutex},
 };
 
@@ -9,19 +10,105 @@ use crate::{
     error::{XError, XResult},
 };
 
+fn pty_write(fd: &OwnedFd, data: &[u8]) {
+    use std::os::fd::AsRawFd;
+    unsafe { libc::write(fd.as_raw_fd(), data.as_ptr().cast(), data.len()) };
+}
+
+fn open_pty() -> Result<(OwnedFd, OwnedFd, String), String> {
+    use std::os::fd::FromRawFd;
+
+    let (mut master, mut slave) = (0, 0);
+    if unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } != 0
+    {
+        return Err("openpty failed".into());
+    }
+
+    // Raw input, preserve \n → \r\n output processing.
+    unsafe {
+        let mut attr = std::mem::MaybeUninit::uninit();
+        if libc::tcgetattr(slave, attr.as_mut_ptr()) == 0 {
+            let mut attr = attr.assume_init();
+            libc::cfmakeraw(&mut attr);
+            attr.c_oflag |= libc::OPOST | libc::ONLCR;
+            libc::tcsetattr(slave, libc::TCSANOW, &attr);
+        }
+    }
+
+    let name = unsafe {
+        let ptr = libc::ttyname(slave);
+        if ptr.is_null() {
+            "unknown".to_string()
+        } else {
+            std::ffi::CStr::from_ptr(ptr).to_string_lossy().into_owned()
+        }
+    };
+
+    unsafe {
+        Ok((
+            OwnedFd::from_raw_fd(master),
+            OwnedFd::from_raw_fd(slave),
+            name,
+        ))
+    }
+}
+
+fn spawn_pty_reader(fd: &OwnedFd) -> Arc<Mutex<VecDeque<u8>>> {
+    use std::os::fd::AsRawFd;
+
+    let buf = Arc::new(Mutex::new(VecDeque::<u8>::new()));
+    let rx = buf.clone();
+    let raw_fd = fd.as_raw_fd();
+    std::thread::spawn(move || {
+        let mut b = [0u8; 64];
+        loop {
+            let n = unsafe { libc::read(raw_fd, b.as_mut_ptr().cast(), b.len()) };
+            if n <= 0 {
+                break;
+            }
+            rx.lock().unwrap().extend(&b[..n as usize]);
+        }
+    });
+    buf
+}
+
+enum TxSink {
+    Stdout,
+    Pty(OwnedFd),
+}
+
 pub struct Uart {
+    // NS16550 registers
     ier: u8,
     lcr: u8,
     mcr: u8,
     dll: u8,
     dlm: u8,
     scr: u8,
+    // RX pipeline: reader thread → rx_buf → tick() → rx_fifo → guest read
     rx_fifo: VecDeque<u8>,
     rx_buf: Arc<Mutex<VecDeque<u8>>>,
+    tx: TxSink,
+    // Prevent PTY teardown while the UART is alive.
+    _pty_slave: Option<OwnedFd>,
+}
+
+impl Default for Uart {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Uart {
-    /// TX-only UART. No background thread, no RX input.
+    /// TX-only UART. Output goes to stdout, no RX.
     pub fn new() -> Self {
         Self {
             ier: 0,
@@ -32,35 +119,27 @@ impl Uart {
             scr: 0,
             rx_fifo: VecDeque::new(),
             rx_buf: Arc::new(Mutex::new(VecDeque::new())),
+            tx: TxSink::Stdout,
+            _pty_slave: None,
         }
     }
 
-    /// UART with TCP RX backend. Spawns a listener thread on the given port.
-    /// Port 0 lets the OS pick a free port. Bind failure degrades to TX-only.
-    #[allow(dead_code)]
-    pub fn with_tcp(port: u16) -> Self {
-        let buf = Arc::new(Mutex::new(VecDeque::<u8>::new()));
-        let rx = buf.clone();
-        std::thread::spawn(move || {
-            let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port)) else {
-                warn!("UART: TCP bind failed on port {port}, TX-only");
-                return;
-            };
-            info!("UART: listening on {}", listener.local_addr().unwrap());
-            let Ok((stream, _)) = listener.accept() else {
-                return;
-            };
-            use std::io::Read;
-            let mut reader = std::io::BufReader::new(stream);
-            let mut b = [0u8; 1];
-            while reader.read_exact(&mut b).is_ok() {
-                rx.lock().unwrap().push_back(b[0]);
-            }
-        });
-        Self {
-            rx_buf: buf,
+    /// UART backed by a pseudo-terminal. TX and RX go through the PTY master;
+    /// the slave path is printed so the user can `screen <path>` in another
+    /// terminal.
+    pub fn with_pty() -> Result<Self, String> {
+        let (master, slave, name) = open_pty()?;
+        let rx_buf = spawn_pty_reader(&master);
+
+        eprintln!("UART: serial console at {name}");
+        eprintln!("UART: attach with: screen {name}");
+
+        Ok(Self {
+            rx_buf,
+            tx: TxSink::Pty(master),
+            _pty_slave: Some(slave),
             ..Self::new()
-        }
+        })
     }
 
     fn dlab(&self) -> bool {
@@ -68,14 +147,44 @@ impl Uart {
     }
 
     fn lsr(&self) -> u8 {
-        (if self.rx_fifo.is_empty() { 0 } else { 0x01 }) | 0x60
+        let dr = u8::from(!self.rx_fifo.is_empty());
+        dr | 0x60 // THRE + TEMT always set
     }
 
     fn iir(&self) -> u8 {
         if !self.rx_fifo.is_empty() && self.ier & 0x01 != 0 {
-            0xC4
+            0xC4 // RX data available
         } else {
-            0xC1
+            0xC1 // no interrupt
+        }
+    }
+
+    fn tx_byte(&self, b: u8) {
+        trace!(
+            "uart: tx {:#04x} '{}'",
+            b,
+            if b.is_ascii_graphic() || b == b' ' {
+                b as char
+            } else {
+                '.'
+            }
+        );
+        match &self.tx {
+            TxSink::Stdout => {
+                use std::io::Write;
+                let _ = std::io::stdout()
+                    .lock()
+                    .write_all(&[b])
+                    .and_then(|_| std::io::stdout().flush());
+            }
+            TxSink::Pty(fd) => {
+                // PTY master doesn't do output post-processing; translate \n ourselves.
+                if b == b'\n' {
+                    pty_write(fd, b"\r\n")
+                } else {
+                    pty_write(fd, &[b])
+                }
+            }
         }
     }
 }
@@ -107,22 +216,7 @@ impl Device for Uart {
         let b = val as u8;
         match offset {
             0 if self.dlab() => self.dll = b,
-            0 => {
-                trace!(
-                    "uart: tx {:#04x} '{}'",
-                    b,
-                    if b.is_ascii_graphic() || b == b' ' {
-                        b as char
-                    } else {
-                        '.'
-                    }
-                );
-                use std::io::Write;
-                let _ = std::io::stdout()
-                    .lock()
-                    .write_all(&[b])
-                    .and_then(|_| std::io::stdout().flush());
-            }
+            0 => self.tx_byte(b),
             1 if self.dlab() => self.dlm = b,
             1 => self.ier = b & 0x0F,
             2 => {}
@@ -144,10 +238,6 @@ impl Device for Uart {
         !self.rx_fifo.is_empty() && self.ier & 0x01 != 0
     }
 
-    /// Reset clears emulator-side register state, rx_fifo, and rx_buf.
-    /// The TCP backend thread (if any) is preserved — post-reset bytes
-    /// from the same connection continue to arrive, just like real hardware
-    /// where a FIFO reset does not disconnect the serial line.
     fn reset(&mut self) {
         debug!("uart: reset");
         self.ier = 0;
@@ -268,7 +358,6 @@ mod tests {
         let mut u = Uart::new();
         u.rx_buf.lock().unwrap().push_back(0xAA);
         u.reset();
-        // Backend still usable — new data arrives normally
         u.rx_buf.lock().unwrap().push_back(0xBB);
         u.tick();
         assert_eq!(u.rx_fifo.len(), 1);
@@ -276,67 +365,10 @@ mod tests {
     }
 
     #[test]
-    fn tcp_bind_failure_falls_back_to_tx_only() {
-        let blocker = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = blocker.local_addr().unwrap().port();
-        let mut u = Uart::with_tcp(port);
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        u.tick();
-        assert!(u.rx_fifo.is_empty());
-        assert!(u.write(0, 1, b'A' as Word).is_ok());
-    }
-
-    #[test]
-    fn tcp_disconnect_stops_rx() {
-        use std::{io::Write, net::TcpStream};
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-
-        let mut u = Uart::with_tcp(port);
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        {
-            let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
-            s.write_all(&[0xAA, 0xBB]).unwrap();
-            s.flush().unwrap();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        u.tick();
-        assert_eq!(u.rx_fifo.len(), 2);
-        assert_eq!(u.read(0, 1).unwrap() as u8, 0xAA);
-        assert_eq!(u.read(0, 1).unwrap() as u8, 0xBB);
-        u.tick();
-        assert!(u.rx_fifo.is_empty());
-    }
-
-    #[test]
-    fn tcp_reset_clears_and_preserves_backend() {
-        use std::{io::Write, net::TcpStream};
-        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-
-        let mut u = Uart::with_tcp(port);
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
-
-        // Pre-reset data
-        s.write_all(&[0x11]).unwrap();
-        s.flush().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        u.tick();
-        assert_eq!(u.rx_fifo.len(), 1);
-
-        // Reset clears everything
-        u.reset();
-        assert!(u.rx_fifo.is_empty());
-
-        // Post-reset: backend still works
-        s.write_all(&[0xAA]).unwrap();
-        s.flush().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        u.tick();
-        assert_eq!(u.rx_fifo.len(), 1, "post-reset RX must work");
-        assert_eq!(u.read(0, 1).unwrap() as u8, 0xAA);
+    fn pty_creates_working_uart() {
+        let mut u = Uart::with_pty().unwrap();
+        assert_ne!(u.read(5, 1).unwrap() as u8 & 0x60, 0);
+        u.write(7, 1, 0xCD).unwrap();
+        assert_eq!(u.read(7, 1).unwrap() as u8, 0xCD);
     }
 }

@@ -17,8 +17,10 @@ xlogger.workspace = true
 memory_addr = "0.4"
 
 bitflags = "2"
+libc = "0.2"
 bytemuck = "1.14"
 cfg-if = "1.0"
+inherit-methods-macro = "0.1.0"
 itertools = "0.14"
 num_enum = "0.7.5"
 pest = "2.8.3"

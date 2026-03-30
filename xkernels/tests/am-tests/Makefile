@@ -1,7 +1,7 @@
 .PHONY: all run clean latest $(ALL)
 
-export BATCH ?= y
-export LOG   ?= off
+export DEBUG  ?= n
+export LOG    ?= off
 
 RESULT = .result
 $(shell > $(RESULT))
@@ -29,10 +29,10 @@ $(ALL): %: .run.%
 	@echo 'CFLAGS += -DMAINARGS="\"$*\""'       >> .mk.$*
 	@echo 'include $$(AM_HOME)/Makefile'        >> .mk.$*
 	@rm -rf build/
-ifeq ($(BATCH),n)
+ifeq ($(DEBUG),y)
 	@make -f .mk.$* run
 else
-	@timeout $(TIMEOUT) make -s -f .mk.$* run 2>&1 > .output.$* || true
+	@timeout $(TIMEOUT) make -s -f .mk.$* run > .output.$* 2>&1 || true
 	@if grep -q "GOOD TRAP" .output.$*; then \
 		printf "[%14s] $(COLOR_GREEN)PASS$(COLOR_NONE)\n" $(call name,$*) >> $(RESULT); \
 	else \
