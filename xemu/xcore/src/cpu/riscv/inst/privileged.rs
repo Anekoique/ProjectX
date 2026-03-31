@@ -40,6 +40,32 @@ impl RVCore {
         Ok(())
     }
 
+    /// Memory ordering fence — NOP on single-hart emulator.
+    pub(super) fn fence(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+        Ok(())
+    }
+
+    /// Instruction fence — NOP on single-hart emulator (no icache).
+    pub(super) fn fence_i(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+        Ok(())
+    }
+
+    /// Wait for interrupt — NOP (interrupt check happens in step loop).
+    /// Traps in U-mode unconditionally, and in S-mode when mstatus.TW=1.
+    pub(super) fn wfi(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+        match self.privilege {
+            PrivilegeMode::User => Err(self.illegal_inst()),
+            PrivilegeMode::Supervisor => {
+                let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
+                if ms.contains(MStatus::TW) {
+                    return Err(self.illegal_inst());
+                }
+                Ok(())
+            }
+            PrivilegeMode::Machine => Ok(()),
+        }
+    }
+
     pub(super) fn sfence_vma(&mut self, _rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         if self.privilege == PrivilegeMode::User {
             return Err(self.illegal_inst());

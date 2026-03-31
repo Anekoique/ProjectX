@@ -93,6 +93,11 @@ pub struct Uart {
     dll: u8,
     dlm: u8,
     scr: u8,
+    // TX: THRE interrupt fires when THR empties.
+    // thre_pending stages through tick() so the CPU has a chance to write
+    // another byte before the interrupt fires (avoids per-char trap storm).
+    thre_pending: bool,
+    thre_ip: bool,
     // RX pipeline: reader thread → rx_buf → tick() → rx_fifo → guest read
     rx_fifo: VecDeque<u8>,
     rx_buf: Arc<Mutex<VecDeque<u8>>>,
@@ -117,6 +122,8 @@ impl Uart {
             dll: 0,
             dlm: 0,
             scr: 0,
+            thre_pending: false,
+            thre_ip: false,
             rx_fifo: VecDeque::new(),
             rx_buf: Arc::new(Mutex::new(VecDeque::new())),
             tx: TxSink::Stdout,
@@ -151,11 +158,15 @@ impl Uart {
         dr | 0x60 // THRE + TEMT always set
     }
 
-    fn iir(&self) -> u8 {
+    fn iir(&mut self) -> u8 {
+        // Priority: RX data > THRE (NS16550 spec)
         if !self.rx_fifo.is_empty() && self.ier & 0x01 != 0 {
-            0xC4 // RX data available
+            0xC4 // RX data available (priority 2)
+        } else if self.thre_ip && self.ier & 0x02 != 0 {
+            self.thre_ip = false; // reading IIR clears THRE interrupt
+            0xC2 // THRE — transmitter holding register empty (priority 3)
         } else {
-            0xC1 // no interrupt
+            0xC1 // no interrupt pending
         }
     }
 
@@ -216,10 +227,20 @@ impl Device for Uart {
         let b = val as u8;
         match offset {
             0 if self.dlab() => self.dll = b,
-            0 => self.tx_byte(b),
+            0 => {
+                self.tx_byte(b);
+                self.thre_pending = true; // assert THRE on next tick
+            }
             1 if self.dlab() => self.dlm = b,
-            1 => self.ier = b & 0x0F,
-            2 => {}
+            1 => {
+                let old = self.ier;
+                self.ier = b & 0x0F;
+                // THRE interrupt fires when IER[1] transitions 0→1 and THR is empty
+                if old & 0x02 == 0 && self.ier & 0x02 != 0 {
+                    self.thre_pending = true;
+                }
+            }
+            2 => {} // FCR: FIFO control — ignored; IIR always reports FIFOs enabled
             3 => self.lcr = b,
             4 => self.mcr = b,
             7 => self.scr = b,
@@ -229,13 +250,20 @@ impl Device for Uart {
     }
 
     fn tick(&mut self) {
+        // Promote pending THRE → assertable (one-tick delay avoids per-char trap storm)
+        if self.thre_pending {
+            self.thre_pending = false;
+            self.thre_ip = true;
+        }
         if let Ok(mut buf) = self.rx_buf.try_lock() {
             self.rx_fifo.extend(buf.drain(..));
         }
     }
 
     fn irq_line(&self) -> bool {
-        !self.rx_fifo.is_empty() && self.ier & 0x01 != 0
+        let rx = !self.rx_fifo.is_empty() && self.ier & 0x01 != 0;
+        let thre = self.thre_ip && self.ier & 0x02 != 0;
+        rx || thre
     }
 
     fn reset(&mut self) {
@@ -246,8 +274,12 @@ impl Device for Uart {
         self.dll = 0;
         self.dlm = 0;
         self.scr = 0;
+        self.thre_pending = false;
+        self.thre_ip = false;
         self.rx_fifo.clear();
-        self.rx_buf.lock().unwrap().clear();
+        if let Ok(mut buf) = self.rx_buf.try_lock() {
+            buf.clear();
+        }
     }
 }
 

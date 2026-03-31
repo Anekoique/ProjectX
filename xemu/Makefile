@@ -2,14 +2,22 @@ PROJECT := xemu
 LOG     ?= trace
 ARCH    ?= riscv64
 FILE    ?=
+FW      ?=
+KERNEL  ?=
+INITRD  ?=
+FDT     ?=
 MODE    ?= release
 DEBUG   ?= y
 VERBOSE ?=
 
-export X_LOG   = $(LOG)
-export X_ARCH  = $(ARCH)
-export X_MODE  = $(MODE)
-export X_FILE  = $(FILE)
+export X_LOG    = $(LOG)
+export X_ARCH   = $(ARCH)
+export X_MODE   = $(MODE)
+export X_FILE   = $(FILE)
+export X_FW     = $(FW)
+export X_KERNEL = $(KERNEL)
+export X_INITRD = $(INITRD)
+export X_FDT    = $(FDT)
 
 build_args-release := --release
 verbose := $(if $(VERBOSE),--verbose,)

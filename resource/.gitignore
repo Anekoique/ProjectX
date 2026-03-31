@@ -1,0 +1,8 @@
+# Generated artifacts
+*.bin
+*.dtb
+
+# External source checkouts and downloads
+opensbi/
+xv6/
+linux/

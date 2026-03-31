@@ -35,11 +35,24 @@ fn init_xdb() {
     info!("Hello, xdb!");
 }
 
+fn boot_config() -> xcore::BootConfig {
+    let env = |name| std::env::var(name).ok().filter(|s| !s.is_empty());
+    match (env("X_FW"), env("X_FDT")) {
+        (Some(fw), Some(fdt)) => xcore::BootConfig::Firmware {
+            fw,
+            kernel: env("X_KERNEL"),
+            initrd: env("X_INITRD"),
+            fdt,
+        },
+        _ => xcore::BootConfig::Direct {
+            file: env("X_FILE"),
+        },
+    }
+}
+
 fn engine_start() -> Result<(), String> {
-    let file = option_env!("X_FILE")
-        .filter(|s| !s.is_empty())
-        .map(String::from);
-    xcore::with_xcpu(|cpu| cpu.load(file).map(|_| ())).map_err(|e| format!("Load error: {e}"))?;
+    let config = boot_config();
+    xcore::with_xcpu(|cpu| cpu.boot(config)).map_err(|e| format!("Boot error: {e}"))?;
 
     if cfg!(feature = "debug") {
         xdb_mainloop()

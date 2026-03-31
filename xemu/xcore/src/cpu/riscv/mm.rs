@@ -156,10 +156,8 @@ impl PteFlags {
         } else {
             priv_mode != PrivilegeMode::User
         };
-        // Svade: A must be set; D must be set for writes
-        let ad_ok = self.contains(Self::A)
-            && (!matches!(op, MemOp::Store | MemOp::Amo) || self.contains(Self::D));
-        perm_ok && priv_ok && ad_ok
+        // A/D bits are checked/set by hardware in page_walk, not here.
+        perm_ok && priv_ok
     }
 }
 
@@ -249,7 +247,7 @@ impl RVCore {
         };
         let mut bus = self.bus.lock().unwrap();
         self.mmu
-            .translate(addr, op, priv_mode, &self.pmp, &bus)
+            .translate(addr, op, priv_mode, &self.pmp, &mut bus)
             .and_then(|pa| self.pmp.check(pa, size, op, priv_mode).map(|_| pa))
             .and_then(|pa| f(&mut bus, pa))
             .map_err(|e| Self::to_trap(e, addr, op))

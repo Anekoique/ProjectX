@@ -13,7 +13,7 @@ mod isa;
 mod utils;
 
 pub use cpu::{
-    CoreContext, RESET_VECTOR, State, XCPU,
+    BootConfig, CoreContext, RESET_VECTOR, State, XCPU,
     debug::{Breakpoint, DebugOps},
     with_xcpu,
 };

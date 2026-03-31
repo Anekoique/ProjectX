@@ -53,15 +53,18 @@ impl RVCore {
     /// Commit a taken trap — writes CSRs and sets npc to handler.
     /// The caller advances pc = npc afterward.
     pub fn commit_trap(&mut self, trap: PendingTrap) {
-        if trap.cause == TrapCause::Exception(Exception::Breakpoint) {
+        // In direct (bare-metal) mode, ebreak halts the emulator.
+        // In firmware mode (ebreak_as_trap), dispatch to the trap handler.
+        if trap.cause == TrapCause::Exception(Exception::Breakpoint) && !self.ebreak_as_trap {
             self.halted = true;
             return;
         }
         let delegated = self.is_delegated(&trap.cause);
-        let target = if delegated { "S" } else { "M" };
         info!(
             "trap: {:?} -> {}-mode (tval={:#x})",
-            trap.cause, target, trap.tval
+            trap.cause,
+            if delegated { "S" } else { "M" },
+            trap.tval
         );
         if delegated {
             self.trap_to_s_mode(&trap);

@@ -1,9 +1,7 @@
-use std::sync::MutexGuard;
-
 use memory_addr::VirtAddr;
 
 use super::{
-    MemOp, PAGE_SHIFT, PAGE_SIZE, Pte, Satp, SvConfig, SvMode,
+    MemOp, PAGE_SHIFT, PAGE_SIZE, Pte, PteFlags, Satp, SvConfig, SvMode,
     pmp::Pmp,
     tlb::{Tlb, TlbEntry},
 };
@@ -55,7 +53,7 @@ impl Mmu {
         op: MemOp,
         priv_mode: PrivilegeMode,
         pmp: &Pmp,
-        bus: &MutexGuard<'_, Bus>,
+        bus: &mut Bus,
     ) -> XResult<usize> {
         if self.sv == SvMode::Bare || priv_mode == PrivilegeMode::Machine {
             return Ok(vaddr.as_usize());
@@ -81,7 +79,7 @@ impl Mmu {
         priv_mode: PrivilegeMode,
         sv: &SvConfig,
         pmp: &Pmp,
-        bus: &MutexGuard<'_, Bus>,
+        bus: &mut Bus,
     ) -> XResult<TlbEntry> {
         ensure!(is_canonical(vaddr, sv), XError::PageFault);
 
@@ -108,8 +106,22 @@ impl Mmu {
                         && pte.flags().permits(op, priv_mode, self.sum, self.mxr),
                     XError::PageFault
                 );
+                // Hardware A/D update: set A bit (and D for writes).
+                let need_d = matches!(op, MemOp::Store | MemOp::Amo);
+                let flags = pte.flags();
+                if !flags.contains(PteFlags::A) || (need_d && !flags.contains(PteFlags::D)) {
+                    let new_bits = PteFlags::A.bits() | if need_d { PteFlags::D.bits() } else { 0 };
+                    let updated = pte.0 | new_bits;
+                    let _ = bus.write(pte_addr, sv.pte_size, updated as Word);
+                }
                 return Ok(TlbEntry::new(
-                    pte.flags(),
+                    pte.flags()
+                        | PteFlags::A
+                        | if need_d {
+                            PteFlags::D
+                        } else {
+                            PteFlags::empty()
+                        },
                     pte.ppn(sv),
                     vaddr,
                     level,
@@ -137,7 +149,7 @@ fn is_canonical(vaddr: VirtAddr, sv: &SvConfig) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::{Mutex, MutexGuard};
 
     use memory_addr::VirtAddr;
 
@@ -196,13 +208,7 @@ mod tests {
         bus.write(root, 4, 0).unwrap();
     }
 
-    fn xlate(
-        mmu: &mut Mmu,
-        va: usize,
-        op: MemOp,
-        pmp: &Pmp,
-        bus: &MutexGuard<'_, Bus>,
-    ) -> XResult<usize> {
+    fn xlate(mmu: &mut Mmu, va: usize, op: MemOp, pmp: &Pmp, bus: &mut Bus) -> XResult<usize> {
         mmu.translate(VirtAddr::from(va), op, PrivilegeMode::Supervisor, pmp, bus)
     }
 
@@ -210,14 +216,14 @@ mod tests {
     fn bare_mode_identity() {
         let mut mmu = Mmu::new();
         let bus = test_bus();
-        let lock = bus.lock().unwrap();
+        let mut lock = bus.lock().unwrap();
         assert_eq!(
             mmu.translate(
                 VirtAddr::from(0x8000_1234_usize),
                 MemOp::Load,
                 PrivilegeMode::Machine,
                 &Pmp::new(),
-                &lock
+                &mut lock
             )
             .unwrap(),
             0x8000_1234
@@ -232,14 +238,14 @@ mod tests {
         #[cfg(isa32)]
         mmu.update_satp(1 << 31);
         let bus = test_bus();
-        let lock = bus.lock().unwrap();
+        let mut lock = bus.lock().unwrap();
         assert_eq!(
             mmu.translate(
                 VirtAddr::from(CONFIG_MBASE),
                 MemOp::Fetch,
                 PrivilegeMode::Machine,
                 &Pmp::new(),
-                &lock
+                &mut lock
             )
             .unwrap(),
             CONFIG_MBASE
@@ -254,7 +260,7 @@ mod tests {
         let pmp = allow_all_pmp();
         let target = setup_pt(&mut lock, &mut mmu, PTE_VRWXAD);
         assert_eq!(
-            xlate(&mut mmu, 0, MemOp::Load, &pmp, &lock).unwrap(),
+            xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock).unwrap(),
             target
         );
     }
@@ -262,14 +268,14 @@ mod tests {
     #[test]
     fn invalid_pte_faults() {
         let bus = test_bus();
-        let lock = bus.lock().unwrap();
+        let mut lock = bus.lock().unwrap();
         let mut mmu = Mmu::new();
         #[cfg(isa64)]
         mmu.update_satp((8u64 << 60) | (CONFIG_MBASE >> PAGE_SHIFT) as u64);
         #[cfg(isa32)]
         mmu.update_satp(((1u32 << 31) | (CONFIG_MBASE >> PAGE_SHIFT) as u32) as Word);
         assert!(matches!(
-            xlate(&mut mmu, 0, MemOp::Load, &allow_all_pmp(), &lock),
+            xlate(&mut mmu, 0, MemOp::Load, &allow_all_pmp(), &mut lock),
             Err(XError::PageFault)
         ));
     }
@@ -281,23 +287,22 @@ mod tests {
         let mut mmu = Mmu::new();
         let pmp = allow_all_pmp();
         setup_pt(&mut lock, &mut mmu, PTE_VRAD);
-        assert!(xlate(&mut mmu, 0, MemOp::Load, &pmp, &lock).is_ok());
+        assert!(xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock).is_ok());
         assert!(matches!(
-            xlate(&mut mmu, 0, MemOp::Store, &pmp, &lock),
+            xlate(&mut mmu, 0, MemOp::Store, &pmp, &mut lock),
             Err(XError::PageFault)
         ));
     }
 
     #[test]
-    fn svade_a_unset_faults() {
+    fn hw_ad_update_sets_bits() {
+        // Hardware A/D update: PTE without A/D should succeed and set bits
         let bus = test_bus();
         let mut lock = bus.lock().unwrap();
         let mut mmu = Mmu::new();
-        setup_pt(&mut lock, &mut mmu, PTE_VRWX);
-        assert!(matches!(
-            xlate(&mut mmu, 0, MemOp::Load, &allow_all_pmp(), &lock),
-            Err(XError::PageFault)
-        ));
+        let pmp = allow_all_pmp();
+        setup_pt(&mut lock, &mut mmu, PTE_VRWX); // no A/D bits
+        assert!(xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock).is_ok());
     }
 
     #[test]
@@ -308,12 +313,12 @@ mod tests {
         let pmp = allow_all_pmp();
         let target = setup_pt(&mut lock, &mut mmu, PTE_VRWXAD);
         assert_eq!(
-            xlate(&mut mmu, 0, MemOp::Load, &pmp, &lock).unwrap(),
+            xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock).unwrap(),
             target
         );
         zap_root(&mut lock);
         assert_eq!(
-            xlate(&mut mmu, 0, MemOp::Load, &pmp, &lock).unwrap(),
+            xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock).unwrap(),
             target
         );
     }
@@ -325,11 +330,11 @@ mod tests {
         let mut mmu = Mmu::new();
         let pmp = allow_all_pmp();
         setup_pt(&mut lock, &mut mmu, PTE_VRWXAD);
-        xlate(&mut mmu, 0, MemOp::Load, &pmp, &lock).unwrap();
+        xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock).unwrap();
         zap_root(&mut lock);
         mmu.tlb.flush(None, None);
         assert!(matches!(
-            xlate(&mut mmu, 0, MemOp::Load, &pmp, &lock),
+            xlate(&mut mmu, 0, MemOp::Load, &pmp, &mut lock),
             Err(XError::PageFault)
         ));
     }

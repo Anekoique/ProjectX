@@ -1,23 +1,24 @@
 # xemu Development Plan
 
-## Current Status (2026-03-30)
+## Current Status (2026-03-31)
 
 xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) with a companion bare-metal C library (xlib). It supports RV32/RV64 with full privileged execution (M/S/U modes), trap handling, interrupt routing, virtual memory, and device emulation.
 
 ### What Works
 
-- **ISA**: RV32I/RV64I base, M (mul/div), A (atomics: LR/SC + 9 AMO ops), C (compressed), Zicsr
-- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus), satp with MMU side effects, pmpcfg/pmpaddr with lock semantics
+- **ISA**: RV32I/RV64I base, M (mul/div), A (atomics: LR/SC + 9 AMO ops), C (compressed), Zicsr, Zifencei (fence.i)
+- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus), satp with MMU side effects, pmpcfg/pmpaddr with lock semantics, misa (IMACSU), stimecmp (Sstc), menvcfg/senvcfg, time (mtime shadow)
 - **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
 - **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint, page faults), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
-- **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, Svade), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics), sfence.vma
-- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX + PTY-based RX via `Uart::with_pty()`), `IrqState` lock-free interrupt delivery
+- **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, hardware A/D update), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics), sfence.vma
+- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX + PTY-based RX via `Uart::with_pty()`, THRE interrupt), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 130 instruction patterns
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser, difftest (`dt attach qemu|spike`)
 - **Difftest**: Per-instruction DUT/REF comparison against QEMU (GDB RSP) and Spike (FFI). Compares PC + GPR + privilege + 14 whitelisted CSRs (masked). MMIO-skip with raw-value sync. `csr_table!` macro `@ difftest` annotation auto-generates whitelist. Feature-gated (`DIFFTEST=1`)
 - **Logging**: Colored, timestamped, configurable levels. Per-instruction trace (`LOG=trace`), device/CSR debug (`LOG=debug`), lifecycle info (`LOG=info`). Comprehensive coverage across trap handler, memory access, CSR side effects, PLIC, ACLINT, UART, Bus.
-- **Tests**: 269 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
+- **Tests**: 278 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
+- **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1 (initramfs, boots to init)
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
 - **xam HAL**: `_putch` (UART console), `mtime`/`set_mtimecmp` (ACLINT timer), `uptime()` (microseconds), `init_trap`/`TrapFrame` (trap entry), `mainargs` (compile-time argument passing), `_heap_start`/`_heap_end` (linker symbols)
@@ -61,10 +62,10 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Devices | ACLINT, PLIC, UART 16550 | CLINT, PLIC, UART, Timer, VGA, Keyboard, Audio, Disk |
 | Tracing | Log only | 7 ring-buffered traces (itrace, mtrace, ftrace, dtrace, etc.) |
 | Configuration | Makefile env vars | Kconfig system (.config -> config.rs) |
-| Linux boot | No | Boots OpenSBI + Linux 5.15 |
+| Linux boot | OpenSBI + Linux 6.1 (initramfs) | OpenSBI + Linux 5.15 |
 
-**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation, dual-backend difftest.
-**Key gaps**: No VGA, audio, disk. Fewer device types overall.
+**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation, dual-backend difftest. Boots OpenSBI + xv6 + Linux.
+**Key gaps**: No VGA, audio, disk. Fewer device types overall. Slower (no instruction cache).
 
 ### Architectural Advantages of xemu
 
@@ -151,15 +152,17 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - [x] **Build system** — `BATCH` replaced with `DEBUG` feature flag; am-tests batch execution clean
 - [x] **Keyboard am-test** — interactive echo test (`TEST=k`), polls UART RBR
 
-### Phase 7: OS Boot
+### Phase 7: OS Boot — COMPLETE
 
 **Goal**: Boot a real operating system.
 
-- [ ] **OpenSBI** — boot SBI firmware in M-mode
-- [ ] **Linux kernel** — boot minimal Linux (requires phases 2-6 complete)
-- [ ] **VGA framebuffer** — graphical output
+- [x] **OpenSBI** — boot SBI firmware in M-mode (v1.3.1, fw_jump, generic platform)
+- [x] **xv6-riscv** — boot xv6 directly in M-mode with ramdisk (interactive shell)
+- [x] **Linux kernel** — boot Linux 6.1 via OpenSBI with initramfs (boots to init, slow — needs Phase 8)
 - [x] **Keyboard** — PTY-based UART serial console (completed as prerequisite)
-- [ ] **Disk** — block device for filesystem support
+- [x] **Boot infrastructure** — `BootConfig` enum, `BootMode` trait, FDT support, initrd loading
+- [ ] **VGA framebuffer** — graphical output (deferred)
+- [ ] **Disk** — block device for filesystem support (deferred)
 
 ### Phase 8: Performance Optimization (Post-boot)
 
@@ -180,8 +183,8 @@ The critical path to OS boot is:
 3. ~~**Phase 5 (Debugging)**~~ — COMPLETE
 4. ~~**Phase 6 (Difftest)**~~ — COMPLETE (framework + QEMU/Spike backends; CI integration deferred)
 5. ~~**Keyboard**~~ — COMPLETE (PTY-based UART serial console)
-6. **Phase 7 (OS boot)** — the culmination of all previous work
-7. **Phase 8 (Performance)** — optimize after correctness is proven
+6. ~~**Phase 7 (OS boot)**~~ — COMPLETE (OpenSBI + xv6 + Linux)
+7. **Phase 8 (Performance)** — optimize after correctness is proven (Linux boot is slow on interpreted emulator)
 
 ---
 

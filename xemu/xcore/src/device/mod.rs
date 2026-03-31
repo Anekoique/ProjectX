@@ -28,12 +28,13 @@ pub trait Device: Send {
 // Interrupt bit positions in mip
 pub const SSIP: u64 = 1 << 1;
 pub const MSIP: u64 = 1 << 3;
+pub const STIP: u64 = 1 << 5;
 pub const MTIP: u64 = 1 << 7;
 pub const SEIP: u64 = 1 << 9;
 pub const MEIP: u64 = 1 << 11;
 
-/// Hardware-wired mip bits managed via IrqState (excludes SSIP —
-/// software-writable).
+/// Hardware-wired mip bits managed via IrqState (excludes SSIP/STIP —
+/// software-controlled). STIP is managed by stimecmp comparison, not IrqState.
 pub const HW_IP_MASK: Word = (MSIP | MTIP | SEIP | MEIP) as Word;
 
 /// Shared interrupt state between CPU and devices.

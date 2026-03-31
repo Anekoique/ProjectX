@@ -139,6 +139,14 @@ const MIP_WMASK: Word = (1 << 1) | (1 << 3); // Only SSIP, MSIP software-writabl
 const SIE_MASK: Word = (1 << 1) | (1 << 5) | (1 << 9); // SSI, STI, SEI
 const SIP_MASK: Word = 1 << 1; // Only SSIP writable from S-mode
 
+// menvcfg: FIOM (bit 0), PBMTE (bit 62), STCE (bit 63)
+#[cfg(isa64)]
+const MENVCFG_WMASK: Word = (1 << 0) | (1 << 62) | (1u64 << 63);
+#[cfg(isa32)]
+const MENVCFG_WMASK: Word = 1 << 0;
+// senvcfg: FIOM (bit 0)
+const SENVCFG_WMASK: Word = 1 << 0;
+
 csr_table! {
     // ---- M-mode Trap Setup ----
     mstatus    = 0x300 => [RW(MSTATUS_WMASK)] @ difftest(!0xF_0000_0000_u64),
@@ -148,6 +156,7 @@ csr_table! {
     mie        = 0x304 => [RW(MIE_WMASK)] @ difftest,
     mtvec      = 0x305 => [RW(!(0x2 as Word))] @ difftest,
     mcounteren = 0x306 => [RW(0x7)],
+    menvcfg    = 0x30A => [RW(MENVCFG_WMASK)],
 
     // ---- M-mode Trap Handling ----
     mscratch   = 0x340 => [RW(!0)],
@@ -164,10 +173,12 @@ csr_table! {
     // ---- S-mode Own Registers ----
     stvec      = 0x105 => [RW(!(0x2 as Word))] @ difftest,
     scounteren = 0x106 => [RW(0x7)],
+    senvcfg    = 0x10A => [RW(SENVCFG_WMASK)],
     sscratch   = 0x140 => [RW(!0)],
     sepc       = 0x141 => [RW(!(0x1 as Word))] @ difftest,
     scause     = 0x142 => [RW(!0)] @ difftest,
     stval      = 0x143 => [RW(!0)] @ difftest,
+    stimecmp   = 0x14D => [RW(!0)],
     satp       = 0x180 => [RW(!0), blocked_by(TVM)] @ difftest,
 
     // ---- PMP ----
@@ -200,6 +211,7 @@ csr_table! {
 
     // ---- Counters ----
     cycle      = 0xC00 => [RO, counter_gated],
+    time       = 0xC01 => [RO, counter_gated],
     instret    = 0xC02 => [RO, counter_gated],
 }
 
@@ -211,9 +223,18 @@ pub struct CsrFile {
     regs: [Word; 4096],
 }
 
+// misa: MXL | A(0) | C(2) | I(8) | M(12) | S(18) | U(20)
+#[cfg(isa64)]
+const MISA_VALUE: Word = (2 << 62) | (1 << 20) | (1 << 18) | (1 << 12) | (1 << 8) | (1 << 2) | 1;
+#[cfg(isa32)]
+const MISA_VALUE: Word = (1 << 30) | (1 << 20) | (1 << 18) | (1 << 12) | (1 << 8) | (1 << 2) | 1;
+
 impl Default for CsrFile {
     fn default() -> Self {
-        Self { regs: [0; 4096] }
+        let mut regs = [0; 4096];
+        regs[CsrAddr::misa as usize] = MISA_VALUE;
+        regs[CsrAddr::stimecmp as usize] = !0; // Sstc: no timer until software sets stimecmp
+        Self { regs }
     }
 }
 
@@ -365,10 +386,21 @@ mod tests {
     }
 
     #[test]
+    fn misa_initialized_with_extensions() {
+        let csr = CsrFile::new();
+        let misa = csr.get(CsrAddr::misa);
+        #[cfg(isa64)]
+        assert_eq!(misa, 0x8000_0000_0014_1105);
+        #[cfg(isa32)]
+        assert_eq!(misa, 0x4014_1105);
+    }
+
+    #[test]
     fn read_only_csr_ignores_writes() {
         let mut csr = CsrFile::new();
+        let before = csr.read_masked(CsrAddr::misa as u16).unwrap();
         csr.write_masked(CsrAddr::misa as u16, 0xFFFF);
-        assert_eq!(csr.read_masked(CsrAddr::misa as u16), Some(0));
+        assert_eq!(csr.read_masked(CsrAddr::misa as u16), Some(before));
     }
 
     #[test]

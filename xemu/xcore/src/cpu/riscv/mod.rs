@@ -19,7 +19,7 @@ use super::{CoreOps, RESET_VECTOR};
 use crate::{
     config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
     device::{
-        HW_IP_MASK, IrqState, SSIP,
+        HW_IP_MASK, IrqState, SSIP, STIP,
         bus::Bus,
         intc::{aclint::Aclint, plic::Plic},
         uart::Uart,
@@ -41,6 +41,8 @@ pub struct RVCore {
     pub(crate) pmp: Pmp,
     irq: IrqState,
     halted: bool,
+    /// When true, ebreak traps to handler instead of halting (firmware mode).
+    pub(crate) ebreak_as_trap: bool,
     breakpoints: Vec<crate::cpu::debug::Breakpoint>,
     next_bp_id: u32,
     skip_bp_once: bool,
@@ -84,6 +86,7 @@ impl RVCore {
             pmp: Pmp::new(),
             irq,
             halted: false,
+            ebreak_as_trap: false,
             breakpoints: Vec::new(),
             next_bp_id: 1,
             skip_bp_once: false,
@@ -92,13 +95,26 @@ impl RVCore {
 
     /// Merge hardware interrupt bits from devices into mip.
     /// SSIP is handled separately via ACLINT edge-triggered SSWI.
+    /// Also checks `stimecmp` for STIP (mtime is already synced by bus.tick()).
+    #[allow(clippy::unnecessary_cast)] // u64 casts needed for isa32 (Word=u32)
     fn sync_interrupts(&mut self) {
         let ext = self.irq.load() as Word;
-        let mip = self.csr.get(CsrAddr::mip);
+        let mut mip = self.csr.get(CsrAddr::mip);
         // Merge hardware-wired bits (MSIP, MTIP, SEIP, MEIP); SSIP stays
         // software-controlled
-        self.csr
-            .set(CsrAddr::mip, (mip & !HW_IP_MASK) | (ext & HW_IP_MASK));
+        mip = (mip & !HW_IP_MASK) | (ext & HW_IP_MASK);
+
+        // Check stimecmp (Sstc extension) — mtime is kept in the time CSR
+        // by the bus tick handler.
+        let stimecmp = self.csr.get(CsrAddr::stimecmp) as u64;
+        let mtime = self.csr.get(CsrAddr::time) as u64;
+        if mtime >= stimecmp {
+            mip |= STIP as Word;
+        } else {
+            mip &= !(STIP as Word);
+        }
+
+        self.csr.set(CsrAddr::mip, mip);
     }
 
     pub fn raise_trap(&mut self, cause: TrapCause, tval: Word) {
@@ -141,6 +157,21 @@ impl CoreOps for RVCore {
         &self.bus
     }
 
+    fn setup_boot(&mut self, mode: super::core::BootMode) {
+        use super::core::BootMode;
+        match mode {
+            BootMode::Direct => {
+                self.ebreak_as_trap = false;
+            }
+            BootMode::Firmware { fdt_addr } => {
+                // SBI convention: a0 = hartid, a1 = FDT pointer
+                self.gpr[RVReg::a0] = 0;
+                self.gpr[RVReg::a1] = fdt_addr as Word;
+                self.ebreak_as_trap = true;
+            }
+        }
+    }
+
     fn reset(&mut self) -> XResult {
         self.gpr.fill(0);
         self.pc = VirtAddr::from(RESET_VECTOR);
@@ -157,10 +188,15 @@ impl CoreOps for RVCore {
         Ok(())
     }
 
+    #[allow(clippy::unnecessary_cast)]
     fn step(&mut self) -> XResult {
         {
             let mut bus = self.bus.lock().unwrap();
             bus.tick();
+            // Sync mtime → time CSR while we hold the lock
+            let lo = bus.read(0x0200_BFF8, 4).unwrap_or(0) as u32 as u64;
+            let hi = bus.read(0x0200_BFFC, 4).unwrap_or(0) as u32 as u64;
+            self.csr.set(CsrAddr::time, (lo | (hi << 32)) as Word);
             if bus.take_ssip() {
                 let mip = self.csr.get(CsrAddr::mip);
                 self.csr.set(CsrAddr::mip, mip | SSIP as Word);
@@ -272,12 +308,21 @@ mod tests {
     }
 
     #[test]
-    fn step_ebreak_halts_without_trap() {
+    fn step_ebreak_halts_in_direct_mode() {
         let mut core = setup_core();
         write_inst(&core, 0x0010_0073); // ebreak
         core.step().unwrap();
         assert!(core.halted());
-        assert_eq!(core.csr.get(CsrAddr::mepc), 0);
+    }
+
+    #[test]
+    fn step_ebreak_traps_in_firmware_mode() {
+        let mut core = setup_core();
+        core.ebreak_as_trap = true;
+        write_inst(&core, 0x0010_0073); // ebreak
+        core.step().unwrap();
+        assert!(!core.halted());
+        assert_eq!(core.csr.get(CsrAddr::mcause), Exception::Breakpoint as Word);
     }
 
     #[test]
@@ -340,6 +385,47 @@ mod tests {
             core.csr.get(CsrAddr::mip) as u64 & SSIP,
             0,
             "SSIP must not be reasserted without new SETSSIP"
+        );
+    }
+
+    #[test]
+    fn stip_delivered_in_s_mode_with_sie() {
+        use crate::cpu::riscv::{csr::MStatus, trap::Interrupt};
+
+        let mut core = setup_core();
+        // Switch to S-mode
+        core.privilege = PrivilegeMode::Supervisor;
+        // Set stvec for trap delivery
+        core.csr.set(CsrAddr::stvec, 0x8000_4000);
+        // Enable STIE in mie (bit 5)
+        core.csr.set(CsrAddr::mie, 1 << 5);
+        // Delegate STIP to S-mode
+        core.csr.set(CsrAddr::mideleg, 1 << 5);
+        // Set SIE in mstatus
+        core.csr.set(CsrAddr::mstatus, MStatus::SIE.bits());
+        // Set stimecmp=0 so mtime >= stimecmp → STIP fires
+        core.csr.set(CsrAddr::stimecmp, 0);
+
+        // Write a NOP at PC
+        write_inst(&core, 0x0000_0013); // addi x0, x0, 0 (NOP)
+
+        // Step should deliver the timer interrupt
+        core.step().unwrap();
+
+        // After delivery: should have trapped to stvec, scause=SupervisorTimer
+        let scause = core.csr.get(CsrAddr::scause);
+        let expected = TrapCause::Interrupt(Interrupt::SupervisorTimer).to_mcause();
+        assert_eq!(
+            scause,
+            expected,
+            "Timer interrupt not delivered. scause={:#x} expected={:#x} mip={:#x} mie={:#x} \
+             mstatus={:#x} priv={:?}",
+            scause,
+            expected,
+            core.csr.get(CsrAddr::mip),
+            core.csr.get(CsrAddr::mie),
+            core.csr.get(CsrAddr::mstatus),
+            core.privilege
         );
     }
 }

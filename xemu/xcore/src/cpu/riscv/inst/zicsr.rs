@@ -207,12 +207,13 @@ mod tests {
         // misa (0x301) has wmask=0 but is NOT read-only by address encoding.
         // Write succeeds but has no effect (WARL).
         let misa_addr = CsrAddr::misa as SWord;
+        let before = core.csr.get(CsrAddr::misa);
         core.gpr[RVReg::t0] = 0xFF;
 
         core.csrrw(RVReg::t1, RVReg::t0, misa_addr).unwrap();
 
         assert!(core.pending_trap.is_none());
-        assert_eq!(core.csr.get(CsrAddr::misa), 0); // unchanged
+        assert_eq!(core.csr.get(CsrAddr::misa), before); // unchanged
     }
 
     #[test]

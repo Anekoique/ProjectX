@@ -14,6 +14,25 @@ use crate::{
     error::{XError, XResult},
 };
 
+/// Boot configuration — selects between legacy direct-load and firmware boot.
+#[derive(Clone, Debug)]
+pub enum BootConfig {
+    /// Legacy: load one binary at DRAM base, PC = 0x8000_0000.
+    Direct { file: Option<String> },
+    /// Firmware: OpenSBI + optional kernel/initrd payload + FDT.
+    Firmware {
+        fw: String,
+        kernel: Option<String>,
+        initrd: Option<String>,
+        fdt: String,
+    },
+}
+
+// Boot memory layout (matches OpenSBI fw_jump convention):
+const KERNEL_LOAD_ADDR: usize = 0x8020_0000; // FW_JUMP_ADDR: 2MB after DRAM base
+const INITRD_LOAD_ADDR: usize = 0x8400_0000; // after kernel region
+const FDT_LOAD_ADDR: usize = 0x87F0_0000; // near top of 128MB DRAM
+
 cfg_if::cfg_if! {
     if #[cfg(riscv)] {
         mod riscv;
@@ -49,6 +68,7 @@ pub struct CPU<Core: CoreOps> {
     state: State,
     halt_pc: VirtAddr,
     halt_ret: Word,
+    boot_config: BootConfig,
 }
 
 impl<Core: CoreOps + DebugOps> CPU<Core> {
@@ -60,31 +80,78 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
             state: State::Idle,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
+            boot_config: BootConfig::Direct { file: None },
         }
     }
 
+    /// Boot from a configuration. Stores the config for subsequent resets.
+    pub fn boot(&mut self, config: BootConfig) -> XResult {
+        info!("cpu: boot config={:?}", config);
+        self.boot_config = config;
+        self.reset()
+    }
+
+    /// Reset the CPU and reapply the stored boot configuration.
     pub fn reset(&mut self) -> XResult {
         info!("cpu: reset");
         self.state = State::Idle;
         self.core.reset()?;
-        self.load_default_image()
-    }
 
-    pub fn load(&mut self, file: Option<String>) -> XResult<&mut Self> {
-        match file {
-            None => self.load_default_image()?,
-            Some(path) => {
-                let bytes = std::fs::read(&path).map_err(|_| XError::FailedToRead)?;
-                self.bus.lock().unwrap().load_ram(RESET_VECTOR, &bytes)?;
-                info!("Loaded {} bytes @ {:#x}", bytes.len(), RESET_VECTOR);
-            }
+        match &self.boot_config {
+            BootConfig::Direct { file } => self.load_direct(file.clone()),
+            BootConfig::Firmware {
+                fw,
+                kernel,
+                initrd,
+                fdt,
+            } => self.load_firmware(fw.clone(), kernel.clone(), initrd.clone(), fdt.clone()),
         }
-        Ok(self)
     }
 
-    fn load_default_image(&mut self) -> XResult {
-        let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-        self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
+    fn load_direct(&mut self, file: Option<String>) -> XResult {
+        self.core.setup_boot(core::BootMode::Direct);
+        match file {
+            None => {
+                let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
+                self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
+            }
+            Some(path) => self.load_file_at(&path, RESET_VECTOR),
+        }
+    }
+
+    fn load_firmware(
+        &mut self,
+        fw: String,
+        kernel: Option<String>,
+        initrd: Option<String>,
+        fdt: String,
+    ) -> XResult {
+        self.load_file_at(&fw, RESET_VECTOR)?;
+        if let Some(ref k) = kernel {
+            self.load_file_at(k, KERNEL_LOAD_ADDR)?;
+        }
+        if let Some(ref rd) = initrd {
+            self.load_file_at(rd, INITRD_LOAD_ADDR)?;
+        }
+        self.load_file_at(&fdt, FDT_LOAD_ADDR)?;
+        self.core.setup_boot(core::BootMode::Firmware {
+            fdt_addr: FDT_LOAD_ADDR,
+        });
+        info!("firmware boot: fw={fw}, kernel={kernel:?}, initrd={initrd:?}, fdt={fdt}");
+        Ok(())
+    }
+
+    fn load_file_at(&mut self, path: &str, addr: usize) -> XResult {
+        let bytes = std::fs::read(path).map_err(|_| XError::FailedToRead)?;
+        self.bus.lock().unwrap().load_ram(addr, &bytes)?;
+        info!("Loaded {} ({} bytes @ {:#x})", path, bytes.len(), addr);
+        Ok(())
+    }
+
+    /// Legacy load interface (wraps as BootConfig::Direct).
+    pub fn load(&mut self, file: Option<String>) -> XResult<&mut Self> {
+        self.boot(BootConfig::Direct { file })?;
+        Ok(self)
     }
 
     pub fn step(&mut self) -> XResult {

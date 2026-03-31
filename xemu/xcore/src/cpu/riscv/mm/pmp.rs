@@ -58,12 +58,12 @@ impl PmpEntry {
 
     fn napot_range(self) -> (usize, usize) {
         let trailing = (!self.addr).trailing_zeros() as usize;
-        let size = 1usize.wrapping_shl((trailing + 3) as u32);
-        let mask = if trailing + 1 >= usize::BITS as usize {
-            usize::MAX
-        } else {
-            (1usize << (trailing + 1)) - 1
-        };
+        if trailing + 3 >= usize::BITS as usize {
+            // Full address space
+            return (0, usize::MAX);
+        }
+        let size = 1usize << (trailing + 3);
+        let mask = (1usize << (trailing + 1)) - 1;
         ((self.addr & !mask) << 2, size)
     }
 
