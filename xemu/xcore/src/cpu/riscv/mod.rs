@@ -71,7 +71,13 @@ impl RVCore {
         bus.set_irq_sink(plic_idx);
         bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
         // SiFive test finisher — OpenSBI writes here on shutdown/reboot.
-        bus.add_mmio("finisher", 0x10_0000, 0x1000, Box::new(TestFinisher::new()), 0);
+        bus.add_mmio(
+            "finisher",
+            0x10_0000,
+            0x1000,
+            Box::new(TestFinisher::new()),
+            0,
+        );
         Self::with_bus(bus, irq)
     }
 
@@ -106,7 +112,8 @@ impl RVCore {
         } else {
             0
         };
-        let mip = (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !(STIP as Word)) | (hw & HW_IP_MASK) | stip;
+        let mip =
+            (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !(STIP as Word)) | (hw & HW_IP_MASK) | stip;
         self.csr.set(CsrAddr::mip, mip);
     }
 

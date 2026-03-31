@@ -8,9 +8,9 @@
 
 	chosen {
 		stdout-path = "/soc/serial@10000000";
-		bootargs = "earlycon=sbi console=ttyS0 rdinit=/sbin/init";
+		bootargs = "earlycon=sbi console=ttyS0 rdinit=/init";
 		linux,initrd-start = <0x0 0x84000000>;
-		linux,initrd-end = <0x0 0x84900000>;
+		linux,initrd-end = <0x0 0x84100000>;
 	};
 
 	memory@80000000 {
@@ -39,7 +39,7 @@
 			reg = <0>;
 			status = "okay";
 			compatible = "riscv";
-			riscv,isa = "rv64imacsu";
+			riscv,isa = "rv64imacsu_sstc";
 			mmu-type = "riscv,sv39";
 
 			cpu0_intc: interrupt-controller {
@@ -55,6 +55,11 @@
 		#size-cells = <2>;
 		compatible = "simple-bus";
 		ranges;
+
+		test@100000 {
+			compatible = "sifive,test1", "sifive,test0", "syscon";
+			reg = <0x0 0x100000 0x0 0x1000>;
+		};
 
 		clint@2000000 {
 			compatible = "riscv,clint0";

@@ -16,11 +16,20 @@ pub fn main() {
         error!("XCore Error: {e}");
         std::process::exit(1);
     }
-    match xcore::Uart::with_pty() {
-        Ok(uart) => xcore::with_xcpu(|cpu| cpu.replace_device("uart0", Box::new(uart))),
-        Err(e) => warn!("PTY UART unavailable ({e}), TX-only via stdout"),
+    let config = boot_config();
+    let is_firmware = matches!(config, xcore::BootConfig::Firmware { .. });
+    if cfg!(feature = "debug") {
+        // Debug mode: PTY for interactive use (xdb REPL + keyboard tests).
+        match xcore::Uart::with_pty() {
+            Ok(uart) => xcore::with_xcpu(|cpu| cpu.replace_device("uart0", Box::new(uart))),
+            Err(e) => warn!("PTY UART unavailable ({e}), TX-only via stdout"),
+        }
+    } else if is_firmware {
+        // Non-debug OS boot: stdin/stdout for direct terminal interaction.
+        let uart = xcore::Uart::with_stdio();
+        xcore::with_xcpu(|cpu| cpu.replace_device("uart0", Box::new(uart)));
     }
-    if let Err(e) = engine_start() {
+    if let Err(e) = run(config) {
         error!("XDB Error: {e}");
         std::process::exit(1);
     }
@@ -50,8 +59,7 @@ fn boot_config() -> xcore::BootConfig {
     }
 }
 
-fn engine_start() -> Result<(), String> {
-    let config = boot_config();
+fn run(config: xcore::BootConfig) -> Result<(), String> {
     xcore::with_xcpu(|cpu| cpu.boot(config)).map_err(|e| format!("Boot error: {e}"))?;
 
     if cfg!(feature = "debug") {

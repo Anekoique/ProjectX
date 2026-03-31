@@ -134,16 +134,20 @@ impl Bus {
             return;
         }
         // Slow path: tick remaining devices, collect IRQ lines, notify PLIC
-        let irq_lines = self.mmio.iter_mut().enumerate().fold(0u32, |lines, (idx, r)| {
-            if Some(idx) != self.aclint_idx {
-                r.dev.tick();
-            }
-            if r.irq_source > 0 && r.dev.irq_line() {
-                lines | (1 << r.irq_source)
-            } else {
-                lines
-            }
-        });
+        let irq_lines = self
+            .mmio
+            .iter_mut()
+            .enumerate()
+            .fold(0u32, |lines, (idx, r)| {
+                if Some(idx) != self.aclint_idx {
+                    r.dev.tick();
+                }
+                if r.irq_source > 0 && r.dev.irq_line() {
+                    lines | (1 << r.irq_source)
+                } else {
+                    lines
+                }
+            });
         if let Some(i) = self.plic_idx {
             self.mmio[i].dev.notify(irq_lines);
         }

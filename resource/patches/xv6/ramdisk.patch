@@ -1,0 +1,29 @@
+diff --git a/Makefile b/Makefile
+index b262c0a..a514b3f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -28,7 +28,7 @@ OBJS = \
+   $K/sysfile.o \
+   $K/kernelvec.o \
+   $K/plic.o \
+-  $K/virtio_disk.o
++  $K/ramdisk.o
+ 
+ # riscv64-unknown-elf- or riscv64-linux-gnu-
+ # perhaps in /opt/riscv/bin
+@@ -86,8 +86,13 @@ endif
+ 
+ LDFLAGS = -z max-page-size=4096
+ 
+-$K/kernel: $(OBJS) $K/kernel.ld
+-	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) 
++$K/fs_img.o: fs.img
++	$(OBJCOPY) -I binary -O elf64-littleriscv \
++		--rename-section .data=.data,alloc,load,data,contents \
++		fs.img $@
++
++$K/kernel: $(OBJS) $K/fs_img.o $K/kernel.ld
++	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) $K/fs_img.o
+ 	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
+ 	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
+ 

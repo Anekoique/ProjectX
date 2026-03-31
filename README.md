@@ -27,9 +27,9 @@ cd resource && make linux
 
 ## Benchmark (MacBook Air M4)
 
-- MicroBench 55 Marks
-- CoreMark   38 Marks
-- DhryStone  20 Marks
+- MicroBench 57 Marks
+- CoreMark   30 Marks
+- DhryStone  22 Marks
 
 ## Architecture
 
