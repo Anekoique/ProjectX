@@ -12,7 +12,17 @@ use crate::{
 
 fn pty_write(fd: &OwnedFd, data: &[u8]) {
     use std::os::fd::AsRawFd;
+    // Non-blocking: drops bytes if PTY buffer is full (no reader attached yet).
+    // Once `screen` attaches, the buffer drains normally.
     unsafe { libc::write(fd.as_raw_fd(), data.as_ptr().cast(), data.len()) };
+}
+
+fn set_nonblock(fd: &OwnedFd) {
+    use std::os::fd::AsRawFd;
+    unsafe {
+        let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
+        libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
+    }
 }
 
 fn open_pty() -> Result<(OwnedFd, OwnedFd, String), String> {
@@ -61,6 +71,38 @@ fn open_pty() -> Result<(OwnedFd, OwnedFd, String), String> {
     }
 }
 
+static mut ORIG_TERMIOS: Option<libc::termios> = None;
+
+extern "C" fn restore_termios() {
+    unsafe {
+        if let Some(ref t) = ORIG_TERMIOS {
+            libc::tcsetattr(0, libc::TCSANOW, t);
+        }
+    }
+}
+
+extern "C" fn restore_and_exit(_sig: i32) {
+    restore_termios();
+    std::process::exit(0);
+}
+
+fn spawn_stdin_reader() -> Arc<Mutex<VecDeque<u8>>> {
+    let buf = Arc::new(Mutex::new(VecDeque::<u8>::new()));
+    let rx = buf.clone();
+    std::thread::spawn(move || {
+        let mut b = [0u8; 64];
+        loop {
+            let n = unsafe { libc::read(0, b.as_mut_ptr().cast(), b.len()) };
+            if n > 0 {
+                rx.lock().unwrap().extend(&b[..n as usize]);
+            } else if n == 0 {
+                break;
+            }
+        }
+    });
+    buf
+}
+
 fn spawn_pty_reader(fd: &OwnedFd) -> Arc<Mutex<VecDeque<u8>>> {
     use std::os::fd::AsRawFd;
 
@@ -71,10 +113,14 @@ fn spawn_pty_reader(fd: &OwnedFd) -> Arc<Mutex<VecDeque<u8>>> {
         let mut b = [0u8; 64];
         loop {
             let n = unsafe { libc::read(raw_fd, b.as_mut_ptr().cast(), b.len()) };
-            if n <= 0 {
-                break;
+            if n > 0 {
+                rx.lock().unwrap().extend(&b[..n as usize]);
+            } else if n == 0 {
+                break; // EOF
+            } else {
+                // EAGAIN (non-blocking) or EINTR — sleep briefly and retry
+                std::thread::sleep(std::time::Duration::from_millis(10));
             }
-            rx.lock().unwrap().extend(&b[..n as usize]);
         }
     });
     buf
@@ -82,7 +128,8 @@ fn spawn_pty_reader(fd: &OwnedFd) -> Arc<Mutex<VecDeque<u8>>> {
 
 enum TxSink {
     Stdout,
-    Pty(OwnedFd),
+    /// PTY for RX input + stdout echo for visible boot output.
+    PtyWithStdout(OwnedFd),
 }
 
 pub struct Uart {
@@ -131,6 +178,32 @@ impl Uart {
         }
     }
 
+    /// Bidirectional UART using the process's stdin/stdout.
+    /// TX goes to stdout, RX reads from stdin (raw mode).
+    pub fn with_stdio() -> Self {
+        // Save original termios and put stdin into raw mode.
+        unsafe {
+            let mut orig = std::mem::MaybeUninit::uninit();
+            if libc::tcgetattr(0, orig.as_mut_ptr()) == 0 {
+                let orig = orig.assume_init();
+                // Restore terminal on exit (normal or Ctrl-C).
+                ORIG_TERMIOS = Some(orig);
+                libc::atexit(restore_termios);
+                libc::signal(
+                    libc::SIGINT,
+                    restore_and_exit as extern "C" fn(i32) as libc::sighandler_t,
+                );
+                let mut raw = orig;
+                libc::cfmakeraw(&mut raw);
+                libc::tcsetattr(0, libc::TCSANOW, &raw);
+            }
+        }
+        Self {
+            rx_buf: spawn_stdin_reader(),
+            ..Self::new()
+        }
+    }
+
     /// UART backed by a pseudo-terminal. TX and RX go through the PTY master;
     /// the slave path is printed so the user can `screen <path>` in another
     /// terminal.
@@ -138,12 +211,15 @@ impl Uart {
         let (master, slave, name) = open_pty()?;
         let rx_buf = spawn_pty_reader(&master);
 
+        // Non-blocking TX prevents emulator from stalling when no reader
+        // is attached. Bytes are dropped until `screen` connects.
+        set_nonblock(&master);
         eprintln!("UART: serial console at {name}");
         eprintln!("UART: attach with: screen {name}");
 
         Ok(Self {
             rx_buf,
-            tx: TxSink::Pty(master),
+            tx: TxSink::PtyWithStdout(master),
             _pty_slave: Some(slave),
             ..Self::new()
         })
@@ -171,31 +247,11 @@ impl Uart {
     }
 
     fn tx_byte(&self, b: u8) {
-        trace!(
-            "uart: tx {:#04x} '{}'",
-            b,
-            if b.is_ascii_graphic() || b == b' ' {
-                b as char
-            } else {
-                '.'
-            }
-        );
-        match &self.tx {
-            TxSink::Stdout => {
-                use std::io::Write;
-                let _ = std::io::stdout()
-                    .lock()
-                    .write_all(&[b])
-                    .and_then(|_| std::io::stdout().flush());
-            }
-            TxSink::Pty(fd) => {
-                // PTY master doesn't do output post-processing; translate \n ourselves.
-                if b == b'\n' {
-                    pty_write(fd, b"\r\n")
-                } else {
-                    pty_write(fd, &[b])
-                }
-            }
+        use std::io::Write;
+        let _ = std::io::stdout().lock().write_all(&[b]).and_then(|_| std::io::stdout().flush());
+        if let TxSink::PtyWithStdout(fd) = &self.tx {
+            let buf = [b];
+            pty_write(fd, if b == b'\n' { b"\r\n" } else { &buf });
         }
     }
 }

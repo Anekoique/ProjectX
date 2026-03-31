@@ -26,6 +26,15 @@ impl RVCore {
     fn csr_write_side_effects(&mut self, addr: u16, desc: CsrDesc) {
         match addr {
             0x180 /* satp */ => {
+                // WARL: unsupported MODE → entire write has no effect (§4.1.11).
+                #[cfg(isa64)]
+                {
+                    let satp = self.csr.get(CsrAddr::satp);
+                    let mode = satp >> 60;
+                    if mode != 0 && mode != 8 {
+                        self.csr.set(CsrAddr::satp, satp & ((1u64 << 60) - 1));
+                    }
+                }
                 let satp = self.csr.get(CsrAddr::satp);
                 debug!("satp write: {:#x}", satp);
                 self.mmu.update_satp(satp);
