@@ -23,9 +23,15 @@ mmio_regs! {
     }
 }
 
+/// Read wall-clock every SYNC_INTERVAL ticks to amortize syscall cost.
+/// Between syncs, mtime holds the last-read value (frozen).
+/// 512 balances accuracy (~50µs granularity at 10M IPS) vs. overhead.
+const SYNC_INTERVAL: u64 = 512;
+
 pub struct Aclint {
     epoch: Instant,
     mtime: u64,
+    ticks: u64,
     msip: u32,
     mtimecmp: u64,
     ssip: Arc<AtomicBool>,
@@ -37,11 +43,18 @@ impl Aclint {
         Self {
             epoch: Instant::now(),
             mtime: 0,
+            ticks: 0,
             msip: 0,
             mtimecmp: u64::MAX,
             ssip,
             irq,
         }
+    }
+
+    /// Snap mtime to real wall-clock (10 MHz = nanos / 100).
+    #[inline]
+    fn sync_wallclock(&mut self) {
+        self.mtime = (self.epoch.elapsed().as_nanos() / 100) as u64;
     }
 
     fn set_msip(&mut self, v: u32) {
@@ -77,18 +90,29 @@ impl Device for Aclint {
             Some(Reg::Msip) => self.msip as Word,
             Some(Reg::MtimecmpLo) => self.mtimecmp as u32 as Word,
             Some(Reg::MtimecmpHi) => (self.mtimecmp >> 32) as u32 as Word,
-            Some(Reg::MtimeLo) => self.mtime as u32 as Word,
-            Some(Reg::MtimeHi) => (self.mtime >> 32) as u32 as Word,
+            Some(Reg::MtimeLo | Reg::MtimeHi) => {
+                // Guest explicitly reading mtime — return fresh wall-clock.
+                self.sync_wallclock();
+                if offset == 0xBFF8 {
+                    self.mtime as u32 as Word
+                } else {
+                    (self.mtime >> 32) as u32 as Word
+                }
+            }
             Some(Reg::Setssip) => 0,
             None => 0,
         })
     }
 
-    fn write(&mut self, offset: usize, _size: usize, val: Word) -> XResult {
+    fn write(&mut self, offset: usize, size: usize, val: Word) -> XResult {
         match Reg::decode(offset) {
             Some(Reg::Msip) => self.set_msip(val as u32 & 1),
             Some(Reg::MtimecmpLo) => {
-                self.mtimecmp = (self.mtimecmp & !0xFFFF_FFFF) | val as u32 as u64;
+                if size >= 8 {
+                    self.mtimecmp = val as u64;
+                } else {
+                    self.mtimecmp = (self.mtimecmp & !0xFFFF_FFFF) | val as u32 as u64;
+                }
                 debug!("aclint: mtimecmp={:#x}", self.mtimecmp);
                 self.check_timer();
             }
@@ -107,18 +131,29 @@ impl Device for Aclint {
     }
 
     fn tick(&mut self) {
-        // 10 MHz tick rate: nanos / 100. Divide before truncation to avoid u128→u64
-        // wrap.
-        self.mtime = (self.epoch.elapsed().as_nanos() / 100) as u64;
+        // Lazily start the epoch on first tick so that time spent in the
+        // debugger prompt doesn't count toward mtime.
+        if self.ticks == 0 {
+            self.epoch = Instant::now();
+        }
+        self.ticks += 1;
+        if self.ticks.is_multiple_of(SYNC_INTERVAL) {
+            self.sync_wallclock();
+        }
         self.check_timer();
     }
 
+    fn mtime(&self) -> Option<u64> {
+        Some(self.mtime)
+    }
+
     fn reset(&mut self) {
+        self.epoch = Instant::now();
         self.mtime = 0;
+        self.ticks = 0;
         self.msip = 0;
         self.mtimecmp = u64::MAX;
         self.ssip.store(false, Relaxed);
-        self.epoch = Instant::now();
     }
 }
 
@@ -133,23 +168,24 @@ mod tests {
     }
 
     #[test]
-    fn mtime_advances_after_tick() {
+    fn mtime_advances_after_sync() {
         let (mut dev, ..) = setup();
-        dev.tick();
-        let t1 = dev.read(0xBFF8, 4).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-        dev.tick();
-        let t2 = dev.read(0xBFF8, 4).unwrap();
-        assert!(t2 > t1);
+        // Force a sync
+        dev.ticks = SYNC_INTERVAL - 1;
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        dev.tick(); // triggers sync_wallclock
+        let t = dev.mtime().unwrap();
+        assert!(t > 0, "mtime should reflect wall-clock: {t}");
     }
 
     #[test]
-    fn mtime_frozen_without_tick() {
+    fn mtime_frozen_between_syncs() {
         let (mut dev, ..) = setup();
-        dev.tick();
-        let t1 = dev.read(0xBFF8, 4).unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(1));
-        let t2 = dev.read(0xBFF8, 4).unwrap();
+        dev.ticks = SYNC_INTERVAL - 1;
+        dev.tick(); // sync
+        let t1 = dev.mtime().unwrap();
+        dev.tick(); // no sync — mtime stays
+        let t2 = dev.mtime().unwrap();
         assert_eq!(t1, t2);
     }
 
@@ -211,10 +247,11 @@ mod tests {
     #[test]
     fn mtime_write_ignored() {
         let (mut dev, ..) = setup();
-        dev.tick();
-        let before = dev.read(0xBFF8, 4).unwrap();
+        dev.sync_wallclock();
+        let before = dev.mtime;
         dev.write(0xBFF8, 4, 0xDEAD).unwrap();
-        assert_eq!(dev.read(0xBFF8, 4).unwrap(), before);
+        // mtime field should be unchanged by write (mtime is read-only)
+        assert_eq!(dev.mtime, before);
     }
 
     #[test]
@@ -228,7 +265,6 @@ mod tests {
         dev.reset();
         irq.reset();
         dev.tick();
-        // mtimecmp is MAX after reset, so MTIP should not be set
         assert_eq!(irq.load() & MTIP, 0);
         assert_eq!(dev.read(0x0000, 4).unwrap() as u32, 0);
     }

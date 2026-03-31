@@ -30,10 +30,15 @@ impl MmioRegion {
     }
 }
 
+/// Slow-tick divisor: UART/PLIC are ticked every N instructions.
+const SLOW_TICK_DIVISOR: u64 = 64;
+
 pub struct Bus {
     ram: Ram,
     pub(crate) mmio: Vec<MmioRegion>,
+    aclint_idx: Option<usize>,
     plic_idx: Option<usize>,
+    tick_count: u64,
     ssip_pending: Arc<AtomicBool>,
     #[cfg(feature = "difftest")]
     mmio_accessed: AtomicBool,
@@ -44,7 +49,9 @@ impl Bus {
         Self {
             ram: Ram::new(ram_base, ram_size),
             mmio: Vec::new(),
+            aclint_idx: None,
             plic_idx: None,
+            tick_count: 0,
             ssip_pending: Arc::new(AtomicBool::new(false)),
             #[cfg(feature = "difftest")]
             mmio_accessed: AtomicBool::new(false),
@@ -97,21 +104,46 @@ impl Bus {
             .dev = dev;
     }
 
-    /// Designate a device as the interrupt controller (receives `notify()` with
-    /// irq_lines).
+    /// Designate a device as the timer source (ACLINT).
+    pub fn set_timer_source(&mut self, idx: usize) {
+        self.aclint_idx = Some(idx);
+    }
+
+    /// Designate a device as the interrupt controller (PLIC).
     pub fn set_irq_sink(&mut self, idx: usize) {
         self.plic_idx = Some(idx);
     }
 
-    /// Tick all devices, collect IRQ lines, notify PLIC.
+    /// Read mtime directly from ACLINT (avoids MMIO dispatch).
+    #[inline]
+    pub fn mtime(&self) -> u64 {
+        self.aclint_idx
+            .and_then(|i| self.mmio[i].dev.mtime())
+            .unwrap_or(0)
+    }
+
+    /// Tick devices. ACLINT ticks every step; slow devices (UART, PLIC)
+    /// tick every `SLOW_TICK_DIVISOR` steps to reduce overhead.
     pub fn tick(&mut self) {
-        let mut irq_lines: u32 = 0;
-        for r in &mut self.mmio {
-            r.dev.tick();
-            if r.irq_source > 0 && r.dev.irq_line() {
-                irq_lines |= 1 << r.irq_source;
-            }
+        // Fast path: always tick ACLINT (timer source)
+        if let Some(i) = self.aclint_idx {
+            self.mmio[i].dev.tick();
         }
+        self.tick_count += 1;
+        if !self.tick_count.is_multiple_of(SLOW_TICK_DIVISOR) {
+            return;
+        }
+        // Slow path: tick remaining devices, collect IRQ lines, notify PLIC
+        let irq_lines = self.mmio.iter_mut().enumerate().fold(0u32, |lines, (idx, r)| {
+            if Some(idx) != self.aclint_idx {
+                r.dev.tick();
+            }
+            if r.irq_source > 0 && r.dev.irq_line() {
+                lines | (1 << r.irq_source)
+            } else {
+                lines
+            }
+        });
         if let Some(i) = self.plic_idx {
             self.mmio[i].dev.notify(irq_lines);
         }

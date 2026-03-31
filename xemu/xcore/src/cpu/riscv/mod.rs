@@ -5,8 +5,6 @@ mod inst;
 pub(crate) mod mm;
 pub mod trap;
 
-use std::sync::{Arc, Mutex};
-
 use memory_addr::{MemoryAddr, VirtAddr};
 
 pub use self::{RVCore as Core, context::RVCoreContext as CoreContext, trap::PendingTrap};
@@ -22,6 +20,7 @@ use crate::{
         HW_IP_MASK, IrqState, SSIP, STIP,
         bus::Bus,
         intc::{aclint::Aclint, plic::Plic},
+        test_finisher::TestFinisher,
         uart::Uart,
     },
     error::XResult,
@@ -36,7 +35,7 @@ pub struct RVCore {
     pub(crate) privilege: PrivilegeMode,
     pub(crate) pending_trap: Option<PendingTrap>,
     pub(crate) reservation: Option<usize>,
-    pub(crate) bus: Arc<Mutex<Bus>>,
+    pub(crate) bus: Bus,
     pub(crate) mmu: Mmu,
     pub(crate) pmp: Pmp,
     irq: IrqState,
@@ -52,6 +51,7 @@ impl RVCore {
     pub fn new() -> Self {
         let irq = IrqState::new();
         let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE);
+        let aclint_idx = bus.mmio.len();
         bus.add_mmio(
             "aclint",
             0x0200_0000,
@@ -59,6 +59,7 @@ impl RVCore {
             Box::new(Aclint::new(irq.clone(), bus.ssip_flag())),
             0,
         );
+        bus.set_timer_source(aclint_idx);
         let plic_idx = bus.mmio.len();
         bus.add_mmio(
             "plic",
@@ -69,10 +70,12 @@ impl RVCore {
         );
         bus.set_irq_sink(plic_idx);
         bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
-        Self::with_bus(Arc::new(Mutex::new(bus)), irq)
+        // SiFive test finisher — OpenSBI writes here on shutdown/reboot.
+        bus.add_mmio("finisher", 0x10_0000, 0x1000, Box::new(TestFinisher::new()), 0);
+        Self::with_bus(bus, irq)
     }
 
-    pub fn with_bus(bus: Arc<Mutex<Bus>>, irq: IrqState) -> Self {
+    pub fn with_bus(bus: Bus, irq: IrqState) -> Self {
         Self {
             gpr: [0; 32],
             pc: VirtAddr::from(0),
@@ -94,26 +97,16 @@ impl RVCore {
     }
 
     /// Merge hardware interrupt bits from devices into mip.
-    /// SSIP is handled separately via ACLINT edge-triggered SSWI.
-    /// Also checks `stimecmp` for STIP (mtime is already synced by bus.tick()).
-    #[allow(clippy::unnecessary_cast)] // u64 casts needed for isa32 (Word=u32)
+    /// SSIP handled via ACLINT SSWI; STIP driven by Sstc stimecmp.
+    #[allow(clippy::unnecessary_cast)]
     fn sync_interrupts(&mut self) {
-        let ext = self.irq.load() as Word;
-        let mut mip = self.csr.get(CsrAddr::mip);
-        // Merge hardware-wired bits (MSIP, MTIP, SEIP, MEIP); SSIP stays
-        // software-controlled
-        mip = (mip & !HW_IP_MASK) | (ext & HW_IP_MASK);
-
-        // Check stimecmp (Sstc extension) — mtime is kept in the time CSR
-        // by the bus tick handler.
-        let stimecmp = self.csr.get(CsrAddr::stimecmp) as u64;
-        let mtime = self.csr.get(CsrAddr::time) as u64;
-        if mtime >= stimecmp {
-            mip |= STIP as Word;
+        let hw = self.irq.load() as Word;
+        let stip = if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
+            STIP as Word
         } else {
-            mip &= !(STIP as Word);
-        }
-
+            0
+        };
+        let mip = (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !(STIP as Word)) | (hw & HW_IP_MASK) | stip;
         self.csr.set(CsrAddr::mip, mip);
     }
 
@@ -153,8 +146,12 @@ impl CoreOps for RVCore {
         self.pc
     }
 
-    fn bus(&self) -> &Arc<Mutex<Bus>> {
+    fn bus(&self) -> &Bus {
         &self.bus
+    }
+
+    fn bus_mut(&mut self) -> &mut Bus {
+        &mut self.bus
     }
 
     fn setup_boot(&mut self, mode: super::core::BootMode) {
@@ -183,24 +180,18 @@ impl CoreOps for RVCore {
         self.mmu = Mmu::new();
         self.pmp = Pmp::new();
         self.irq.reset();
-        self.bus.lock().unwrap().reset_devices(); // IR-004
+        self.bus.reset_devices();
         self.halted = false;
         Ok(())
     }
 
     #[allow(clippy::unnecessary_cast)]
     fn step(&mut self) -> XResult {
-        {
-            let mut bus = self.bus.lock().unwrap();
-            bus.tick();
-            // Sync mtime → time CSR while we hold the lock
-            let lo = bus.read(0x0200_BFF8, 4).unwrap_or(0) as u32 as u64;
-            let hi = bus.read(0x0200_BFFC, 4).unwrap_or(0) as u32 as u64;
-            self.csr.set(CsrAddr::time, (lo | (hi << 32)) as Word);
-            if bus.take_ssip() {
-                let mip = self.csr.get(CsrAddr::mip);
-                self.csr.set(CsrAddr::mip, mip | SSIP as Word);
-            }
+        self.bus.tick();
+        self.csr.set(CsrAddr::time, self.bus.mtime() as Word);
+        if self.bus.take_ssip() {
+            let mip = self.csr.get(CsrAddr::mip);
+            self.csr.set(CsrAddr::mip, mip | SSIP as Word);
         }
         self.sync_interrupts();
 
@@ -260,12 +251,8 @@ mod tests {
         core
     }
 
-    fn write_inst(core: &RVCore, inst: u32) {
-        core.bus
-            .lock()
-            .unwrap()
-            .write(core.pc.as_usize(), 4, inst as Word)
-            .unwrap();
+    fn write_inst(core: &mut RVCore, inst: u32) {
+        core.bus.write(core.pc.as_usize(), 4, inst as Word).unwrap();
     }
 
     #[test]
@@ -302,7 +289,7 @@ mod tests {
             (0xCAFEBABF_u32, 0xCAFEBABF_u32),
             (0xCAFEBABE_u32, 0xBABE_u32),
         ] {
-            write_inst(&core, raw);
+            write_inst(&mut core, raw);
             assert_eq!(core.fetch().unwrap(), expected);
         }
     }
@@ -310,7 +297,7 @@ mod tests {
     #[test]
     fn step_ebreak_halts_in_direct_mode() {
         let mut core = setup_core();
-        write_inst(&core, 0x0010_0073); // ebreak
+        write_inst(&mut core, 0x0010_0073); // ebreak
         core.step().unwrap();
         assert!(core.halted());
     }
@@ -319,7 +306,7 @@ mod tests {
     fn step_ebreak_traps_in_firmware_mode() {
         let mut core = setup_core();
         core.ebreak_as_trap = true;
-        write_inst(&core, 0x0010_0073); // ebreak
+        write_inst(&mut core, 0x0010_0073); // ebreak
         core.step().unwrap();
         assert!(!core.halted());
         assert_eq!(core.csr.get(CsrAddr::mcause), Exception::Breakpoint as Word);
@@ -328,14 +315,14 @@ mod tests {
     #[test]
     fn step_normal_instruction_succeeds() {
         let mut core = setup_core();
-        write_inst(&core, 0x0000_0297); // auipc t0, 0
+        write_inst(&mut core, 0x0000_0297); // auipc t0, 0
         core.step().unwrap();
     }
 
     #[test]
     fn cycle_increments_on_trap_instret_does_not() {
         let mut core = setup_core();
-        write_inst(&core, 0x0000_0073); // ecall
+        write_inst(&mut core, 0x0000_0073); // ecall
         core.step().unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 0);
@@ -344,7 +331,7 @@ mod tests {
     #[test]
     fn cycle_and_instret_both_increment_on_normal_step() {
         let mut core = setup_core();
-        write_inst(&core, 0x0000_0297); // auipc t0, 0
+        write_inst(&mut core, 0x0000_0297); // auipc t0, 0
         core.step().unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 1);
@@ -354,10 +341,10 @@ mod tests {
     fn sswi_edge_delivered_once_and_clearable() {
         use crate::device::SSIP;
         let mut core = setup_core();
-        write_inst(&core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
+        write_inst(&mut core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
 
         // Write SETSSIP=1 via ACLINT MMIO (base=0x0200_0000, offset=0xC000)
-        core.bus.lock().unwrap().write(0x0200_C000, 4, 1).unwrap();
+        core.bus.write(0x0200_C000, 4, 1).unwrap();
 
         // Step: SSIP should be set in mip after step
         core.step().unwrap();
@@ -377,7 +364,7 @@ mod tests {
         );
 
         // Re-write the instruction for next step
-        write_inst(&core, 0x0000_0297);
+        write_inst(&mut core, 0x0000_0297);
 
         // Step again: SSIP should NOT be reasserted (no new SETSSIP write)
         core.step().unwrap();
@@ -403,11 +390,11 @@ mod tests {
         core.csr.set(CsrAddr::mideleg, 1 << 5);
         // Set SIE in mstatus
         core.csr.set(CsrAddr::mstatus, MStatus::SIE.bits());
-        // Set stimecmp=0 so mtime >= stimecmp → STIP fires
+        // Set stimecmp=0 so mtime >= stimecmp → STIP fires via Sstc
         core.csr.set(CsrAddr::stimecmp, 0);
 
         // Write a NOP at PC
-        write_inst(&core, 0x0000_0013); // addi x0, x0, 0 (NOP)
+        write_inst(&mut core, 0x0000_0013); // addi x0, x0, 0 (NOP)
 
         // Step should deliver the timer interrupt
         core.step().unwrap();

@@ -100,13 +100,27 @@ impl PmpEntry {
 
 pub struct Pmp {
     entries: [PmpEntry; PMP_COUNT],
+    /// Cached: any entry has a non-Off match mode (enables fast M-mode bypass).
+    any_active: bool,
+    /// Cached: any entry is locked (M-mode must still check locked entries).
+    any_locked: bool,
 }
 
 impl Pmp {
     pub fn new() -> Self {
         Self {
             entries: [PmpEntry::default(); PMP_COUNT],
+            any_active: false,
+            any_locked: false,
         }
+    }
+
+    fn refresh_cache(&mut self) {
+        self.any_active = self
+            .entries
+            .iter()
+            .any(|e| e.match_mode() != AddrMatch::Off);
+        self.any_locked = self.entries.iter().any(|e| e.locked());
     }
 
     pub fn get_cfg(&self, index: usize) -> u8 {
@@ -129,6 +143,7 @@ impl Pmp {
     pub fn update_cfg(&mut self, index: usize, cfg: u8) {
         if index < PMP_COUNT && !self.entries[index].locked() {
             self.entries[index].cfg = cfg;
+            self.refresh_cache();
         }
     }
 
@@ -146,13 +161,23 @@ impl Pmp {
 
         if !next_locked_tor {
             self.entries[index].addr = addr;
+            self.refresh_cache();
         }
     }
 
     /// Check [paddr, paddr+size) access.
     /// M-mode: bypass unless Locked. S/U-mode: first match wins, no match →
     /// deny.
+    #[inline]
     pub fn check(&self, paddr: usize, size: usize, op: MemOp, priv_mode: PrivilegeMode) -> XResult {
+        // Fast path: M-mode with no active or no locked entries → always allowed.
+        if priv_mode == PrivilegeMode::Machine && (!self.any_active || !self.any_locked) {
+            return Ok(());
+        }
+        // Fast path: no PMP entries configured at all → M-mode OK, others denied.
+        if !self.any_active {
+            return (priv_mode == PrivilegeMode::Machine).ok_or(XError::BadAddress);
+        }
         let mut prev_addr: usize = 0;
         for entry in &self.entries {
             if entry.match_mode() == AddrMatch::Off {

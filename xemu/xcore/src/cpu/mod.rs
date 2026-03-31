@@ -1,7 +1,7 @@
 mod core;
 pub mod debug;
 
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex};
 
 use inherit_methods_macro::inherit_methods;
 use memory_addr::VirtAddr;
@@ -10,7 +10,6 @@ use xlogger::ColorCode;
 use self::{core::CoreOps, debug::DebugOps};
 use crate::{
     config::Word,
-    device::bus::Bus,
     error::{XError, XResult},
 };
 
@@ -64,7 +63,6 @@ impl State {
 #[allow(clippy::upper_case_acronyms)]
 pub struct CPU<Core: CoreOps> {
     core: Core,
-    bus: Arc<Mutex<Bus>>,
     state: State,
     halt_pc: VirtAddr,
     halt_ret: Word,
@@ -73,10 +71,8 @@ pub struct CPU<Core: CoreOps> {
 
 impl<Core: CoreOps + DebugOps> CPU<Core> {
     pub fn new(core: Core) -> Self {
-        let bus = core.bus().clone();
         Self {
             core,
-            bus,
             state: State::Idle,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
@@ -113,7 +109,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         match file {
             None => {
                 let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-                self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
+                self.core.bus_mut().load_ram(RESET_VECTOR, image_bytes)
             }
             Some(path) => self.load_file_at(&path, RESET_VECTOR),
         }
@@ -143,7 +139,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
     fn load_file_at(&mut self, path: &str, addr: usize) -> XResult {
         let bytes = std::fs::read(path).map_err(|_| XError::FailedToRead)?;
-        self.bus.lock().unwrap().load_ram(addr, &bytes)?;
+        self.core.bus_mut().load_ram(addr, &bytes)?;
         info!("Loaded {} ({} bytes @ {:#x})", path, bytes.len(), addr);
         Ok(())
     }
@@ -212,8 +208,8 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
     }
 
     /// Replace a named MMIO device on the bus (e.g. swap in a PTY-backed UART).
-    pub fn replace_device(&self, name: &str, dev: Box<dyn crate::device::Device>) {
-        self.bus.lock().unwrap().replace_device(name, dev);
+    pub fn replace_device(&mut self, name: &str, dev: Box<dyn crate::device::Device>) {
+        self.core.bus_mut().replace_device(name, dev);
     }
 
     pub fn log_termination(&self) {
@@ -239,7 +235,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
     #[cfg(feature = "difftest")]
     pub fn bus_take_mmio_flag(&self) -> bool {
-        self.bus.lock().unwrap().take_mmio_flag()
+        self.core.bus().take_mmio_flag()
     }
 }
 
@@ -309,7 +305,7 @@ mod tests {
     fn cpu_load_default_image() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        let word = cpu.bus.lock().unwrap().read(RESET_VECTOR, 4).unwrap();
+        let word = cpu.core.bus_mut().read(RESET_VECTOR, 4).unwrap();
         assert_eq!(word as u32, crate::isa::IMG[0]);
     }
 

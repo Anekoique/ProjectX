@@ -1,7 +1,6 @@
 pub mod bus;
 pub mod intc;
 pub mod ram;
-#[cfg(test)]
 pub mod test_finisher;
 pub mod uart;
 
@@ -23,6 +22,9 @@ pub trait Device: Send {
     }
     fn notify(&mut self, _irq_lines: u32) {}
     fn reset(&mut self) {}
+    fn mtime(&self) -> Option<u64> {
+        None
+    }
 }
 
 // Interrupt bit positions in mip
@@ -34,7 +36,7 @@ pub const SEIP: u64 = 1 << 9;
 pub const MEIP: u64 = 1 << 11;
 
 /// Hardware-wired mip bits managed via IrqState (excludes SSIP/STIP —
-/// software-controlled). STIP is managed by stimecmp comparison, not IrqState.
+/// software-controlled). STIP is managed by Sstc stimecmp comparison.
 pub const HW_IP_MASK: Word = (MSIP | MTIP | SEIP | MEIP) as Word;
 
 /// Shared interrupt state between CPU and devices.

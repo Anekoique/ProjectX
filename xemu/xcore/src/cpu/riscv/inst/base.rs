@@ -369,18 +369,14 @@ mod tests {
 
     const TEST_BASE: usize = CONFIG_MBASE + 0x1000;
 
-    fn write_bytes(core: &RVCore, offset: usize, bytes: &[u8]) {
+    fn write_bytes(core: &mut RVCore, offset: usize, bytes: &[u8]) {
         core.bus
-            .lock()
-            .unwrap()
             .load_ram(TEST_BASE + offset, bytes)
             .expect("write_bytes failed");
     }
 
-    fn read_word(core: &RVCore, offset: usize, size: usize) -> Word {
+    fn read_word(core: &mut RVCore, offset: usize, size: usize) -> Word {
         core.bus
-            .lock()
-            .unwrap()
             .read(TEST_BASE + offset, size)
             .expect("read_word failed")
     }
@@ -417,21 +413,21 @@ mod tests {
         let mut core = RVCore::new();
         core.gpr[RVReg::t0] = TEST_BASE as Word;
 
-        write_bytes(&core, 0, &[0x80]);
+        write_bytes(&mut core, 0, &[0x80]);
         core.lb(RVReg::t1, RVReg::t0, 0).unwrap();
         assert_eq!(core.gpr[RVReg::t1], sext_word(0x80, 8));
 
         core.lbu(RVReg::t2, RVReg::t0, 0).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 0x80);
 
-        write_bytes(&core, 4, &[0x00, 0x80]);
+        write_bytes(&mut core, 4, &[0x00, 0x80]);
         core.lh(RVReg::t3, RVReg::t0, 4).unwrap();
         assert_eq!(core.gpr[RVReg::t3], sext_word(0x8000, 16));
 
         core.lhu(RVReg::t4, RVReg::t0, 4).unwrap();
         assert_eq!(core.gpr[RVReg::t4], 0x8000);
 
-        write_bytes(&core, 8, &[0x78, 0x56, 0x34, 0x12]);
+        write_bytes(&mut core, 8, &[0x78, 0x56, 0x34, 0x12]);
         core.lw(RVReg::t5, RVReg::t0, 8).unwrap();
         assert_eq!(core.gpr[RVReg::t5], sext_word(0x12345678, 32));
     }
@@ -443,13 +439,13 @@ mod tests {
         core.gpr[RVReg::t1] = 0xDEADBEEF;
 
         core.sb(RVReg::t0, RVReg::t1, 0x100).unwrap();
-        assert_eq!(read_word(&core, 0x100, 1) & 0xFF, 0xEF);
+        assert_eq!(read_word(&mut core, 0x100, 1) & 0xFF, 0xEF);
 
         core.sh(RVReg::t0, RVReg::t1, 0x102).unwrap();
-        assert_eq!(read_word(&core, 0x102, 2) & 0xFFFF, 0xBEEF);
+        assert_eq!(read_word(&mut core, 0x102, 2) & 0xFFFF, 0xBEEF);
 
         core.sw(RVReg::t0, RVReg::t1, 0x104).unwrap();
-        assert_eq!(read_word(&core, 0x104, 4), 0xDEADBEEF & 0xFFFF_FFFF);
+        assert_eq!(read_word(&mut core, 0x104, 4), 0xDEADBEEF & 0xFFFF_FFFF);
     }
 
     #[test]

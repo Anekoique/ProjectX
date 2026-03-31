@@ -13,7 +13,6 @@ use crate::{
         csr::{CsrAddr, MStatus, PrivilegeMode},
         trap::{Exception, PendingTrap, TrapCause},
     },
-    device::bus::Bus,
     error::{XError, XResult},
 };
 
@@ -234,35 +233,33 @@ impl RVCore {
         })
     }
 
-    fn access_bus<T>(
-        &mut self,
-        addr: VirtAddr,
-        op: MemOp,
-        size: usize,
-        f: impl FnOnce(&mut Bus, usize) -> XResult<T>,
-    ) -> XResult<T> {
+    fn access_bus(&mut self, addr: VirtAddr, op: MemOp, size: usize) -> XResult<usize> {
         let priv_mode = match op {
             MemOp::Fetch => self.privilege,
             _ => self.effective_priv(),
         };
-        let mut bus = self.bus.lock().unwrap();
         self.mmu
-            .translate(addr, op, priv_mode, &self.pmp, &mut bus)
+            .translate(addr, op, priv_mode, &self.pmp, &mut self.bus)
             .and_then(|pa| self.pmp.check(pa, size, op, priv_mode).map(|_| pa))
-            .and_then(|pa| f(&mut bus, pa))
             .map_err(|e| Self::to_trap(e, addr, op))
     }
 
     fn checked_read(&mut self, addr: VirtAddr, size: usize, op: MemOp) -> XResult<Word> {
-        self.access_bus(addr, op, size, |bus, pa| bus.read(pa, size))
+        let pa = self.access_bus(addr, op, size)?;
+        self.bus
+            .read(pa, size)
+            .map_err(|e| Self::to_trap(e, addr, op))
     }
 
     fn checked_write(&mut self, addr: VirtAddr, size: usize, value: Word, op: MemOp) -> XResult {
-        self.access_bus(addr, op, size, |bus, pa| bus.write(pa, size, value))
+        let pa = self.access_bus(addr, op, size)?;
+        self.bus
+            .write(pa, size, value)
+            .map_err(|e| Self::to_trap(e, addr, op))
     }
 
     pub(super) fn translate(&mut self, addr: VirtAddr, size: usize, op: MemOp) -> XResult<usize> {
-        self.access_bus(addr, op, size, |_, pa| Ok(pa))
+        self.access_bus(addr, op, size)
     }
 
     #[allow(clippy::unnecessary_cast)]

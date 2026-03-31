@@ -1,5 +1,3 @@
-use std::sync::{Arc, Mutex};
-
 use memory_addr::VirtAddr;
 
 use crate::{config::Word, device::bus::Bus, error::XResult};
@@ -16,7 +14,8 @@ pub enum BootMode {
 
 pub trait CoreOps {
     fn pc(&self) -> VirtAddr;
-    fn bus(&self) -> &Arc<Mutex<Bus>>;
+    fn bus(&self) -> &Bus;
+    fn bus_mut(&mut self) -> &mut Bus;
     fn reset(&mut self) -> XResult;
     /// Configure arch-specific state for the given boot mode.
     fn setup_boot(&mut self, mode: BootMode);
