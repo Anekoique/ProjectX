@@ -1,14 +1,16 @@
-// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
-#![allow(clippy::needless_return)]
 // Word-to-u32 casts/masks are no-ops on isa32 but needed on isa64.
 #![allow(clippy::identity_op, clippy::unnecessary_cast)]
 
-use super::RVCore;
+use super::{RVCore, rv64_only};
 #[cfg(isa64)]
 use crate::config::SWord;
-#[cfg(isa32)]
-use crate::error::XError;
-use crate::{config::Word, cpu::riscv::mm::MemOp, error::XResult, isa::RVReg, utils::sext_word};
+use crate::{
+    config::Word,
+    cpu::riscv::mm::MemOp,
+    error::XResult,
+    isa::RVReg,
+    utils::sext_word,
+};
 
 // --- Helpers ---
 
@@ -69,29 +71,17 @@ impl RVCore {
     }
 
     pub(super) fn lr_d(&mut self, rd: RVReg, rs1: RVReg, _rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let addr = self.amo_addr(rs1);
             let paddr = self.translate(addr, 8, MemOp::Load)?;
             let val = self.load(addr, 8)?;
             self.reservation = Some(paddr);
             self.set_gpr(rd, val)
-        }
+        }; rd, rs1)
     }
 
     pub(super) fn sc_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let addr = self.amo_addr(rs1);
             let paddr = self.translate(addr, 8, MemOp::Store)?;
             let success = self.reservation.take() == Some(paddr);
@@ -99,7 +89,7 @@ impl RVCore {
                 self.store(addr, 8, self.gpr[rs2])?;
             }
             self.set_gpr(rd, !success as Word)
-        }
+        }; rd, rs1, rs2)
     }
 }
 
@@ -137,49 +127,44 @@ impl RVCore {
 
 // --- AMO .d (64-bit) ---
 
-macro_rules! rv64_amo_d {
-    ($self:ident, $rd:ident, $rs1:ident, $rs2:ident, $op:expr) => {{
-        #[cfg(isa32)]
-        {
-            let _ = ($rd, $rs1, $rs2);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        $self.amo_d($rd, $rs1, $rs2, $op)
-    }};
+/// RV64-only AMO .d: guard + dispatch to `amo_d`.
+macro_rules! amo_d_op {
+    ($self:ident, $rd:ident, $rs1:ident, $rs2:ident, $op:expr) => {
+        rv64_only!($self.amo_d($rd, $rs1, $rs2, $op); $rd, $rs1, $rs2)
+    };
 }
 
 impl RVCore {
     pub(super) fn amoswap_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, |_, src| src)
+        amo_d_op!(self, rd, rs1, rs2, |_, src| src)
     }
     pub(super) fn amoadd_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, Word::wrapping_add)
+        amo_d_op!(self, rd, rs1, rs2, Word::wrapping_add)
     }
     pub(super) fn amoxor_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, |old, src| old ^ src)
+        amo_d_op!(self, rd, rs1, rs2, |old, src| old ^ src)
     }
     pub(super) fn amoand_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, |old, src| old & src)
+        amo_d_op!(self, rd, rs1, rs2, |old, src| old & src)
     }
     pub(super) fn amoor_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, |old, src| old | src)
+        amo_d_op!(self, rd, rs1, rs2, |old, src| old | src)
     }
     pub(super) fn amomin_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, |old: Word, src: Word| {
+        amo_d_op!(self, rd, rs1, rs2, |old: Word, src: Word| {
             (old as SWord).min(src as SWord) as Word
         })
     }
     pub(super) fn amomax_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, |old: Word, src: Word| {
+        amo_d_op!(self, rd, rs1, rs2, |old: Word, src: Word| {
             (old as SWord).max(src as SWord) as Word
         })
     }
     pub(super) fn amominu_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, Word::min)
+        amo_d_op!(self, rd, rs1, rs2, Word::min)
     }
     pub(super) fn amomaxu_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
-        rv64_amo_d!(self, rd, rs1, rs2, Word::max)
+        amo_d_op!(self, rd, rs1, rs2, Word::max)
     }
 }
 
@@ -436,6 +421,7 @@ mod tests {
     #[cfg(isa32)]
     mod rv32_tests {
         use super::*;
+        use crate::error::XError;
 
         #[test]
         fn d_variants_rejected_on_rv32() {

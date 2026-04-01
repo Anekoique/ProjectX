@@ -1,29 +1,9 @@
-// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
-#![allow(clippy::needless_return)]
-
-use super::RVCore;
-#[cfg(isa32)]
-use crate::error::XError;
+use super::{RVCore, rv64_op};
 use crate::{
     config::{SWord, Word},
     error::XResult,
     isa::RVReg,
 };
-
-macro_rules! rv64_op {
-    ($self:ident, $rd:ident, |$($param:ident),+| $body:expr) => {{
-        #[cfg(isa32)]
-        {
-            let _ = ($rd, $($param),+);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let value = { $body };
-            $self.set_gpr($rd, value as i64 as Word)
-        }
-    }};
-}
 
 impl RVCore {
     pub(super) fn mul(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {

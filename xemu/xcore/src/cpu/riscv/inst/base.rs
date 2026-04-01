@@ -1,33 +1,12 @@
-// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
-#![allow(clippy::needless_return)]
-
 use memory_addr::{MemoryAddr, VirtAddr};
 
-use super::RVCore;
-#[cfg(isa32)]
-use crate::error::XError;
+use super::{RVCore, rv64_only, rv64_op};
 use crate::{
     config::{SWord, Word, word_to_shamt},
     error::XResult,
     isa::RVReg,
     utils::sext_word,
 };
-
-/// RV64-only word-width operation. On RV32, returns `InvalidInst`.
-macro_rules! rv64_op {
-    ($self:ident, $rd:ident, |$($param:ident),+| $body:expr) => {{
-        #[cfg(isa32)]
-        {
-            let _ = ($rd, $($param),+);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
-            let value = { $body };
-            $self.set_gpr($rd, value as i64 as Word)
-        }
-    }};
-}
 
 impl RVCore {
     #[inline(always)]
@@ -278,13 +257,7 @@ impl RVCore {
     }
 
     pub(super) fn lwu(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rd, rs1, imm);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        self.load_op(rd, rs1, imm, 4, |v| v & 0xFFFF_FFFF)
+        rv64_only!(self.load_op(rd, rs1, imm, 4, |v| v & 0xFFFF_FFFF); rd, rs1, imm)
     }
 
     pub(super) fn sb(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
@@ -300,13 +273,7 @@ impl RVCore {
     }
 
     pub(super) fn sd(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = (rs1, rs2, imm);
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        self.store_op(rs1, rs2, imm, 8)
+        rv64_only!(self.store_op(rs1, rs2, imm, 8); rs1, rs2, imm)
     }
 }
 

@@ -1,9 +1,6 @@
-// cfg(isa32) blocks use `return` before cfg(isa64) alternatives
-#![allow(clippy::needless_return)]
-
 use memory_addr::{MemoryAddr, VirtAddr};
 
-use super::RVCore;
+use super::{RVCore, rv64_only};
 use crate::{
     config::{SWord, Word},
     cpu::riscv::trap::Exception,
@@ -55,18 +52,12 @@ impl RVCore {
     }
 
     pub(super) fn c_ld(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rd = reg_prime(inst, 4, 2)?;
             let rs1 = reg_prime(inst, 9, 7)?;
             let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 5) << 6);
             self.load_op(rd, rs1, imm as SWord, 8, |value| value)
-        }
+        }; inst)
     }
 
     pub(super) fn c_sw(&mut self, inst: u32) -> XResult {
@@ -77,18 +68,12 @@ impl RVCore {
     }
 
     pub(super) fn c_sd(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rs2 = reg_prime(inst, 4, 2)?;
             let rs1 = reg_prime(inst, 9, 7)?;
             let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 5) << 6);
             self.store_op(rs1, rs2, imm as SWord, 8)
-        }
+        }; inst)
     }
 
     pub(super) fn c_nop(&mut self, _inst: u32) -> XResult {
@@ -102,18 +87,12 @@ impl RVCore {
     }
 
     pub(super) fn c_addiw(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rd = reg(inst, 11, 7)?;
             let imm = sext_imm((bits(inst, 12, 12) << 5) | bits(inst, 6, 2), 6);
             let value = (self.gpr[rd] as i64).wrapping_add(imm as i64) as i32;
             self.set_gpr(rd, value as i64 as Word)
-        }
+        }; inst)
     }
 
     pub(super) fn c_li(&mut self, inst: u32) -> XResult {
@@ -199,33 +178,21 @@ impl RVCore {
     }
 
     pub(super) fn c_subw(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rd = reg_prime(inst, 9, 7)?;
             let rs2 = reg_prime(inst, 4, 2)?;
             let value = (self.gpr[rd] as i64).wrapping_sub(self.gpr[rs2] as i64) as i32;
             self.set_gpr(rd, value as i64 as Word)
-        }
+        }; inst)
     }
 
     pub(super) fn c_addw(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rd = reg_prime(inst, 9, 7)?;
             let rs2 = reg_prime(inst, 4, 2)?;
             let value = (self.gpr[rd] as i64).wrapping_add(self.gpr[rs2] as i64) as i32;
             self.set_gpr(rd, value as i64 as Word)
-        }
+        }; inst)
     }
 
     pub(super) fn c_j(&mut self, inst: u32) -> XResult {
@@ -286,20 +253,14 @@ impl RVCore {
     }
 
     pub(super) fn c_ldsp(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rd = reg(inst, 11, 7)?;
             if rd == RVReg::zero {
                 return Err(XError::InvalidInst);
             }
             let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 5) << 3) | (bits(inst, 4, 2) << 6);
             self.load_op(rd, RVReg::sp, imm as SWord, 8, |value| value)
-        }
+        }; inst)
     }
 
     pub(super) fn c_jr(&mut self, inst: u32) -> XResult {
@@ -381,17 +342,11 @@ impl RVCore {
     }
 
     pub(super) fn c_sdsp(&mut self, inst: u32) -> XResult {
-        #[cfg(isa32)]
-        {
-            let _ = inst;
-            return Err(XError::InvalidInst);
-        }
-        #[cfg(isa64)]
-        {
+        rv64_only!({
             let rs2 = reg(inst, 6, 2)?;
             let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 9, 7) << 6);
             self.store_op(RVReg::sp, rs2, imm as SWord, 8)
-        }
+        }; inst)
     }
 }
 

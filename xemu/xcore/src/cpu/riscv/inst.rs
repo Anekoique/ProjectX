@@ -13,6 +13,41 @@ use crate::{
     isa::{DecodedInst, InstKind, RVReg},
 };
 
+/// RV64-only word-width operation. On RV32, returns `InvalidInst`.
+/// Evaluates `$body`, sign-extends the result to 64-bit, and writes to `$rd`.
+#[allow(clippy::needless_return)]
+macro_rules! rv64_op {
+    ($self:ident, $rd:ident, |$($param:ident),+| $body:expr) => {{
+        #[cfg(isa32)]
+        {
+            let _ = ($rd, $($param),+);
+            return Err($crate::error::XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        {
+            let value = { $body };
+            $self.set_gpr($rd, value as i64 as $crate::config::Word)
+        }
+    }};
+}
+use rv64_op;
+
+/// Guard + body wrapper for RV64-only instructions.
+/// On RV32, returns `InvalidInst`; on RV64, executes the body.
+#[allow(clippy::needless_return)]
+macro_rules! rv64_only {
+    ($body:expr; $($unused:expr),* $(,)?) => {{
+        #[cfg(isa32)]
+        {
+            let _ = ($($unused),*);
+            return Err($crate::error::XError::InvalidInst);
+        }
+        #[cfg(isa64)]
+        { $body }
+    }};
+}
+use rv64_only;
+
 macro_rules! build_dispatch {
     ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
         #[inline]

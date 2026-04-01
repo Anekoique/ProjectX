@@ -109,7 +109,7 @@ impl RVCore {
     #[allow(clippy::unnecessary_cast)]
     fn sync_interrupts(&mut self) {
         let hw = self.irq.load() as Word;
-        let stip = if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
+        let stip: Word = if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
             STIP as Word
         } else {
             0

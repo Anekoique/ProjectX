@@ -1,90 +1,68 @@
 use super::RVCore;
-use crate::{config::SWord, error::XResult, isa::RVReg};
+use crate::{
+    config::{SWord, Word},
+    error::XResult,
+    isa::RVReg,
+};
+
+#[inline(always)]
+fn csr_addr(imm: SWord) -> u16 {
+    (imm as u16) & 0xFFF
+}
+
+#[inline(always)]
+fn csr_uimm(rs1: RVReg) -> Word {
+    u8::from(rs1) as Word
+}
 
 impl RVCore {
-    /// CSRRW: Atomic read/write. rd = CSR; CSR = rs1.
-    /// If rd == x0, CSR is not read (no read side effects).
+    /// CSR read-write core: if `skip_read`, CSR is not read (no side effects).
+    /// `merge` produces the new CSR value from (old, src).
+    fn csr_op(
+        &mut self,
+        rd: RVReg,
+        addr: u16,
+        src: Word,
+        skip_read: bool,
+        skip_write: bool,
+        merge: fn(Word, Word) -> Word,
+    ) -> XResult {
+        if skip_read {
+            self.csr_write(addr, src)?;
+        } else {
+            let old = self.csr_read(addr)?;
+            if !skip_write {
+                self.csr_write(addr, merge(old, src))?;
+            }
+            self.set_gpr(rd, old)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn csrrw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        let addr = (imm as u16) & 0xFFF;
-        let src = self.gpr[rs1];
-
-        if rd != RVReg::zero {
-            let old = self.csr_read(addr)?;
-            self.csr_write(addr, src)?;
-            self.set_gpr(rd, old)?;
-        } else {
-            self.csr_write(addr, src)?;
-        }
-        Ok(())
+        self.csr_op(rd, csr_addr(imm), self.gpr[rs1], rd == RVReg::zero, false, |_, src| src)
     }
 
-    /// CSRRS: Atomic read and set bits. rd = CSR; CSR |= rs1.
-    /// If rs1 == x0, CSR is not written (no write side effects).
     pub(super) fn csrrs(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        let addr = (imm as u16) & 0xFFF;
-
-        let old = self.csr_read(addr)?;
-        if rs1 != RVReg::zero {
-            self.csr_write(addr, old | self.gpr[rs1])?;
-        }
-        self.set_gpr(rd, old)?;
-        Ok(())
+        self.csr_op(rd, csr_addr(imm), self.gpr[rs1], false, rs1 == RVReg::zero, |old, src| old | src)
     }
 
-    /// CSRRC: Atomic read and clear bits. rd = CSR; CSR &= ~rs1.
-    /// If rs1 == x0, CSR is not written.
     pub(super) fn csrrc(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        let addr = (imm as u16) & 0xFFF;
-
-        let old = self.csr_read(addr)?;
-        if rs1 != RVReg::zero {
-            self.csr_write(addr, old & !self.gpr[rs1])?;
-        }
-        self.set_gpr(rd, old)?;
-        Ok(())
+        self.csr_op(rd, csr_addr(imm), self.gpr[rs1], false, rs1 == RVReg::zero, |old, src| old & !src)
     }
 
-    /// CSRRWI: Like CSRRW but with 5-bit zero-extended immediate.
     pub(super) fn csrrwi(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        let addr = (imm as u16) & 0xFFF;
-        let uimm = u8::from(rs1) as crate::config::Word;
-
-        if rd != RVReg::zero {
-            let old = self.csr_read(addr)?;
-            self.csr_write(addr, uimm)?;
-            self.set_gpr(rd, old)?;
-        } else {
-            self.csr_write(addr, uimm)?;
-        }
-        Ok(())
+        self.csr_op(rd, csr_addr(imm), csr_uimm(rs1), rd == RVReg::zero, false, |_, src| src)
     }
 
-    /// CSRRSI: Like CSRRS but with 5-bit zero-extended immediate.
-    /// If uimm == 0, CSR is not written.
     pub(super) fn csrrsi(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        let addr = (imm as u16) & 0xFFF;
-        let uimm = u8::from(rs1) as crate::config::Word;
-
-        let old = self.csr_read(addr)?;
-        if uimm != 0 {
-            self.csr_write(addr, old | uimm)?;
-        }
-        self.set_gpr(rd, old)?;
-        Ok(())
+        let uimm = csr_uimm(rs1);
+        self.csr_op(rd, csr_addr(imm), uimm, false, uimm == 0, |old, src| old | src)
     }
 
-    /// CSRRCI: Like CSRRC but with 5-bit zero-extended immediate.
-    /// If uimm == 0, CSR is not written.
     pub(super) fn csrrci(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        let addr = (imm as u16) & 0xFFF;
-        let uimm = u8::from(rs1) as crate::config::Word;
-
-        let old = self.csr_read(addr)?;
-        if uimm != 0 {
-            self.csr_write(addr, old & !uimm)?;
-        }
-        self.set_gpr(rd, old)?;
-        Ok(())
+        let uimm = csr_uimm(rs1);
+        self.csr_op(rd, csr_addr(imm), uimm, false, uimm == 0, |old, src| old & !src)
     }
 }
 

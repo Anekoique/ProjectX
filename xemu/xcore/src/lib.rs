@@ -19,7 +19,6 @@ pub use cpu::{
 };
 pub use device::uart::Uart;
 pub use error::{XError, XResult};
-pub use isa::RVReg;
 
 pub fn init_xcore() -> XResult {
     info!("Hello xcore!");
