@@ -63,7 +63,11 @@ impl DebugOps for RVCore {
                 })
                 .collect(),
             word_size: std::mem::size_of::<Word>(),
-            isa: if cfg!(isa64) { "rv64imac" } else { "rv32imac" },
+            isa: if cfg!(isa64) {
+                "rv64imafdc"
+            } else {
+                "rv32imafdc"
+            },
         }
     }
 
@@ -115,6 +119,34 @@ pub fn format_mnemonic(inst: &DecodedInst) -> String {
                 rd.name(),
                 rs1.name(),
                 rs2.name()
+            )
+        }
+        DecodedInst::FR {
+            kind, rd, rs1, rs2, ..
+        } => {
+            format!(
+                "{} f{}, f{}, f{}",
+                kind.as_str(),
+                *rd as u8,
+                *rs1 as u8,
+                *rs2 as u8
+            )
+        }
+        DecodedInst::FR4 {
+            kind,
+            rd,
+            rs1,
+            rs2,
+            rs3,
+            ..
+        } => {
+            format!(
+                "{} f{}, f{}, f{}, f{}",
+                kind.as_str(),
+                *rd as u8,
+                *rs1 as u8,
+                *rs2 as u8,
+                *rs3 as u8
             )
         }
         DecodedInst::I { kind, rd, rs1, imm } => match kind {

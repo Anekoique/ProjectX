@@ -40,8 +40,13 @@ impl RVCore {
                 self.mmu.update_satp(satp);
             }
             0x300 /* mstatus */ | 0x100 /* sstatus */ => {
+                // Recompute SD from FS dirtiness (§3.1.6)
                 let ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
-                self.mmu.update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
+                let sd = if ms.contains(MStatus::FS) { MStatus::SD } else { MStatus::empty() };
+                self.csr
+                    .set(CsrAddr::mstatus, ((ms - MStatus::SD) | sd).bits());
+                self.mmu
+                    .update_mstatus(ms.contains(MStatus::SUM), ms.contains(MStatus::MXR));
             }
             0x3A0..=0x3A3 /* pmpcfg */ => {
                 debug!("pmpcfg write: csr={:#x} val={:#x}", addr, self.csr.get_by_addr(addr));
@@ -62,6 +67,10 @@ impl RVCore {
                 self.csr.write_with_desc(desc, self.pmp.get_addr(idx) as Word);
             }
             _ => {}
+        }
+        // FP CSR writes transition FS to Dirty (privileged spec §3.1.6.5)
+        if matches!(desc.access, AccessRule::RequireFP) {
+            self.dirty_fp();
         }
     }
 
@@ -115,6 +124,7 @@ impl RVCore {
                     PrivilegeMode::User => m_ok && s_ok,
                 }
             }
+            AccessRule::RequireFP => (self.csr.get(CsrAddr::mstatus) >> 13) & 0x3 != 0,
         }
         .ok_or(self.illegal_inst())
     }

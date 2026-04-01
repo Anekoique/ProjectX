@@ -34,6 +34,8 @@ crate::rv_inst_table!(define_inst_kind);
 #[allow(clippy::upper_case_acronyms)]
 pub enum InstFormat {
     R,
+    FR,
+    FR4,
     I,
     S,
     B,
@@ -55,7 +57,7 @@ impl InstFormat {
     pub fn is_compressed(self) -> bool {
         !matches!(
             self,
-            Self::R | Self::I | Self::S | Self::B | Self::U | Self::J
+            Self::R | Self::FR | Self::FR4 | Self::I | Self::S | Self::B | Self::U | Self::J
         )
     }
 }
@@ -66,6 +68,8 @@ impl std::str::FromStr for InstFormat {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "R" => Ok(Self::R),
+            "FR" => Ok(Self::FR),
+            "FR4" => Ok(Self::FR4),
             "I" => Ok(Self::I),
             "S" => Ok(Self::S),
             "B" => Ok(Self::B),

@@ -1,8 +1,10 @@
 # ProjectX
 
-Reimagining NJU ProjectN / nemu in Rust: Build a computer system from scratch with AGENTS(Plan and Impl with Claude Opus 4.6 / Review with Codex). See the [dev rounds](./docs). Most of the work is completed within one week.
+Reimagining NJU ProjectN / nemu in Rust: Build a computer system from scratch.
 
 A RISC-V system emulator that boots OpenSBI, xv6, and Linux to an interactive shell.
+
+AGENTS (Plan and Impl with Claude Opus 4.6 / Review with Codex) iteratively develop the system through a spec and doc-driven workflow on top of the framework I built.
 
 ## Components
 

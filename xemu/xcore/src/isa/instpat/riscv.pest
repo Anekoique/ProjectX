@@ -1,5 +1,6 @@
 // riscv.pest
 WHITESPACE = _{ " " | "\t" | "\n" }
+COMMENT    = _{ "//" ~ (!"\n" ~ ANY)* }
 
 file = { SOI ~ instpat_line* ~ EOI }
 

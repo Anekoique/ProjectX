@@ -25,4 +25,5 @@ itertools = "0.14"
 num_enum = "0.7.5"
 pest = "2.8.3"
 pest_derive = "2.8.3"
+softfloat_pure = { git = "https://github.com/HarryR/softfloat-pure" }
 toml = "1.0.7"

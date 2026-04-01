@@ -1,6 +1,7 @@
 mod atomic;
 mod base;
 mod compressed;
+mod float;
 mod mul;
 mod privileged;
 mod zicsr;
