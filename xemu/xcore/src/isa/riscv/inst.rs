@@ -30,6 +30,24 @@ macro_rules! define_inst_kind {
 
 crate::rv_inst_table!(define_inst_kind);
 
+impl InstKind {
+    /// True for I-type memory loads (base+offset addressing in disassembly).
+    pub fn is_load(self) -> bool {
+        matches!(
+            self,
+            Self::lb
+                | Self::lh
+                | Self::lw
+                | Self::ld
+                | Self::lbu
+                | Self::lhu
+                | Self::lwu
+                | Self::flw
+                | Self::fld
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum InstFormat {

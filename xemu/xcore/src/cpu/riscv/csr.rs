@@ -153,10 +153,17 @@ macro_rules! csr_table {
 const MSTATUS_WMASK: Word = MStatus::WRITABLE.bits();
 const SSTATUS_VMASK: Word = MStatus::SSTATUS.bits();
 const SSTATUS_WMASK: Word = SSTATUS_VMASK & !MStatus::SD.bits();
-const MIE_WMASK: Word = (1 << 1) | (1 << 3) | (1 << 5) | (1 << 7) | (1 << 9) | (1 << 11);
-const MIP_WMASK: Word = (1 << 1) | (1 << 3); // Only SSIP, MSIP software-writable
-const SIE_MASK: Word = (1 << 1) | (1 << 5) | (1 << 9); // SSI, STI, SEI
-const SIP_MASK: Word = 1 << 1; // Only SSIP writable from S-mode
+use super::trap::Interrupt as Irq;
+const MIE_WMASK: Word = Irq::SupervisorSoftware.bit()
+    | Irq::MachineSoftware.bit()
+    | Irq::SupervisorTimer.bit()
+    | Irq::MachineTimer.bit()
+    | Irq::SupervisorExternal.bit()
+    | Irq::MachineExternal.bit();
+const MIP_WMASK: Word = Irq::SupervisorSoftware.bit() | Irq::MachineSoftware.bit();
+const SIE_MASK: Word =
+    Irq::SupervisorSoftware.bit() | Irq::SupervisorTimer.bit() | Irq::SupervisorExternal.bit();
+const SIP_MASK: Word = Irq::SupervisorSoftware.bit();
 
 // menvcfg: FIOM (bit 0), PBMTE (bit 62), STCE (bit 63)
 #[cfg(isa64)]

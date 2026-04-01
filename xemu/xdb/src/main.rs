@@ -2,40 +2,28 @@
 extern crate log;
 #[macro_use]
 extern crate xcore;
+#[macro_use]
+extern crate anyhow;
 
 mod cli;
 mod cmd;
 #[cfg(feature = "difftest")]
 pub mod difftest;
 mod expr;
+mod session;
 mod watchpoint;
 
-pub fn main() {
+pub fn main() -> anyhow::Result<()> {
     init_xdb();
-    if let Err(e) = xcore::init_xcore() {
-        error!("XCore Error: {e}");
-        std::process::exit(1);
-    }
-    let config = boot_config();
-    let is_firmware = matches!(config, xcore::BootConfig::Firmware { .. });
-    if cfg!(feature = "debug") {
-        // Debug mode: PTY for interactive use (xdb REPL + keyboard tests).
-        match xcore::Uart::with_pty() {
-            Ok(uart) => xcore::with_xcpu(|cpu| cpu.replace_device("uart0", Box::new(uart))),
-            Err(e) => warn!("PTY UART unavailable ({e}), TX-only via stdout"),
-        }
-    } else if is_firmware {
-        // Non-debug OS boot: stdin/stdout for direct terminal interaction.
-        let uart = xcore::Uart::with_stdio();
-        xcore::with_xcpu(|cpu| cpu.replace_device("uart0", Box::new(uart)));
-    }
-    if let Err(e) = run(config) {
-        error!("XDB Error: {e}");
-        std::process::exit(1);
-    }
+
+    xcore::init_xcore().map_err(|e| anyhow!("XCore Error: {e}"))?;
+
+    run(boot_config()).map_err(|e| anyhow!("XDB Error: {e}"))?;
+
     if !xcore::with_xcpu(|cpu| cpu.is_exit_normal()) {
         std::process::exit(1);
     }
+    Ok(())
 }
 
 fn init_xdb() {
@@ -45,22 +33,40 @@ fn init_xdb() {
 }
 
 fn boot_config() -> xcore::BootConfig {
-    let env = |name| std::env::var(name).ok().filter(|s| !s.is_empty());
-    match (env("X_FW"), env("X_FDT")) {
-        (Some(fw), Some(fdt)) => xcore::BootConfig::Firmware {
+    let env = |n| std::env::var(n).ok().filter(|s| !s.is_empty());
+
+    if let Some((fw, fdt)) = env("X_FW").zip(env("X_FDT")) {
+        xcore::BootConfig::Firmware {
             fw,
+            fdt,
             kernel: env("X_KERNEL"),
             initrd: env("X_INITRD"),
-            fdt,
-        },
-        _ => xcore::BootConfig::Direct {
+        }
+    } else {
+        xcore::BootConfig::Direct {
             file: env("X_FILE"),
-        },
+        }
     }
 }
 
 fn run(config: xcore::BootConfig) -> Result<(), String> {
-    xcore::with_xcpu(|cpu| cpu.boot(config)).map_err(|e| format!("Boot error: {e}"))?;
+    xcore::with_xcpu(|cpu| {
+        let uart = if cfg!(feature = "debug") {
+            xcore::Uart::with_pty()
+                .inspect_err(|e| warn!("PTY UART unavailable ({e})"))
+                .ok()
+        } else if matches!(config, xcore::BootConfig::Firmware { .. }) {
+            Some(xcore::Uart::with_stdio())
+        } else {
+            None
+        };
+
+        if let Some(u) = uart {
+            cpu.replace_device("uart0", Box::new(u));
+        }
+        cpu.boot(config)
+    })
+    .map_err(|e| format!("Boot error: {e}"))?;
 
     if cfg!(feature = "debug") {
         xdb_mainloop()
@@ -73,27 +79,14 @@ fn run(config: xcore::BootConfig) -> Result<(), String> {
 }
 
 fn xdb_mainloop() -> Result<(), String> {
-    let mut watch_mgr = watchpoint::WatchManager::new();
-    #[cfg(feature = "difftest")]
-    let mut loaded_binary_path: Option<String> =
-        std::env::var("X_FILE").ok().filter(|s| !s.is_empty());
-    #[cfg(feature = "difftest")]
-    let mut diff_harness: Option<difftest::DiffHarness> = None;
-
+    let mut sess = session::Session::new();
     loop {
         let line = cli::readline()?;
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        match cli::respond(
-            line,
-            &mut watch_mgr,
-            #[cfg(feature = "difftest")]
-            &mut loaded_binary_path,
-            #[cfg(feature = "difftest")]
-            &mut diff_harness,
-        ) {
+        match cli::respond(line, &mut sess) {
             Ok(true) => {}
             Ok(false) => return Ok(()),
             Err(err) => print!("{err}"),

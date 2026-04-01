@@ -1,6 +1,6 @@
 use std::{
     collections::VecDeque,
-    os::fd::OwnedFd,
+    os::fd::{AsRawFd, OwnedFd},
     sync::{Arc, Mutex},
 };
 
@@ -11,14 +11,11 @@ use crate::{
 };
 
 fn pty_write(fd: &OwnedFd, data: &[u8]) {
-    use std::os::fd::AsRawFd;
     // Non-blocking: drops bytes if PTY buffer is full (no reader attached yet).
-    // Once `screen` attaches, the buffer drains normally.
     unsafe { libc::write(fd.as_raw_fd(), data.as_ptr().cast(), data.len()) };
 }
 
 fn set_nonblock(fd: &OwnedFd) {
-    use std::os::fd::AsRawFd;
     unsafe {
         let flags = libc::fcntl(fd.as_raw_fd(), libc::F_GETFL);
         libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK);
@@ -86,39 +83,21 @@ extern "C" fn restore_and_exit(_sig: i32) {
     std::process::exit(0);
 }
 
-fn spawn_stdin_reader() -> Arc<Mutex<VecDeque<u8>>> {
+/// Spawn a background reader thread that drains `fd` into a shared buffer.
+/// Non-blocking fds (PTY) retry on EAGAIN; blocking fds (stdin) block
+/// naturally.
+fn spawn_reader(fd: i32) -> Arc<Mutex<VecDeque<u8>>> {
     let buf = Arc::new(Mutex::new(VecDeque::<u8>::new()));
     let rx = buf.clone();
     std::thread::spawn(move || {
         let mut b = [0u8; 64];
         loop {
-            let n = unsafe { libc::read(0, b.as_mut_ptr().cast(), b.len()) };
+            let n = unsafe { libc::read(fd, b.as_mut_ptr().cast(), b.len()) };
             if n > 0 {
                 rx.lock().unwrap().extend(&b[..n as usize]);
             } else if n == 0 {
                 break;
-            }
-        }
-    });
-    buf
-}
-
-fn spawn_pty_reader(fd: &OwnedFd) -> Arc<Mutex<VecDeque<u8>>> {
-    use std::os::fd::AsRawFd;
-
-    let buf = Arc::new(Mutex::new(VecDeque::<u8>::new()));
-    let rx = buf.clone();
-    let raw_fd = fd.as_raw_fd();
-    std::thread::spawn(move || {
-        let mut b = [0u8; 64];
-        loop {
-            let n = unsafe { libc::read(raw_fd, b.as_mut_ptr().cast(), b.len()) };
-            if n > 0 {
-                rx.lock().unwrap().extend(&b[..n as usize]);
-            } else if n == 0 {
-                break; // EOF
             } else {
-                // EAGAIN (non-blocking) or EINTR — sleep briefly and retry
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
         }
@@ -199,7 +178,7 @@ impl Uart {
             }
         }
         Self {
-            rx_buf: spawn_stdin_reader(),
+            rx_buf: spawn_reader(0),
             ..Self::new()
         }
     }
@@ -209,7 +188,7 @@ impl Uart {
     /// terminal.
     pub fn with_pty() -> Result<Self, String> {
         let (master, slave, name) = open_pty()?;
-        let rx_buf = spawn_pty_reader(&master);
+        let rx_buf = spawn_reader(master.as_raw_fd());
 
         // Non-blocking TX prevents emulator from stalling when no reader
         // is attached. Bytes are dropped until `screen` connects.

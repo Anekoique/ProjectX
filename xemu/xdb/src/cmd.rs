@@ -2,17 +2,13 @@ use xcore::{XResult, with_xcpu};
 
 #[cfg(feature = "difftest")]
 use crate::difftest::{DiffHarness, qemu::QemuBackend};
-use crate::{expr::eval_expr, watchpoint::WatchManager};
+use crate::{expr::eval_expr, session::Session, watchpoint::WatchManager};
 
 // ── Execution ──
 
-/// Run difftest check after a DUT step.
-/// Returns `Ok(true)` on mismatch, `Ok(false)` to continue, `Err(())` on
-/// backend failure. Callers treat both `Ok(true)` and `Err(())` as stop
-/// conditions.
 #[cfg(feature = "difftest")]
-fn run_difftest(diff: &mut Option<DiffHarness>, done: bool) -> Result<bool, ()> {
-    let Some(h) = diff.as_mut() else {
+fn run_difftest(sess: &mut Session, done: bool) -> Result<bool, ()> {
+    let Some(h) = sess.diff.as_mut() else {
         return Ok(false);
     };
     let (ctx, mmio) = with_xcpu(|cpu| (cpu.context(), cpu.bus_take_mmio_flag()));
@@ -24,51 +20,15 @@ fn run_difftest(diff: &mut Option<DiffHarness>, done: bool) -> Result<bool, ()> 
         Ok(None) => Ok(false),
         Err(e) => {
             println!("Difftest error: {e}");
-            *diff = None;
+            sess.diff = None;
             Err(())
         }
     }
 }
 
-pub fn cmd_step(
-    count: u64,
-    watch_mgr: &mut WatchManager,
-    #[cfg(feature = "difftest")] diff: &mut Option<DiffHarness>,
-) -> XResult {
-    for _ in 0..count {
-        let done = with_xcpu(|cpu| -> XResult<bool> {
-            cpu.step()?;
-            Ok(cpu.is_terminated())
-        })?;
-
-        #[cfg(feature = "difftest")]
-        if run_difftest(diff, done) != Ok(false) {
-            return Ok(());
-        }
-
-        if done {
-            break;
-        }
-        if let Some(hit) = check_watchpoints(watch_mgr) {
-            println!("{hit}");
-            return Ok(());
-        }
-    }
-    Ok(())
-}
-
-pub fn cmd_continue(
-    watch_mgr: &mut WatchManager,
-    #[cfg(feature = "difftest")] diff: &mut Option<DiffHarness>,
-) -> XResult {
-    let has_hooks = !watch_mgr.is_empty();
-    #[cfg(feature = "difftest")]
-    let has_hooks = has_hooks || diff.is_some();
-
-    if !has_hooks {
-        return with_xcpu(|cpu| cpu.run(u64::MAX));
-    }
-
+/// Step-then-check loop shared by cmd_step and cmd_continue.
+fn step_loop(sess: &mut Session, count: Option<u64>) -> XResult {
+    let mut remaining = count.unwrap_or(u64::MAX);
     loop {
         let done = with_xcpu(|cpu| -> XResult<bool> {
             cpu.step()?;
@@ -76,19 +36,34 @@ pub fn cmd_continue(
         })?;
 
         #[cfg(feature = "difftest")]
-        if run_difftest(diff, done) != Ok(false) {
+        if run_difftest(sess, done) != Ok(false) {
             return Ok(());
         }
 
         if done {
             break;
         }
-        if let Some(hit) = check_watchpoints(watch_mgr) {
+        if let Some(hit) = check_watchpoints(&mut sess.watch) {
             println!("{hit}");
             return Ok(());
         }
+        remaining -= 1;
+        if remaining == 0 {
+            break;
+        }
     }
     Ok(())
+}
+
+pub fn cmd_step(count: u64, sess: &mut Session) -> XResult {
+    step_loop(sess, Some(count))
+}
+
+pub fn cmd_continue(sess: &mut Session) -> XResult {
+    if !sess.has_hooks() {
+        return with_xcpu(|cpu| cpu.run(u64::MAX));
+    }
+    step_loop(sess, None)
 }
 
 fn check_watchpoints(watch_mgr: &mut WatchManager) -> Option<String> {
@@ -115,14 +90,8 @@ pub fn cmd_break(addr_str: &str) -> XResult {
 
 pub fn cmd_break_delete(id: u32) -> XResult {
     let ok = with_xcpu(|cpu| cpu.remove_breakpoint(id));
-    println!(
-        "{}",
-        if ok {
-            format!("Deleted breakpoint #{id}")
-        } else {
-            format!("No breakpoint #{id}")
-        }
-    );
+    let msg = if ok { "Deleted" } else { "No" };
+    println!("{msg} breakpoint #{id}");
     Ok(())
 }
 
@@ -166,7 +135,7 @@ fn examine_inst(ops: &dyn xcore::DebugOps, mut pc: usize, count: usize) {
         match ops.fetch_inst(pc) {
             Ok(raw) => {
                 let mn = ops.disasm_raw(raw);
-                let width = if raw & 0x3 != 0x3 { 2 } else { 4 };
+                let width = ops.inst_size(raw);
                 println!("  {pc:#010x}: {raw:08x}  {mn}");
                 pc += width;
             }
@@ -233,16 +202,10 @@ pub fn cmd_info(what: &str, name: Option<&str>) -> XResult {
             },
             None => {
                 let ctx = cpu.context();
-                println!("{:>10} = {:#018x}", "pc", ctx.pc);
-                for (i, (name, val)) in ctx.gprs.iter().enumerate() {
-                    print!("{name:>10} = {val:#018x}");
-                    if (i + 1) % 4 == 0 {
-                        println!();
-                    } else {
-                        print!("  ");
-                    }
+                println!("{:>4} = {:#018x}", "pc", ctx.pc);
+                for (name, val) in &ctx.gprs {
+                    println!("{name:>4} = {val:#018x}");
                 }
-                println!();
             }
         }),
         _ => println!("Unknown info target: {what}. Try: reg"),
@@ -305,16 +268,12 @@ pub fn cmd_reset() -> XResult {
 // ── Difftest ──
 
 #[cfg(feature = "difftest")]
-pub fn cmd_dt_attach(
-    backend: &str,
-    binary_path: &Option<String>,
-    harness: &mut Option<DiffHarness>,
-) -> XResult {
-    if harness.is_some() {
+pub fn cmd_dt_attach(backend: &str, sess: &mut Session) -> XResult {
+    if sess.diff.is_some() {
         println!("Already attached. Use 'dt detach' first.");
         return Ok(());
     }
-    let path = match binary_path.as_deref() {
+    let path = match sess.loaded_path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => {
             println!("No binary loaded. Use 'load' first.");
@@ -334,7 +293,7 @@ pub fn cmd_dt_attach(
     match result {
         Ok(be) => {
             println!("Difftest attached ({backend}).");
-            *harness = Some(DiffHarness::new(be));
+            sess.diff = Some(DiffHarness::new(be));
         }
         Err(e) => println!("Attach failed: {e}"),
     }
@@ -342,18 +301,21 @@ pub fn cmd_dt_attach(
 }
 
 #[cfg(feature = "difftest")]
-pub fn cmd_dt_detach(harness: &mut Option<DiffHarness>) -> XResult {
-    if harness.take().is_some() {
-        println!("Difftest detached.");
-    } else {
-        println!("Not attached.");
-    }
+pub fn cmd_dt_detach(sess: &mut Session) -> XResult {
+    println!(
+        "{}",
+        if sess.diff.take().is_some() {
+            "Difftest detached."
+        } else {
+            "Not attached."
+        }
+    );
     Ok(())
 }
 
 #[cfg(feature = "difftest")]
-pub fn cmd_dt_status(harness: &Option<DiffHarness>) {
-    match harness {
+pub fn cmd_dt_status(sess: &Session) {
+    match &sess.diff {
         Some(h) => println!(
             "Difftest: active ({}), {} instructions checked",
             h.backend_name(),

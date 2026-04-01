@@ -50,17 +50,15 @@ impl DiffHarness {
     ) -> Result<Option<DiffMismatch>, String> {
         self.inst_count += 1;
         self.backend.step()?;
-
         if mmio || halted {
-            self.backend.sync_state(dut_ctx)?;
             if mmio {
                 debug!("difftest: MMIO skip at inst {}", self.inst_count);
             }
-            return Ok(None);
+            return self.backend.sync_state(dut_ctx).map(|_| None);
         }
-
-        let ref_ctx = self.backend.read_context()?;
-        Ok(diff_contexts(dut_ctx, &ref_ctx, self.inst_count))
+        self.backend
+            .read_context()
+            .map(|ref_ctx| diff_contexts(dut_ctx, &ref_ctx, self.inst_count))
     }
 
     pub fn report_mismatch(m: &DiffMismatch) {
@@ -102,8 +100,8 @@ pub fn diff_contexts(
 
     // GPR — skip x0, compare by position
     assert_eq!(dut.gprs.len(), refr.gprs.len(), "GPR count mismatch");
-    for (i, ((dname, dval), (_, rval))) in dut.gprs.iter().zip(&refr.gprs).enumerate() {
-        if i > 0 && dval != rval {
+    for ((dname, dval), (_, rval)) in dut.gprs.iter().zip(&refr.gprs).skip(1) {
+        if dval != rval {
             return mismatch(dname, *dval, *rval);
         }
     }

@@ -40,13 +40,16 @@ impl QemuBackend {
         let qemu_bin = qemu_bin_for_isa(init_ctx.isa);
 
         // Verify QEMU exists
-        let out = Command::new("which")
+        Command::new("which")
             .arg(qemu_bin)
             .output()
-            .map_err(|e| format!("{e}"))?;
-        if !out.status.success() {
-            return Err(format!("{qemu_bin} not found in PATH"));
-        }
+            .map_err(|e| format!("{e}"))
+            .and_then(|o| {
+                o.status
+                    .success()
+                    .then_some(())
+                    .ok_or(format!("{qemu_bin} not found in PATH"))
+            })?;
 
         // Spawn QEMU with GDB stub.
         // Use -bios <binary> so QEMU loads it at the reset vector.
@@ -73,20 +76,18 @@ impl QemuBackend {
         // Connect GDB
         let mut gdb = GdbClient::connect("127.0.0.1:1234")?;
 
-        // Configure sstep=0x7 (NOIRQ+NOTIMER — suppress interrupts during single-step)
-        // Using 0x7 because QEMU virt machine has active timer interrupts that
-        // would fire during step and diverge from DUT which controls its own
-        // interrupt delivery in check_pending_interrupts().
-        let resp = gdb.send_recv("Qqemu.sstep=0x7")?;
-        if resp.is_empty() || resp.starts_with(b"E") {
-            return Err("QEMU sstep not supported. Requires QEMU 7.0+.".into());
-        }
-
-        // Enable physical memory mode
-        let resp = gdb.send_recv("Qqemu.PhyMemMode:1")?;
-        if resp.is_empty() || resp.starts_with(b"E") {
-            return Err("QEMU PhyMemMode not supported. Requires QEMU 7.0+.".into());
-        }
+        // Configure QEMU features (require QEMU 7.0+)
+        let require_qemu_cmd =
+            |gdb: &mut GdbClient, cmd: &str, feature: &str| -> Result<(), String> {
+                let resp = gdb.send_recv(cmd)?;
+                (resp.starts_with(b"OK"))
+                    .then_some(())
+                    .ok_or(format!("QEMU {feature} not supported. Requires QEMU 7.0+."))
+            };
+        // Suppress interrupts during single-step (NOIRQ+NOTIMER)
+        require_qemu_cmd(&mut gdb, "Qqemu.sstep=0x7", "sstep")?;
+        // Physical memory mode for direct address access
+        require_qemu_cmd(&mut gdb, "Qqemu.PhyMemMode:1", "PhyMemMode")?;
 
         // QEMU virt machine starts at ROM (0x1000) which initializes registers
         // and jumps to 0x80000000. Run to reset vector first, then sync DUT state.

@@ -130,7 +130,6 @@ fn classify<F: Float>(v: &F) -> Word {
 // ---------------------------------------------------------------------------
 
 impl RVCore {
-    /// Resolve rm field: 0..4 → static mode, 7 → dynamic from frm CSR (§11.2).
     fn resolve_rm(&self, rm: u8) -> XResult<SfRm> {
         let eff = if rm == 7 {
             ((self.csr.get(CsrAddr::fcsr) >> 5) & 0x7) as u8
@@ -143,20 +142,17 @@ impl RVCore {
     fn read_f32(&self, reg: RVReg) -> F32 {
         F32::from_bits(unbox(self.fpr[reg as usize]))
     }
-
-    fn write_f32(&mut self, reg: RVReg, val: F32) {
-        self.fpr[reg as usize] = nan_box(val.to_bits());
-    }
-
     fn read_f64(&self, reg: RVReg) -> F64 {
         F64::from_bits(self.fpr[reg as usize])
     }
 
+    fn write_f32(&mut self, reg: RVReg, val: F32) {
+        self.fpr[reg as usize] = nan_box(val.to_bits());
+    }
     fn write_f64(&mut self, reg: RVReg, val: F64) {
         self.fpr[reg as usize] = val.to_bits();
     }
 
-    /// Accumulate exception flags into fflags and mark FS dirty.
     fn accrue(&mut self, flags: u8) {
         if flags != 0 {
             let fcsr = self.csr.get(CsrAddr::fcsr);
@@ -165,10 +161,8 @@ impl RVCore {
         self.dirty_fp();
     }
 
-    // --- Arithmetic helpers (like binary_op in base.rs) ---
+    // --- Rounded binary/unary/cmp helpers (like binary_op in base.rs) ---
 
-    /// F32 binary op: read two f32, apply rounded op, write f32 result.
-    #[inline]
     fn f32_binop(
         &mut self,
         rd: RVReg,
@@ -179,15 +173,12 @@ impl RVCore {
     ) -> XResult {
         self.require_fp()?;
         let rm = self.resolve_rm(rm)?;
-        let (a, b) = (self.read_f32(rs1), self.read_f32(rs2));
-        let (r, f) = op(&a, &b, rm);
+        let (r, f) = op(&self.read_f32(rs1), &self.read_f32(rs2), rm);
         self.write_f32(rd, r);
         self.accrue(f);
         Ok(())
     }
 
-    /// F64 binary op: read two f64, apply rounded op, write f64 result.
-    #[inline]
     fn f64_binop(
         &mut self,
         rd: RVReg,
@@ -198,15 +189,12 @@ impl RVCore {
     ) -> XResult {
         self.require_fp()?;
         let rm = self.resolve_rm(rm)?;
-        let (a, b) = (self.read_f64(rs1), self.read_f64(rs2));
-        let (r, f) = op(&a, &b, rm);
+        let (r, f) = op(&self.read_f64(rs1), &self.read_f64(rs2), rm);
         self.write_f64(rd, r);
         self.accrue(f);
         Ok(())
     }
 
-    /// F32 unary op: read one f32, apply rounded op, write f32 result.
-    #[inline]
     fn f32_unary(
         &mut self,
         rd: RVReg,
@@ -222,8 +210,6 @@ impl RVCore {
         Ok(())
     }
 
-    /// F64 unary op.
-    #[inline]
     fn f64_unary(
         &mut self,
         rd: RVReg,
@@ -239,8 +225,6 @@ impl RVCore {
         Ok(())
     }
 
-    /// FP compare: read two operands, produce bool+flags, write GPR.
-    #[inline]
     fn f32_cmp(
         &mut self,
         rd: RVReg,
@@ -249,13 +233,11 @@ impl RVCore {
         op: impl FnOnce(&F32, &F32) -> (bool, u8),
     ) -> XResult {
         self.require_fp()?;
-        let (a, b) = (self.read_f32(rs1), self.read_f32(rs2));
-        let (r, f) = op(&a, &b);
+        let (r, f) = op(&self.read_f32(rs1), &self.read_f32(rs2));
         self.accrue(f);
         self.set_gpr(rd, r as Word)
     }
 
-    #[inline]
     fn f64_cmp(
         &mut self,
         rd: RVReg,
@@ -264,14 +246,13 @@ impl RVCore {
         op: impl FnOnce(&F64, &F64) -> (bool, u8),
     ) -> XResult {
         self.require_fp()?;
-        let (a, b) = (self.read_f64(rs1), self.read_f64(rs2));
-        let (r, f) = op(&a, &b);
+        let (r, f) = op(&self.read_f64(rs1), &self.read_f64(rs2));
         self.accrue(f);
         self.set_gpr(rd, r as Word)
     }
 
-    /// FP load: addr calc → memory load → pack into fpr.
-    #[inline]
+    // --- Load/Store/Convert helpers ---
+
     pub(super) fn fload_op(
         &mut self,
         rd: RVReg,
@@ -282,14 +263,11 @@ impl RVCore {
     ) -> XResult {
         self.require_fp()?;
         let addr = self.eff_addr(rs1, imm);
-        let val = self.load(addr, size)?;
-        self.fpr[rd as usize] = pack(val);
+        self.fpr[rd as usize] = pack(self.load(addr, size)?);
         self.dirty_fp();
         Ok(())
     }
 
-    /// FP store: addr calc → unpack fpr → memory store.
-    #[inline]
     pub(super) fn fstore_op(
         &mut self,
         rs1: RVReg,
@@ -303,33 +281,24 @@ impl RVCore {
         self.store(addr, size, unpack(self.fpr[rs2 as usize]))
     }
 
-    /// Float→int conversion: convert, write GPR.
-    #[inline]
     fn fcvt_f2i(&mut self, rd: RVReg, rm: u8, cvt: impl FnOnce(SfRm) -> (Word, u8)) -> XResult {
         self.require_fp()?;
-        let rm = self.resolve_rm(rm)?;
-        let (r, f) = cvt(rm);
+        let (r, f) = cvt(self.resolve_rm(rm)?);
         self.accrue(f);
         self.set_gpr(rd, r)
     }
 
-    /// Int→float conversion: read GPR, convert, write FP (f32).
-    #[inline]
     fn fcvt_i2f32(&mut self, rd: RVReg, rm: u8, cvt: impl FnOnce(SfRm) -> (F32, u8)) -> XResult {
         self.require_fp()?;
-        let rm = self.resolve_rm(rm)?;
-        let (r, f) = cvt(rm);
+        let (r, f) = cvt(self.resolve_rm(rm)?);
         self.write_f32(rd, r);
         self.accrue(f);
         Ok(())
     }
 
-    /// Int→float conversion: read GPR, convert, write FP (f64).
-    #[inline]
     fn fcvt_i2f64(&mut self, rd: RVReg, rm: u8, cvt: impl FnOnce(SfRm) -> (F64, u8)) -> XResult {
         self.require_fp()?;
-        let rm = self.resolve_rm(rm)?;
-        let (r, f) = cvt(rm);
+        let (r, f) = cvt(self.resolve_rm(rm)?);
         self.write_f64(rd, r);
         self.accrue(f);
         Ok(())
@@ -378,7 +347,7 @@ macro_rules! fp_fma {
             self.require_fp()?;
             let rm = self.resolve_rm(rm)?;
             let (a, b, c) = (self.read_f32(rs1), self.read_f32(rs2), self.read_f32(rs3));
-            let flip = |v: F32, neg| {
+            let flip = |v: F32, neg: bool| {
                 if neg {
                     F32::from_bits(v.to_bits() ^ 0x8000_0000)
                 } else {
@@ -401,7 +370,7 @@ macro_rules! fp_fma {
             self.require_fp()?;
             let rm = self.resolve_rm(rm)?;
             let (a, b, c) = (self.read_f64(rs1), self.read_f64(rs2), self.read_f64(rs3));
-            let flip = |v: F64, neg| {
+            let flip = |v: F64, neg: bool| {
                 if neg {
                     F64::from_bits(v.to_bits() ^ (1u64 << 63))
                 } else {

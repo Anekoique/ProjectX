@@ -167,20 +167,33 @@ pub enum DecodedInst {
 }
 
 #[rustfmt::skip]
-impl Debug for DecodedInst {
+impl std::fmt::Display for DecodedInst {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use DecodedInst::*;
+        let fp = |r: &RVReg| format!("f{}", *r as u8);
         match self {
-            R  { kind, rd, rs1, rs2 }          => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}"),
-            FR { kind, rd, rs1, rs2, rm }      => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}, rm={rm}"),
-            FR4 { kind, rd, rs1, rs2, rs3, rm } => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}, {rs3:?}, rm={rm}"),
-            I  { kind, rd, rs1, imm }          => write!(f, "{kind:?} {rd:?}, {rs1:?}, {imm:#x}"),
-            S  { kind, rs1, rs2, imm }         => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
-            B  { kind, rs1, rs2, imm }         => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
-            U  { kind, rd, imm }               => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
-            J  { kind, rd, imm }               => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
-            C  { kind, inst }                  => write!(f, "{kind:?} {inst:?}"),
+            R { kind, rd, rs1, rs2 } => write!(f, "{} {}, {}, {}", kind.as_str(), rd.name(), rs1.name(), rs2.name()),
+            FR { kind, rd, rs1, rs2, .. } => write!(f, "{} {}, {}, {}", kind.as_str(), fp(rd), fp(rs1), fp(rs2)),
+            FR4 { kind, rd, rs1, rs2, rs3, .. } => {
+                write!(f, "{} {}, {}, {}, {}", kind.as_str(), fp(rd), fp(rs1), fp(rs2), fp(rs3))
+            }
+            I { kind, rd, rs1, imm } if kind.is_load() || *kind == InstKind::jalr => {
+                write!(f, "{} {}, {}({})", kind.as_str(), rd.name(), imm, rs1.name())
+            }
+            I { kind, rd, rs1, imm } => write!(f, "{} {}, {}, {}", kind.as_str(), rd.name(), rs1.name(), imm),
+            S { kind, rs1, rs2, imm } => write!(f, "{} {}, {}({})", kind.as_str(), rs2.name(), imm, rs1.name()),
+            B { kind, rs1, rs2, imm } => write!(f, "{} {}, {}, {}", kind.as_str(), rs1.name(), rs2.name(), imm),
+            U { kind, rd, imm } => write!(f, "{} {}, {:#x}", kind.as_str(), rd.name(), ((*imm as u32 as u64) >> 12) & 0xFFFFF),
+            J { kind, rd, imm } => write!(f, "{} {}, {}", kind.as_str(), rd.name(), imm),
+            C { kind, .. } => write!(f, "{}", kind.as_str()),
         }
+    }
+}
+
+/// Debug delegates to Display — one canonical assembly format.
+impl Debug for DecodedInst {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(self, f)
     }
 }
 

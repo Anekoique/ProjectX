@@ -4,13 +4,7 @@
 use super::{RVCore, rv64_only};
 #[cfg(isa64)]
 use crate::config::SWord;
-use crate::{
-    config::Word,
-    cpu::riscv::mm::MemOp,
-    error::XResult,
-    isa::RVReg,
-    utils::sext_word,
-};
+use crate::{config::Word, cpu::riscv::mm::MemOp, error::XResult, isa::RVReg, utils::sext_word};
 
 // --- Helpers ---
 

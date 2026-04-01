@@ -124,19 +124,11 @@ impl Pmp {
     }
 
     pub fn get_cfg(&self, index: usize) -> u8 {
-        if index < PMP_COUNT {
-            self.entries[index].cfg
-        } else {
-            0
-        }
+        self.entries.get(index).map_or(0, |e| e.cfg)
     }
 
     pub fn get_addr(&self, index: usize) -> usize {
-        if index < PMP_COUNT {
-            self.entries[index].addr
-        } else {
-            0
-        }
+        self.entries.get(index).map_or(0, |e| e.addr)
     }
 
     /// Update cfg byte. Ignores write if entry is locked (spec §3.7.1).
@@ -180,24 +172,17 @@ impl Pmp {
         }
         let mut prev_addr: usize = 0;
         for entry in &self.entries {
-            if entry.match_mode() == AddrMatch::Off {
-                prev_addr = entry.addr;
-                continue;
-            }
             match entry.overlap(paddr, size, prev_addr) {
-                None => {
-                    prev_addr = entry.addr;
-                    continue;
-                } // no overlap
-                Some(false) => return Err(XError::BadAddress), // partial overlap → fail
+                Some(false) => return Err(XError::BadAddress),
                 Some(true) => {
-                    if priv_mode == PrivilegeMode::Machine {
-                        ensure!(!entry.locked() || entry.permits(op), XError::BadAddress);
-                        return Ok(());
-                    }
-                    ensure!(entry.permits(op), XError::BadAddress);
+                    let m_mode = priv_mode == PrivilegeMode::Machine;
+                    ensure!(
+                        m_mode && !entry.locked() || entry.permits(op),
+                        XError::BadAddress
+                    );
                     return Ok(());
                 }
+                _ => prev_addr = entry.addr,
             }
         }
         (priv_mode == PrivilegeMode::Machine).ok_or(XError::BadAddress)

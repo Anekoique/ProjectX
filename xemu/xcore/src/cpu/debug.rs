@@ -36,4 +36,8 @@ pub trait DebugOps: super::CoreOps {
 
     /// Decode raw instruction to mnemonic string.
     fn disasm_raw(&self, raw: u32) -> String;
+
+    /// Return the byte width of a raw instruction (e.g. 2 for compressed, 4 for
+    /// standard).
+    fn inst_size(&self, raw: u32) -> usize;
 }

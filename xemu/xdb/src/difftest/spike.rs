@@ -106,10 +106,9 @@ impl SpikeBackend {
 impl DiffBackend for SpikeBackend {
     fn step(&mut self) -> Result<(), String> {
         let ret = unsafe { ffi::spike_step(self.ctx) };
-        match ret {
-            0 | 1 => Ok(()), // 0=ok, 1=program exit
-            _ => Err("Spike step error".into()),
-        }
+        (ret == 0 || ret == 1)
+            .then_some(())
+            .ok_or_else(|| "Spike step error".into())
     }
 
     fn read_context(&mut self) -> Result<CoreContext, String> {
@@ -155,11 +154,9 @@ impl DiffBackend for SpikeBackend {
 
     fn write_mem(&mut self, addr: usize, data: &[u8]) -> Result<(), String> {
         let ret = unsafe { ffi::spike_write_mem(self.ctx, addr, data.as_ptr(), data.len()) };
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err("Spike write_mem failed".into())
-        }
+        (ret == 0)
+            .then_some(())
+            .ok_or_else(|| "Spike write_mem failed".into())
     }
 
     fn name(&self) -> &str {

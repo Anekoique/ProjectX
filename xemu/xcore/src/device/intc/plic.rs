@@ -11,7 +11,6 @@ const PRIORITY_END: usize = NUM_SRC * 4;
 const PENDING_OFF: usize = 0x001000;
 const ENABLE_BASE: usize = 0x002000;
 const ENABLE_STRIDE: usize = 0x80;
-const ENABLE_END: usize = ENABLE_BASE + NUM_CTX * ENABLE_STRIDE;
 const THRESHOLD_BASE: usize = 0x200000;
 const CLAIM_BASE: usize = 0x200004;
 const CTX_STRIDE: usize = 0x1000;
@@ -39,21 +38,9 @@ impl Plic {
         }
     }
 
-    fn ctx_of(offset: usize, base: usize, stride: usize) -> Option<usize> {
-        let c = offset.checked_sub(base)? / stride;
-        (c < NUM_CTX).then_some(c)
-    }
-
-    fn is_threshold(o: usize) -> bool {
-        o >= THRESHOLD_BASE
-            && (o - THRESHOLD_BASE) / CTX_STRIDE < NUM_CTX
-            && (o - THRESHOLD_BASE).is_multiple_of(CTX_STRIDE)
-    }
-
-    fn is_claim(o: usize) -> bool {
-        o >= CLAIM_BASE
-            && (o - CLAIM_BASE) / CTX_STRIDE < NUM_CTX
-            && (o - CLAIM_BASE).is_multiple_of(CTX_STRIDE)
+    fn ctx_at(offset: usize, base: usize, stride: usize) -> Option<usize> {
+        let rel = offset.checked_sub(base)?;
+        (rel / stride < NUM_CTX && rel.is_multiple_of(stride)).then_some(rel / stride)
     }
 
     /// Merge level-triggered device lines into pending.
@@ -135,43 +122,32 @@ impl Device for Plic {
         Ok(match offset {
             o @ 0..PRIORITY_END if o.is_multiple_of(4) => self.priority[o / 4] as Word,
             PENDING_OFF => self.pending as Word,
-            o if (ENABLE_BASE..ENABLE_END).contains(&o)
-                && (o - ENABLE_BASE).is_multiple_of(ENABLE_STRIDE) =>
-            {
-                Self::ctx_of(o, ENABLE_BASE, ENABLE_STRIDE).map_or(0, |c| self.enable[c] as Word)
-            }
-            o if Self::is_threshold(o) => {
-                Self::ctx_of(o, THRESHOLD_BASE, CTX_STRIDE).map_or(0, |c| self.threshold[c] as Word)
-            }
-            o if Self::is_claim(o) => {
-                Self::ctx_of(o, CLAIM_BASE, CTX_STRIDE).map_or(0, |c| self.claim(c) as Word)
-            }
-            _ => 0,
+            o => match Self::ctx_at(o, ENABLE_BASE, ENABLE_STRIDE) {
+                Some(c) => self.enable[c] as Word,
+                None => match Self::ctx_at(o, THRESHOLD_BASE, CTX_STRIDE) {
+                    Some(c) => self.threshold[c] as Word,
+                    None => match Self::ctx_at(o, CLAIM_BASE, CTX_STRIDE) {
+                        Some(c) => self.claim(c) as Word,
+                        None => 0,
+                    },
+                },
+            },
         })
     }
 
     fn write(&mut self, offset: usize, _size: usize, val: Word) -> XResult {
         match offset {
             o @ 0..PRIORITY_END if o.is_multiple_of(4) => self.priority[o / 4] = val as u8,
-            o if (ENABLE_BASE..ENABLE_END).contains(&o)
-                && (o - ENABLE_BASE).is_multiple_of(ENABLE_STRIDE) =>
-            {
-                if let Some(c) = Self::ctx_of(o, ENABLE_BASE, ENABLE_STRIDE) {
+            o => {
+                if let Some(c) = Self::ctx_at(o, ENABLE_BASE, ENABLE_STRIDE) {
                     self.enable[c] = val as u32;
-                }
-            }
-            o if Self::is_threshold(o) => {
-                if let Some(c) = Self::ctx_of(o, THRESHOLD_BASE, CTX_STRIDE) {
+                } else if let Some(c) = Self::ctx_at(o, THRESHOLD_BASE, CTX_STRIDE) {
                     self.threshold[c] = val as u8;
                     self.evaluate();
-                }
-            }
-            o if Self::is_claim(o) => {
-                if let Some(c) = Self::ctx_of(o, CLAIM_BASE, CTX_STRIDE) {
+                } else if let Some(c) = Self::ctx_at(o, CLAIM_BASE, CTX_STRIDE) {
                     self.complete(c, val as u32);
                 }
             }
-            _ => {}
         }
         Ok(())
     }

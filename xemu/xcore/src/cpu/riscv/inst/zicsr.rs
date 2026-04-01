@@ -40,29 +40,61 @@ impl RVCore {
     }
 
     pub(super) fn csrrw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.csr_op(rd, csr_addr(imm), self.gpr[rs1], rd == RVReg::zero, false, |_, src| src)
+        self.csr_op(
+            rd,
+            csr_addr(imm),
+            self.gpr[rs1],
+            rd == RVReg::zero,
+            false,
+            |_, src| src,
+        )
     }
 
     pub(super) fn csrrs(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.csr_op(rd, csr_addr(imm), self.gpr[rs1], false, rs1 == RVReg::zero, |old, src| old | src)
+        self.csr_op(
+            rd,
+            csr_addr(imm),
+            self.gpr[rs1],
+            false,
+            rs1 == RVReg::zero,
+            |old, src| old | src,
+        )
     }
 
     pub(super) fn csrrc(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.csr_op(rd, csr_addr(imm), self.gpr[rs1], false, rs1 == RVReg::zero, |old, src| old & !src)
+        self.csr_op(
+            rd,
+            csr_addr(imm),
+            self.gpr[rs1],
+            false,
+            rs1 == RVReg::zero,
+            |old, src| old & !src,
+        )
     }
 
     pub(super) fn csrrwi(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.csr_op(rd, csr_addr(imm), csr_uimm(rs1), rd == RVReg::zero, false, |_, src| src)
+        self.csr_op(
+            rd,
+            csr_addr(imm),
+            csr_uimm(rs1),
+            rd == RVReg::zero,
+            false,
+            |_, src| src,
+        )
     }
 
     pub(super) fn csrrsi(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
         let uimm = csr_uimm(rs1);
-        self.csr_op(rd, csr_addr(imm), uimm, false, uimm == 0, |old, src| old | src)
+        self.csr_op(rd, csr_addr(imm), uimm, false, uimm == 0, |old, src| {
+            old | src
+        })
     }
 
     pub(super) fn csrrci(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
         let uimm = csr_uimm(rs1);
-        self.csr_op(rd, csr_addr(imm), uimm, false, uimm == 0, |old, src| old & !src)
+        self.csr_op(rd, csr_addr(imm), uimm, false, uimm == 0, |old, src| {
+            old & !src
+        })
     }
 }
 

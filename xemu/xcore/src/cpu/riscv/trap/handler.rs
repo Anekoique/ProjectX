@@ -66,47 +66,54 @@ impl RVCore {
             if delegated { "S" } else { "M" },
             trap.tval
         );
-        if delegated {
-            self.trap_to_s_mode(&trap);
+        self.trap_enter(&trap, delegated);
+    }
+
+    fn trap_enter(&mut self, trap: &PendingTrap, to_s: bool) {
+        let (epc, cause, tval, tvec) = if to_s {
+            (
+                CsrAddr::sepc,
+                CsrAddr::scause,
+                CsrAddr::stval,
+                CsrAddr::stvec,
+            )
         } else {
-            self.trap_to_m_mode(&trap);
+            (
+                CsrAddr::mepc,
+                CsrAddr::mcause,
+                CsrAddr::mtval,
+                CsrAddr::mtvec,
+            )
+        };
+        let mut ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
+        self.csr.set(epc, (self.pc.as_usize() as Word) & !1);
+        self.csr.set(cause, trap.cause.to_mcause());
+        self.csr.set(tval, trap.tval);
+        if to_s {
+            ms = ms.with_spp(self.privilege);
+            ms.set(MStatus::SPIE, ms.contains(MStatus::SIE));
+            ms.remove(MStatus::SIE);
+            self.privilege = PrivilegeMode::Supervisor;
+        } else {
+            ms = ms.with_mpp(self.privilege);
+            ms.set(MStatus::MPIE, ms.contains(MStatus::MIE));
+            ms.remove(MStatus::MIE);
+            self.privilege = PrivilegeMode::Machine;
         }
-    }
-
-    fn trap_to_s_mode(&mut self, trap: &PendingTrap) {
-        let mut ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
-        self.csr
-            .set(CsrAddr::sepc, (self.pc.as_usize() as Word) & !1);
-        self.csr.set(CsrAddr::scause, trap.cause.to_mcause());
-        self.csr.set(CsrAddr::stval, trap.tval);
-        ms = ms.with_spp(self.privilege);
-        ms.set(MStatus::SPIE, ms.contains(MStatus::SIE));
-        ms.remove(MStatus::SIE);
         self.csr.set(CsrAddr::mstatus, ms.bits());
-        self.privilege = PrivilegeMode::Supervisor;
-        self.npc = Self::trap_vector(self.csr.get(CsrAddr::stvec), &trap.cause);
-        debug!("trap_to_s_mode: handler={:#x}", self.npc.as_usize());
-    }
-
-    fn trap_to_m_mode(&mut self, trap: &PendingTrap) {
-        let mut ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
-        self.csr
-            .set(CsrAddr::mepc, (self.pc.as_usize() as Word) & !1);
-        self.csr.set(CsrAddr::mcause, trap.cause.to_mcause());
-        self.csr.set(CsrAddr::mtval, trap.tval);
-        ms = ms.with_mpp(self.privilege);
-        ms.set(MStatus::MPIE, ms.contains(MStatus::MIE));
-        ms.remove(MStatus::MIE);
-        self.csr.set(CsrAddr::mstatus, ms.bits());
-        self.privilege = PrivilegeMode::Machine;
-        self.npc = Self::trap_vector(self.csr.get(CsrAddr::mtvec), &trap.cause);
-        debug!("trap_to_m_mode: handler={:#x}", self.npc.as_usize());
+        self.npc = Self::trap_vector(self.csr.get(tvec), &trap.cause);
+        debug!(
+            "trap_enter({}): handler={:#x}",
+            if to_s { "S" } else { "M" },
+            self.npc.as_usize()
+        );
     }
 
     fn trap_vector(tvec: Word, cause: &TrapCause) -> VirtAddr {
-        let base = (tvec & !0x3) as usize;
-        let mode = tvec & 0x3;
-        if mode == 1 && cause.is_interrupt() {
+        const MODE_MASK: Word = 0x3;
+        const MODE_VECTORED: Word = 1;
+        let base = (tvec & !MODE_MASK) as usize;
+        if tvec & MODE_MASK == MODE_VECTORED && cause.is_interrupt() {
             VirtAddr::from(base + 4 * cause.code() as usize)
         } else {
             VirtAddr::from(base)

@@ -6,7 +6,7 @@ use crate::{
     config::Word,
     cpu::debug::{Breakpoint, DebugOps},
     error::XResult,
-    isa::{DECODER, DecodedInst, InstKind, RVReg},
+    isa::{DECODER, RVReg},
 };
 
 #[allow(clippy::unnecessary_cast)] // Word is u32 on isa32, u64 on isa64
@@ -104,91 +104,11 @@ impl DebugOps for RVCore {
     fn disasm_raw(&self, raw: u32) -> String {
         DECODER
             .decode(raw)
-            .map(|inst| format_mnemonic(&inst))
+            .map(|inst| inst.to_string())
             .unwrap_or_else(|_| format!("???  ({raw:#010x})"))
     }
-}
 
-/// Format a decoded instruction into a human-readable mnemonic.
-pub fn format_mnemonic(inst: &DecodedInst) -> String {
-    match inst {
-        DecodedInst::R { kind, rd, rs1, rs2 } => {
-            format!(
-                "{} {}, {}, {}",
-                kind.as_str(),
-                rd.name(),
-                rs1.name(),
-                rs2.name()
-            )
-        }
-        DecodedInst::FR {
-            kind, rd, rs1, rs2, ..
-        } => {
-            format!(
-                "{} f{}, f{}, f{}",
-                kind.as_str(),
-                *rd as u8,
-                *rs1 as u8,
-                *rs2 as u8
-            )
-        }
-        DecodedInst::FR4 {
-            kind,
-            rd,
-            rs1,
-            rs2,
-            rs3,
-            ..
-        } => {
-            format!(
-                "{} f{}, f{}, f{}, f{}",
-                kind.as_str(),
-                *rd as u8,
-                *rs1 as u8,
-                *rs2 as u8,
-                *rs3 as u8
-            )
-        }
-        DecodedInst::I { kind, rd, rs1, imm } => match kind {
-            InstKind::jalr => format!("jalr {}, {}({})", rd.name(), imm, rs1.name()),
-            InstKind::lb
-            | InstKind::lh
-            | InstKind::lw
-            | InstKind::ld
-            | InstKind::lbu
-            | InstKind::lhu
-            | InstKind::lwu => {
-                format!("{} {}, {}({})", kind.as_str(), rd.name(), imm, rs1.name())
-            }
-            _ => format!("{} {}, {}, {}", kind.as_str(), rd.name(), rs1.name(), imm),
-        },
-        DecodedInst::S {
-            kind,
-            rs1,
-            rs2,
-            imm,
-        } => {
-            format!("{} {}, {}({})", kind.as_str(), rs2.name(), imm, rs1.name())
-        }
-        DecodedInst::B {
-            kind,
-            rs1,
-            rs2,
-            imm,
-        } => {
-            format!("{} {}, {}, {}", kind.as_str(), rs1.name(), rs2.name(), imm)
-        }
-        DecodedInst::U { kind, rd, imm } => {
-            format!(
-                "{} {}, {:#x}",
-                kind.as_str(),
-                rd.name(),
-                ((*imm as u32 as u64) >> 12) & 0xFFFFF
-            )
-        }
-        DecodedInst::J { kind, rd, imm } => {
-            format!("{} {}, {}", kind.as_str(), rd.name(), imm)
-        }
-        DecodedInst::C { kind, inst: _ } => kind.as_str().to_string(),
+    fn inst_size(&self, raw: u32) -> usize {
+        if raw & 0x3 != 0x3 { 2 } else { 4 }
     }
 }

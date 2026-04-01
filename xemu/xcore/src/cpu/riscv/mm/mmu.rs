@@ -106,22 +106,18 @@ impl Mmu {
                         && pte.flags().permits(op, priv_mode, self.sum, self.mxr),
                     XError::PageFault
                 );
-                // Hardware A/D update: set A bit (and D for writes).
-                let need_d = matches!(op, MemOp::Store | MemOp::Amo);
-                let flags = pte.flags();
-                if !flags.contains(PteFlags::A) || (need_d && !flags.contains(PteFlags::D)) {
-                    let new_bits = PteFlags::A.bits() | if need_d { PteFlags::D.bits() } else { 0 };
-                    let updated = pte.0 | new_bits;
-                    let _ = bus.write(pte_addr, sv.pte_size, updated as Word);
+                // Hardware A/D update (§4.3.1): set A, and D for stores/AMOs.
+                let ad = PteFlags::A
+                    | if matches!(op, MemOp::Store | MemOp::Amo) {
+                        PteFlags::D
+                    } else {
+                        PteFlags::empty()
+                    };
+                if !pte.flags().contains(ad) {
+                    let _ = bus.write(pte_addr, sv.pte_size, (pte.0 | ad.bits()) as Word);
                 }
                 return Ok(TlbEntry::new(
-                    pte.flags()
-                        | PteFlags::A
-                        | if need_d {
-                            PteFlags::D
-                        } else {
-                            PteFlags::empty()
-                        },
+                    pte.flags() | ad,
                     pte.ppn(sv),
                     vaddr,
                     level,

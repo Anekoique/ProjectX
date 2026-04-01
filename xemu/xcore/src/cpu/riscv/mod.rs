@@ -109,11 +109,12 @@ impl RVCore {
     #[allow(clippy::unnecessary_cast)]
     fn sync_interrupts(&mut self) {
         let hw = self.irq.load() as Word;
-        let stip: Word = if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
-            STIP as Word
-        } else {
-            0
-        };
+        let stip: Word =
+            if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
+                STIP as Word
+            } else {
+                0
+            };
         let mip =
             (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !(STIP as Word)) | (hw & HW_IP_MASK) | stip;
         self.csr.set(CsrAddr::mip, mip);
@@ -239,12 +240,7 @@ impl CoreOps for RVCore {
             let inst = core.decode(raw)?;
 
             #[cfg(feature = "debug")]
-            trace!(
-                "{:#010x}: {:08x}  {}",
-                core.pc.as_usize(),
-                raw,
-                debug::format_mnemonic(&inst),
-            );
+            trace!("{:#010x}: {:08x}  {}", core.pc.as_usize(), raw, inst,);
 
             core.execute(inst)
         })?;

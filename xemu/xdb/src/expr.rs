@@ -35,9 +35,10 @@ impl<'a, R: Fn(&str) -> Option<u64>, M: Fn(usize, usize) -> Option<u64>> Parser<
     }
 
     fn skip_ws(&mut self) {
-        while self.pos < self.input.len() && self.input[self.pos].is_ascii_whitespace() {
-            self.pos += 1;
-        }
+        self.pos += self.input[self.pos..]
+            .iter()
+            .take_while(|b| b.is_ascii_whitespace())
+            .count();
     }
 
     fn expect(&mut self, ch: u8) -> Result<(), String> {
@@ -164,35 +165,33 @@ impl<'a, R: Fn(&str) -> Option<u64>, M: Fn(usize, usize) -> Option<u64>> Parser<
         }
     }
 
-    fn read_name(&mut self) -> String {
+    /// Consume bytes while `pred` holds, return the consumed slice as `&str`.
+    fn consume_while(&mut self, pred: fn(u8) -> bool) -> &str {
         let start = self.pos;
-        while self.pos < self.input.len()
-            && (self.input[self.pos].is_ascii_alphanumeric() || self.input[self.pos] == b'_')
-        {
-            self.pos += 1;
-        }
-        String::from_utf8_lossy(&self.input[start..self.pos]).to_string()
+        self.pos += self.input[self.pos..]
+            .iter()
+            .take_while(|&&b| pred(b))
+            .count();
+        std::str::from_utf8(&self.input[start..self.pos]).unwrap()
+    }
+
+    fn read_name(&mut self) -> String {
+        self.consume_while(|b| b.is_ascii_alphanumeric() || b == b'_')
+            .to_string()
     }
 
     fn read_hex(&mut self) -> Result<u64, String> {
-        let start = self.pos;
-        while self.pos < self.input.len() && self.input[self.pos].is_ascii_hexdigit() {
-            self.pos += 1;
-        }
-        if self.pos == start {
+        let s = self.consume_while(|b| b.is_ascii_hexdigit());
+        if s.is_empty() {
             return Err("expected hex digits after 0x".into());
         }
-        let s = std::str::from_utf8(&self.input[start..self.pos]).unwrap();
         u64::from_str_radix(s, 16).map_err(|e| e.to_string())
     }
 
     fn read_decimal(&mut self) -> Result<u64, String> {
-        let start = self.pos;
-        while self.pos < self.input.len() && self.input[self.pos].is_ascii_digit() {
-            self.pos += 1;
-        }
-        let s = std::str::from_utf8(&self.input[start..self.pos]).unwrap();
-        s.parse::<u64>().map_err(|e| e.to_string())
+        self.consume_while(|b| b.is_ascii_digit())
+            .parse::<u64>()
+            .map_err(|e| e.to_string())
     }
 }
 

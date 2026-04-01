@@ -15,6 +15,7 @@ xcore.workspace = true
 xlogger.workspace = true
 log.workspace = true
 
+anyhow = "1"
 clap = { version = "4.5", features = ["derive"] }
 regex = "1"
 shlex = "1.3"

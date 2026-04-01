@@ -3,9 +3,7 @@ use std::{io::Write, sync::OnceLock};
 use clap::{Parser, Subcommand};
 use regex::Regex;
 
-#[cfg(feature = "difftest")]
-use crate::difftest::DiffHarness;
-use crate::{cmd::*, watchpoint::WatchManager};
+use crate::{cmd::*, session::Session};
 
 #[derive(Debug, Parser)]
 #[command(multicall = true)]
@@ -109,42 +107,28 @@ pub enum DtSubcommand {
     Status,
 }
 
-/// Expand GDB-style `x/Nf addr` → `x -f F -n N addr` before clap parsing.
 fn preprocess_line(line: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"^x/(\d+)?([ixb])\s*(.*)").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"^x/(?:(\d+))?([ixb])?\s*(.*)").unwrap());
 
-    if let Some(caps) = re.captures(line.trim()) {
+    let line = line.trim();
+    if let Some(caps) = re.captures(line) {
         let n = caps.get(1).map_or("1", |m| m.as_str());
-        let f = &caps[2];
-        let rest = caps.get(3).map_or("", |m| m.as_str()).trim();
+        let f = caps.get(2).map_or("i", |m| m.as_str());
+        let rest = caps.get(3).map_or("", |m| m.as_str());
         format!("x -f {f} -n {n} {rest}")
     } else {
         line.to_string()
     }
 }
 
-pub fn respond(
-    line: &str,
-    watch_mgr: &mut WatchManager,
-    #[cfg(feature = "difftest")] loaded_path: &mut Option<String>,
-    #[cfg(feature = "difftest")] diff: &mut Option<DiffHarness>,
-) -> Result<bool, String> {
+pub fn respond(line: &str, sess: &mut Session) -> Result<bool, String> {
     let line = preprocess_line(line);
     let args = shlex::split(&line).ok_or("error: Invalid quoting")?;
     let cli = Cli::try_parse_from(args).map_err(|e| e.to_string())?;
     match cli.command {
-        Commands::Step { count } => cmd_step(
-            count,
-            watch_mgr,
-            #[cfg(feature = "difftest")]
-            diff,
-        ),
-        Commands::Continue => cmd_continue(
-            watch_mgr,
-            #[cfg(feature = "difftest")]
-            diff,
-        ),
+        Commands::Step { count } => cmd_step(count, sess),
+        Commands::Continue => cmd_continue(sess),
         Commands::Examine {
             format,
             count,
@@ -153,17 +137,18 @@ pub fn respond(
         Commands::Break { addr } => cmd_break(&addr),
         Commands::BreakDelete { id } => cmd_break_delete(id),
         Commands::BreakList => cmd_break_list(),
-        Commands::Watch { expr } => cmd_watch(&expr.join(" "), watch_mgr),
+        Commands::Watch { expr } => cmd_watch(&expr.join(" "), &mut sess.watch),
         Commands::WatchDelete { id } => {
-            if watch_mgr.remove(id) {
-                println!("Deleted watchpoint #{id}");
+            let msg = if sess.watch.remove(id) {
+                "Deleted"
             } else {
-                println!("No watchpoint #{id}");
-            }
+                "No"
+            };
+            println!("{msg} watchpoint #{id}");
             Ok(())
         }
         Commands::WatchList => {
-            cmd_watch_list(watch_mgr);
+            cmd_watch_list(&sess.watch);
             Ok(())
         }
         Commands::Print { expr } => cmd_print(&expr.join(" ")),
@@ -171,17 +156,17 @@ pub fn respond(
         Commands::Load { ref file } => {
             #[cfg(feature = "difftest")]
             {
-                *loaded_path = Some(file.clone());
+                sess.loaded_path = Some(file.clone());
             }
             cmd_load(file.clone())
         }
         Commands::Reset => cmd_reset(),
         #[cfg(feature = "difftest")]
         Commands::Difftest { subcmd } => match subcmd {
-            DtSubcommand::Attach { backend } => cmd_dt_attach(&backend, loaded_path, diff),
-            DtSubcommand::Detach => cmd_dt_detach(diff),
+            DtSubcommand::Attach { backend } => cmd_dt_attach(&backend, sess),
+            DtSubcommand::Detach => cmd_dt_detach(sess),
             DtSubcommand::Status => {
-                cmd_dt_status(diff);
+                cmd_dt_status(sess);
                 Ok(())
             }
         },
