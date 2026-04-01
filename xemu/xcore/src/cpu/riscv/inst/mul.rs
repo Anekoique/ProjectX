@@ -1,3 +1,5 @@
+//! M extension: integer multiply/divide handlers.
+
 use super::{RVCore, rv64_op};
 use crate::{
     config::{SWord, Word},

@@ -1,15 +1,20 @@
+//! Expression-based watchpoints: trigger on value change between steps.
+
+/// A single expression watchpoint with its last known value.
 pub struct Watchpoint {
     pub id: u32,
     pub expr_text: String,
     pub prev_value: Option<u64>,
 }
 
+/// Manages a collection of expression watchpoints.
 pub struct WatchManager {
     wps: Vec<Watchpoint>,
     next_id: u32,
 }
 
 impl WatchManager {
+    /// Create an empty watch manager.
     pub fn new() -> Self {
         Self {
             wps: Vec::new(),
@@ -17,10 +22,12 @@ impl WatchManager {
         }
     }
 
+    /// True if no watchpoints are active.
     pub fn is_empty(&self) -> bool {
         self.wps.is_empty()
     }
 
+    /// Add a watchpoint, returning its unique ID.
     pub fn add(&mut self, expr: String, init: Option<u64>) -> u32 {
         let id = self.next_id;
         self.next_id += 1;
@@ -32,6 +39,7 @@ impl WatchManager {
         id
     }
 
+    /// Remove a watchpoint by ID. Returns true if found.
     pub fn remove(&mut self, id: u32) -> bool {
         self.wps
             .iter()
@@ -40,6 +48,7 @@ impl WatchManager {
             .is_some()
     }
 
+    /// List all active watchpoints.
     pub fn list(&self) -> &[Watchpoint] {
         &self.wps
     }

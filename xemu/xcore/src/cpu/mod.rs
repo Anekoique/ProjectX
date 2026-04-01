@@ -1,3 +1,8 @@
+//! CPU lifecycle: boot configuration, step/run loop, and termination handling.
+//!
+//! The generic [`CPU`] wrapper dispatches to an arch-specific core (e.g.
+//! [`RVCore`](super::cpu::riscv::RVCore)) via the [`CoreOps`] trait.
+
 mod core;
 pub mod debug;
 
@@ -42,24 +47,33 @@ cfg_if::cfg_if! {
     }
 }
 
+/// Global singleton CPU instance, protected by a mutex.
 pub static XCPU: LazyLock<Mutex<CPU<Core>>> = LazyLock::new(|| Mutex::new(CPU::new(Core::new())));
 
+/// DRAM base address where the first instruction executes.
 pub const RESET_VECTOR: usize = 0x80000000;
 
+/// CPU execution state.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum State {
+    /// Running or ready to step.
     Idle,
+    /// Normal termination (exit code 0).
     Halted,
+    /// Abnormal termination (nonzero exit code or error).
     Abort,
 }
 
 impl State {
+    /// Returns `true` for both [`Halted`](State::Halted) and
+    /// [`Abort`](State::Abort).
     pub fn is_terminated(self) -> bool {
         matches!(self, State::Halted | State::Abort)
     }
 }
 
-// TODO: support multi-core and add concurrent control.
+/// Generic CPU wrapper: owns an arch-specific core and manages boot/run
+/// lifecycle.
 #[allow(clippy::upper_case_acronyms)]
 pub struct CPU<Core: CoreOps> {
     core: Core,
@@ -70,6 +84,7 @@ pub struct CPU<Core: CoreOps> {
 }
 
 impl<Core: CoreOps + DebugOps> CPU<Core> {
+    /// Create a CPU wrapper around an arch-specific core.
     pub fn new(core: Core) -> Self {
         Self {
             core,
@@ -150,6 +165,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         Ok(self)
     }
 
+    /// Execute one instruction, handling program exit and halt conditions.
     pub fn step(&mut self) -> XResult {
         match self.core.step() {
             Err(XError::ProgramExit(code)) => {
@@ -174,6 +190,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         }
     }
 
+    /// Run up to `count` instructions, stopping early on termination.
     pub fn run(&mut self, count: u64) -> XResult {
         if self.state.is_terminated() {
             info!("CPU is not running. Please reset or load a program first.");
@@ -188,6 +205,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         Ok(())
     }
 
+    /// Record termination state and capture PC/return value.
     pub fn set_terminated(&mut self, state: State) -> &mut Self {
         self.state = state;
         self.halt_pc = self.core.pc();
@@ -195,14 +213,17 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         self
     }
 
+    /// Current program counter as a raw address.
     pub fn pc(&self) -> usize {
         self.core.pc().as_usize()
     }
 
+    /// True if the CPU has halted or aborted.
     pub fn is_terminated(&self) -> bool {
         self.state.is_terminated()
     }
 
+    /// True only if halted with exit code 0 (success).
     pub fn is_exit_normal(&self) -> bool {
         self.state == State::Halted && self.halt_ret == 0
     }
@@ -212,6 +233,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         self.core.bus_mut().replace_device(name, dev);
     }
 
+    /// Print colored termination message to stdout.
     pub fn log_termination(&self) {
         match self.state {
             State::Abort => xprintln!(ColorCode::Red, "Error at pc={:#x}", self.halt_pc),
@@ -229,25 +251,34 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
             State::Idle => {}
         }
     }
+    /// Access the core's debug inspection interface.
     pub fn debug_ops(&self) -> &dyn DebugOps {
         &self.core
     }
 
+    /// Consume and return the MMIO-accessed flag (for difftest skip).
     #[cfg(feature = "difftest")]
     pub fn bus_take_mmio_flag(&self) -> bool {
         self.core.bus().take_mmio_flag()
     }
 }
 
+/// Delegated debug operations (passed through to the arch-specific core).
 #[inherit_methods(from = "self.core")]
 impl<Core: CoreOps + DebugOps> CPU<Core> {
+    /// Insert a breakpoint, returning its stable ID.
     pub fn add_breakpoint(&mut self, addr: usize) -> u32;
+    /// Remove breakpoint by ID. Returns `true` if found.
     pub fn remove_breakpoint(&mut self, id: u32) -> bool;
+    /// List all active breakpoints.
     pub fn list_breakpoints(&self) -> &[debug::Breakpoint];
+    /// Skip breakpoint check for the next step.
     pub fn set_skip_bp(&mut self);
+    /// Capture a snapshot of the current architectural state.
     pub fn context(&self) -> CoreContext;
 }
 
+/// Lock the global CPU and execute `f` with exclusive access.
 pub fn with_xcpu<R>(f: impl FnOnce(&mut CPU<Core>) -> R) -> R {
     let mut guard = XCPU.lock().expect("Poisoned lock on CPU mutex");
     f(&mut guard)

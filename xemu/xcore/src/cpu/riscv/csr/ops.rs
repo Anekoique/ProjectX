@@ -1,3 +1,5 @@
+//! CSR read/write operations with privilege checks and write side-effects.
+
 use super::{AccessRule, CsrAddr, CsrDesc, MStatus, PrivilegeMode, counteren_bit, find_desc};
 use crate::{config::Word, cpu::riscv::RVCore, error::XResult};
 

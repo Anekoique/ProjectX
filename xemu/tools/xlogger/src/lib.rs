@@ -1,3 +1,9 @@
+//! Colored, timestamped logger backed by the `log` crate.
+//!
+//! Provides [`init`] to install the global logger, [`set_max_level`] to
+//! configure verbosity at runtime, and the [`xprintln!`] / [`xprint!`] macros
+//! for colored console output.
+
 extern crate log;
 
 use core::str::FromStr;
@@ -21,6 +27,7 @@ macro_rules! xprint {
 
 #[repr(u8)]
 #[allow(dead_code)]
+/// ANSI terminal color codes for [`xprintln!`] output.
 pub enum ColorCode {
     Black         = 30,
     Red           = 31,

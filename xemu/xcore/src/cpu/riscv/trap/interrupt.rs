@@ -1,7 +1,10 @@
+//! Asynchronous interrupt codes and priority ordering (Privileged Spec §3.1.9).
+
 use crate::config::Word;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
+/// Asynchronous interrupt codes with priority ordering.
 pub enum Interrupt {
     SupervisorSoftware = 1,
     MachineSoftware    = 3,
@@ -23,10 +26,12 @@ impl Interrupt {
         Self::SupervisorTimer,
     ];
 
+    /// Return the `mip`/`mie` bit mask for this interrupt.
     pub const fn bit(self) -> Word {
         1 << (self as Word)
     }
 
+    /// True for M-level interrupts (MSI/MTI/MEI).
     pub const fn is_machine(self) -> bool {
         matches!(
             self,

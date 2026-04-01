@@ -1,3 +1,5 @@
+//! Zicsr extension: CSR read/write/set/clear instructions.
+
 use super::RVCore;
 use crate::{
     config::{SWord, Word},

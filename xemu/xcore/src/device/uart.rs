@@ -1,3 +1,8 @@
+//! NS16550A UART with PTY and stdio backends.
+//!
+//! Supports DLAB baud-rate configuration, FIFO-based RX, and two-stage THRE
+//! interrupt pipeline to avoid per-character trap storms.
+
 use std::{
     collections::VecDeque,
     os::fd::{AsRawFd, OwnedFd},
@@ -111,6 +116,7 @@ enum TxSink {
     PtyWithStdout(OwnedFd),
 }
 
+/// NS16550A UART with configurable TX/RX backends.
 pub struct Uart {
     // NS16550 registers
     ier: u8,

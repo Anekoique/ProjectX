@@ -10,14 +10,17 @@ use super::DiffBackend;
 mod ffi {
     use std::os::raw::c_char;
 
+    /// Spike memory region descriptor.
     #[repr(C)]
     pub struct SpikeMemRegion {
         pub base: usize,
         pub size: usize,
     }
 
+    /// Opaque Spike simulator context.
     pub enum SpikeCtx {}
 
+    /// C FFI bindings to the Spike simulator wrapper library.
     unsafe extern "C" {
         pub fn spike_init(
             regions: *const SpikeMemRegion,
@@ -43,6 +46,7 @@ mod ffi {
 
 // ── Backend ──
 
+/// Spike difftest backend via C FFI.
 pub struct SpikeBackend {
     ctx: *mut ffi::SpikeCtx,
     gpr_names: Vec<&'static str>,
@@ -52,6 +56,7 @@ pub struct SpikeBackend {
 }
 
 impl SpikeBackend {
+    /// Initialize Spike, load binary, and sync initial DUT state.
     pub fn new(
         binary_path: &str,
         reset_vec: usize,

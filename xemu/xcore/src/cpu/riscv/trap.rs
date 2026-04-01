@@ -1,3 +1,6 @@
+//! Trap handling: exception/interrupt causes, privilege delegation, and
+//! vectored trap entry/return (`mret`/`sret`).
+
 mod cause;
 mod exception;
 mod handler;

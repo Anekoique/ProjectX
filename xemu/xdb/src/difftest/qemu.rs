@@ -22,6 +22,7 @@ fn qemu_bin_for_isa(isa: &str) -> &'static str {
     }
 }
 
+/// QEMU difftest backend via GDB RSP.
 pub struct QemuBackend {
     proc: Child,
     gdb: GdbClient,
@@ -32,6 +33,7 @@ pub struct QemuBackend {
 }
 
 impl QemuBackend {
+    /// Spawn QEMU, connect via GDB, and sync initial DUT state.
     pub fn new(
         binary_path: &str,
         reset_vec: usize,

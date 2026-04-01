@@ -1,3 +1,5 @@
+//! C extension: 16-bit compressed instruction handlers.
+
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use super::{RVCore, rv64_only};

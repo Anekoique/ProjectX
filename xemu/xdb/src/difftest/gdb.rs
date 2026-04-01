@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+/// GDB Remote Serial Protocol client over a buffered TCP connection.
 pub struct GdbClient {
     reader: BufReader<TcpStream>,
     writer: TcpStream,
@@ -49,6 +50,7 @@ fn expect_ok(resp: &[u8]) -> Result<(), String> {
 }
 
 impl GdbClient {
+    /// Connect to a GDB server.
     pub fn connect(addr: &str) -> Result<Self, String> {
         let stream = TcpStream::connect(addr).map_err(|e| format!("GDB connect to {addr}: {e}"))?;
         stream
@@ -67,6 +69,7 @@ impl GdbClient {
         Ok(client)
     }
 
+    /// Send a command packet and receive the response payload.
     pub fn send_recv(&mut self, cmd: &str) -> Result<Vec<u8>, String> {
         self.send_packet(cmd)?;
         self.recv_packet()
@@ -74,14 +77,17 @@ impl GdbClient {
 
     // ── High-level commands ──
 
+    /// Single-step the remote target.
     pub fn step(&mut self) -> Result<(), String> {
         self.send_recv("vCont;s:p1.-1").map(|_| ())
     }
 
+    /// Continue the remote target.
     pub fn cont(&mut self) -> Result<(), String> {
         self.send_recv("vCont;c:p1.-1").map(|_| ())
     }
 
+    /// Read all GPRs + PC.
     pub fn read_regs(&mut self) -> Result<Vec<u64>, String> {
         let data = self.send_recv("g")?;
         let word_size = if data.len() >= 33 * 16 { 8 } else { 4 };
@@ -90,28 +96,34 @@ impl GdbClient {
             .collect()
     }
 
+    /// Write all GPRs + PC.
     pub fn write_regs(&mut self, regs: &[u64], word_size: usize) -> Result<(), String> {
         let hex: String = regs.iter().map(|&r| encode_le_hex(r, word_size)).collect();
         expect_ok(&self.send_recv(&format!("G{hex}"))?)
     }
 
+    /// Read a single register by number.
     pub fn read_register(&mut self, num: usize, word_size: usize) -> Result<u64, String> {
         parse_hex_le(&self.send_recv(&format!("p{num:x}"))?, word_size)
     }
 
+    /// Write a single register by number.
     pub fn write_register(&mut self, num: usize, val: u64, word_size: usize) -> Result<(), String> {
         expect_ok(&self.send_recv(&format!("P{num:x}={}", encode_le_hex(val, word_size)))?)
     }
 
+    /// Write bytes to target memory.
     pub fn write_mem(&mut self, addr: usize, data: &[u8]) -> Result<(), String> {
         let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
         expect_ok(&self.send_recv(&format!("M{addr:x},{:x}:{hex}", data.len()))?)
     }
 
+    /// Insert a software breakpoint.
     pub fn set_breakpoint(&mut self, addr: usize) -> Result<(), String> {
         expect_ok(&self.send_recv(&format!("Z0,{addr:x},4"))?)
     }
 
+    /// Remove a software breakpoint.
     pub fn remove_breakpoint(&mut self, addr: usize) -> Result<(), String> {
         expect_ok(&self.send_recv(&format!("z0,{addr:x},4"))?)
     }

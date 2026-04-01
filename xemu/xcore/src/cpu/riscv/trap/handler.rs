@@ -1,3 +1,5 @@
+//! Interrupt sampling, trap commitment, and `mret`/`sret` return logic.
+
 use memory_addr::VirtAddr;
 
 use crate::{
@@ -120,6 +122,7 @@ impl RVCore {
         }
     }
 
+    /// Execute mret: restore privilege, PC, and mstatus from mepc/MPP.
     pub fn do_mret(&mut self) {
         let mut ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
         let mpp = ms.mpp();
@@ -139,6 +142,7 @@ impl RVCore {
         );
     }
 
+    /// Execute sret: restore privilege, PC, and mstatus from sepc/SPP.
     pub fn do_sret(&mut self) {
         let mut ms = MStatus::from_bits_truncate(self.csr.get(CsrAddr::mstatus));
         let spp = ms.spp();

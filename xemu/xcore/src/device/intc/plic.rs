@@ -1,3 +1,6 @@
+//! Platform-Level Interrupt Controller (PLIC) with priority, enable, and
+//! claim/complete semantics for M-mode and S-mode contexts.
+
 use crate::{
     config::Word,
     device::{Device, IrqState, MEIP, SEIP},
@@ -17,6 +20,7 @@ const CTX_STRIDE: usize = 0x1000;
 
 const CTX_IP: [u64; NUM_CTX] = [MEIP, SEIP];
 
+/// Platform-Level Interrupt Controller.
 pub struct Plic {
     priority: Vec<u8>,
     pending: u32,
@@ -27,6 +31,7 @@ pub struct Plic {
 }
 
 impl Plic {
+    /// Create PLIC with shared IRQ state.
     pub fn new(irq: IrqState) -> Self {
         Self {
             priority: vec![0; NUM_SRC],

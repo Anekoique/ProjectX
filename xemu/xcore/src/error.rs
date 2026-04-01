@@ -1,34 +1,47 @@
+//! Error types for the emulator core.
+
 use core::fmt;
 
 use crate::cpu::PendingTrap;
 
+/// Emulator error type covering traps, memory faults, decode errors, and IO.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
 pub enum XError {
+    /// RISC-V trap (exception or interrupt) to be delivered by the trap
+    /// handler.
     Trap(PendingTrap),
-    // Memory management
+    /// Physical address out of range or unmapped.
     BadAddress,
+    /// Virtual address translation failed (PTE invalid/permissions).
     PageFault,
+    /// Misaligned memory access.
     AddrNotAligned,
-    // Instruction decoding
+    /// Instruction pattern file parse error.
     PatternError,
+    /// Instruction name/format string parse error.
     ParseError,
+    /// Unrecognized instruction encoding.
     InvalidInst,
+    /// Invalid register index.
     InvalidReg,
-    // IO errors
+    /// File read failed.
     FailedToRead,
+    /// File write failed.
     FailedToWrite,
-    // Device
+    /// Guest program called exit (SiFive test finisher).
     ProgramExit(u32),
-    // Debug
+    /// Debugger breakpoint hit at the given PC.
     DebugBreak(usize),
-    // Not yet implemented
+    /// Feature not yet implemented.
     Unimplemented,
 }
 
+/// Convenience alias: `Result<T, XError>` with default `T = ()`.
 pub type XResult<T = ()> = Result<T, XError>;
 
 impl XError {
+    /// Extract the pending trap if this is a `Trap` variant.
     pub fn as_trap(&self) -> Option<crate::cpu::PendingTrap> {
         match self {
             Self::Trap(t) => Some(*t),
@@ -36,6 +49,7 @@ impl XError {
         }
     }
 
+    /// Human-readable description of the error.
     pub fn as_str(&self) -> &'static str {
         match self {
             XError::Trap(_) => "trap triggered",

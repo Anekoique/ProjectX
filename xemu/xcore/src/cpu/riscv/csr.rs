@@ -1,3 +1,10 @@
+//! Control and Status Register (CSR) file with descriptor-driven access.
+//!
+//! CSRs are declared via the [`csr_table!`] macro which generates the
+//! [`CsrAddr`] enum, [`find_desc`] lookup, and the difftest comparison
+//! whitelist. Access rules (privilege, counter gating, FP requirement)
+//! are encoded per-descriptor in [`AccessRule`].
+
 mod mstatus;
 mod ops;
 mod privilege;
@@ -9,10 +16,7 @@ pub use privilege::PrivilegeMode;
 pub use super::trap::{Exception, TrapCause};
 use crate::config::Word;
 
-// ---------------------------------------------------------------------------
-// AccessRule — per-CSR dynamic access rules
-// ---------------------------------------------------------------------------
-
+/// Per-CSR dynamic access rule checked on every read/write.
 #[derive(Clone, Copy, Debug)]
 pub enum AccessRule {
     /// Privilege level from addr bits [9:8] only
@@ -25,16 +29,21 @@ pub enum AccessRule {
     RequireFP,
 }
 
-// ---------------------------------------------------------------------------
-// CsrDesc — descriptor for a single CSR
-// ---------------------------------------------------------------------------
-
+/// Descriptor for a single CSR: write mask, storage alias, view projection, and
+/// access rule.
 #[derive(Clone, Copy)]
 pub struct CsrDesc {
+    /// Writable bits mask (WARL).
     pub wmask: Word,
+    /// CSR address of the backing storage (may differ from this CSR for
+    /// aliases).
     pub storage: u16,
+    /// Bit mask for the visible subfield within the storage register.
     pub view_mask: Word,
+    /// Right-shift applied to storage before masking (for shifted aliases like
+    /// `frm`).
     pub view_shift: u8,
+    /// Dynamic access rule for this CSR.
     pub access: AccessRule,
 }
 
@@ -73,6 +82,7 @@ macro_rules! csr_table {
 
     // Terminal: generate everything
     (@emit [ $([$name:ident $addr:tt [$($spec:tt)*]])* ] [ $(($dt_name:ident, $($dt_mask:tt)*))* ]) => {
+        /// CSR address enumeration (auto-generated from the CSR table).
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[repr(u16)]
         #[allow(non_camel_case_types, dead_code)]
@@ -88,6 +98,7 @@ macro_rules! csr_table {
         }
 
         impl CsrAddr {
+            /// Look up a CSR by name string.
             pub fn from_name(name: &str) -> Option<Self> {
                 match name {
                     $( stringify!($name) => Some(Self::$name), )*
@@ -95,6 +106,7 @@ macro_rules! csr_table {
                 }
             }
 
+            /// Return the CSR name as a static string.
             pub fn name(self) -> &'static str {
                 match self {
                     $( Self::$name => stringify!($name), )*
@@ -247,10 +259,7 @@ csr_table! {
     instret    = 0xC02 => [RO, counter_gated],
 }
 
-// ---------------------------------------------------------------------------
-// CsrFile — dumb storage + descriptor-driven read/write
-// ---------------------------------------------------------------------------
-
+/// CSR register file: flat 4096-entry array with descriptor-driven read/write.
 pub struct CsrFile {
     regs: [Word; 4096],
 }
@@ -274,6 +283,7 @@ impl Default for CsrFile {
 }
 
 impl CsrFile {
+    /// Create a new CSR file with power-on reset values.
     pub fn new() -> Self {
         Self::default()
     }
@@ -323,10 +333,12 @@ impl CsrFile {
         true
     }
 
+    /// Increment the `cycle` counter (called every step).
     pub fn increment_cycle(&mut self) {
         self.regs[CsrAddr::cycle as usize] = self.regs[CsrAddr::cycle as usize].wrapping_add(1);
     }
 
+    /// Increment the `instret` counter (called on non-trap retire).
     pub fn increment_instret(&mut self) {
         self.regs[CsrAddr::instret as usize] = self.regs[CsrAddr::instret as usize].wrapping_add(1);
     }

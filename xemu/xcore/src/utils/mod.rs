@@ -1,3 +1,6 @@
+//! Shared utilities: bit extraction, sign extension, and instruction table
+//! macro.
+
 pub(crate) mod bit;
 mod macros;
 

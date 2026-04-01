@@ -1,5 +1,8 @@
+//! Synchronous exception codes (RISC-V Privileged Spec Table 3.6).
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
+/// Synchronous exception code values (Table 3.6 in the Privileged Spec).
 pub enum Exception {
     InstructionMisaligned = 0,
     InstructionAccessFault = 1,

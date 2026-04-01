@@ -1,3 +1,5 @@
+//! Debug session state: owns watchpoints and optional difftest harness.
+
 #[cfg(feature = "difftest")]
 use crate::difftest::DiffHarness;
 use crate::watchpoint::WatchManager;
@@ -13,6 +15,7 @@ pub struct Session {
 }
 
 impl Session {
+    /// Create a new session with empty watchpoints.
     pub fn new() -> Self {
         Self {
             watch: WatchManager::new(),

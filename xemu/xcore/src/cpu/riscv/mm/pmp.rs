@@ -1,3 +1,6 @@
+//! Physical Memory Protection (PMP): 16-entry region matching with
+//! TOR/NA4/NAPOT address modes and lock semantics (Privileged Spec §3.7).
+
 use super::MemOp;
 use crate::{
     cpu::riscv::csr::PrivilegeMode,
@@ -98,6 +101,7 @@ impl PmpEntry {
     }
 }
 
+/// Physical Memory Protection unit with 16 region entries and match caches.
 pub struct Pmp {
     entries: [PmpEntry; PMP_COUNT],
     /// Cached: any entry has a non-Off match mode (enables fast M-mode bypass).
@@ -107,6 +111,7 @@ pub struct Pmp {
 }
 
 impl Pmp {
+    /// Create PMP with all entries disabled.
     pub fn new() -> Self {
         Self {
             entries: [PmpEntry::default(); PMP_COUNT],
@@ -123,10 +128,12 @@ impl Pmp {
         self.any_locked = self.entries.iter().any(|e| e.locked());
     }
 
+    /// Read PMP configuration byte for entry `index`.
     pub fn get_cfg(&self, index: usize) -> u8 {
         self.entries.get(index).map_or(0, |e| e.cfg)
     }
 
+    /// Read PMP address for entry `index`.
     pub fn get_addr(&self, index: usize) -> usize {
         self.entries.get(index).map_or(0, |e| e.addr)
     }

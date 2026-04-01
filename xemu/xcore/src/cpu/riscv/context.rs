@@ -1,3 +1,6 @@
+//! Lightweight, cloneable snapshot of architectural state for difftest and
+//! debugger register inspection.
+
 /// Arch-specific core context snapshot.
 /// Plain data, Clone — safe to pass across crate boundaries.
 /// Used by both difftest (state comparison) and debugger (register inspection).

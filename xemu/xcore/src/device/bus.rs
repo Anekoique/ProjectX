@@ -1,3 +1,6 @@
+//! Memory bus: RAM backing store + MMIO region dispatch with split-tick
+//! optimization (ACLINT every step, UART/PLIC every 64 steps).
+
 use std::{
     ops::Range,
     sync::{
@@ -33,6 +36,7 @@ impl MmioRegion {
 /// Slow-tick divisor: UART/PLIC are ticked every N instructions.
 const SLOW_TICK_DIVISOR: u64 = 64;
 
+/// Memory bus: dispatches reads/writes to RAM or MMIO devices.
 pub struct Bus {
     ram: Ram,
     pub(crate) mmio: Vec<MmioRegion>,
@@ -45,6 +49,7 @@ pub struct Bus {
 }
 
 impl Bus {
+    /// Create a bus with RAM at the given base address and size.
     pub fn new(ram_base: usize, ram_size: usize) -> Self {
         Self {
             ram: Ram::new(ram_base, ram_size),
@@ -68,6 +73,7 @@ impl Bus {
         self.ssip_pending.swap(false, Relaxed)
     }
 
+    /// Register an MMIO device at the given address range.
     pub fn add_mmio(
         &mut self,
         name: &'static str,
@@ -186,14 +192,17 @@ impl Bus {
         f(dev, off)
     }
 
+    /// Read from RAM or MMIO device at physical address.
     pub fn read(&mut self, addr: usize, size: usize) -> XResult<Word> {
         self.dispatch(addr, size, |dev, off| dev.read(off, size))
     }
 
+    /// Write to RAM or MMIO device at physical address.
     pub fn write(&mut self, addr: usize, size: usize, value: Word) -> XResult {
         self.dispatch(addr, size, |dev, off| dev.write(off, size, value))
     }
 
+    /// Direct RAM read (no MMIO dispatch, no side effects).
     pub fn read_ram(&self, addr: usize, size: usize) -> XResult<Word> {
         self.ram_offset(addr, size)
             .ok_or(XError::BadAddress)
@@ -206,6 +215,7 @@ impl Bus {
         self.mmio_accessed.swap(false, Relaxed)
     }
 
+    /// Bulk-load bytes into RAM at physical address.
     pub fn load_ram(&mut self, addr: usize, data: &[u8]) -> XResult {
         self.ram_offset(addr, data.len())
             .ok_or(XError::BadAddress)

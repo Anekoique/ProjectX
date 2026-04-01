@@ -1,12 +1,15 @@
-/// Simple recursive-descent expression evaluator.
-///
-/// Grammar:
-///   expr    = compare
-///   compare = arith (("==" | "!=") arith)?
-///   arith   = term (('+' | '-') term)*
-///   term    = unary (('*' | '/' | '%') unary)*
-///   unary   = '*' unary | '-' unary | atom
-///   atom    = '$' NAME | "0x" HEX | DECIMAL | '(' expr ')'
+//! Recursive-descent expression evaluator for the debugger.
+//!
+//! Grammar:
+//!
+//! ```text
+//!   expr    = compare
+//!   compare = arith (("==" | "!=") arith)?
+//!   arith   = term (('+' | '-') term)*
+//!   term    = unary (('*' | '/' | '%') unary)*
+//!   unary   = '*' unary | '-' unary | atom
+//!   atom    = '$' NAME | "0x" HEX | DECIMAL | '(' expr ')'
+//! ```
 struct Parser<'a, R: Fn(&str) -> Option<u64>, M: Fn(usize, usize) -> Option<u64>> {
     input: &'a [u8],
     pos: usize,

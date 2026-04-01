@@ -1,3 +1,7 @@
+//! Two-level instruction decoder: pattern-matched 32-bit and 16-bit tables
+//! with O(1) opcode+funct3 lookup, falling back to funct7 scan for R-type
+//! disambiguation.
+
 use std::{
     fmt::{Debug, Formatter},
     sync::LazyLock,
@@ -14,6 +18,8 @@ use crate::{
     utils::{bit_u32, sext_u32},
 };
 
+/// Global decoder singleton, lazily initialized from the instruction pattern
+/// file.
 pub static DECODER: LazyLock<RVDecoder> = LazyLock::new(|| {
     RVDecoder::from_instpat(include_str!("../instpat/riscv.instpat"))
         .expect("Failed to load instruction patterns")
@@ -77,12 +83,14 @@ impl InstPattern {
 const TABLE_32_SIZE: usize = 256; // 5-bit opcode[6:2] × 3-bit funct3
 const TABLE_16_SIZE: usize = 32; // 3-bit funct3 × 2-bit quadrant
 
+/// Two-level instruction decoder with separate 32-bit and 16-bit lookup tables.
 pub struct RVDecoder {
     table_32: Box<[Vec<InstPattern>; TABLE_32_SIZE]>,
     table_16: Box<[Vec<InstPattern>; TABLE_16_SIZE]>,
 }
 
 impl RVDecoder {
+    /// Build decoder from instruction pattern DSL (loaded at compile time).
     pub fn from_instpat(instpat_code: &str) -> XResult<Self> {
         let table_32 = Box::new(std::array::from_fn(|_| Vec::new()));
         let table_16 = Box::new(std::array::from_fn(|_| Vec::new()));
@@ -120,6 +128,7 @@ impl RVDecoder {
     }
 
     #[inline]
+    /// Decode a raw 32-bit or 16-bit instruction into a [`DecodedInst`].
     pub fn decode(&self, inst: u32) -> XResult<DecodedInst> {
         let table = if (inst & 0b11) != 0b11 {
             &self.table_16[Self::key_16(inst)]
@@ -148,10 +157,7 @@ impl RVDecoder {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Decoded instruction
-// ---------------------------------------------------------------------------
-
+/// Decoded instruction with extracted operands, one variant per encoding format.
 #[derive(Clone, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum DecodedInst {

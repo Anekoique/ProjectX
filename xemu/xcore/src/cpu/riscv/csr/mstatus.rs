@@ -1,3 +1,5 @@
+//! Machine/Supervisor status register (`mstatus`) bitfield definitions.
+
 use bitflags::bitflags;
 
 use super::PrivilegeMode;
@@ -5,6 +7,7 @@ use crate::config::Word;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    /// Machine/Supervisor status register bitfields (Privileged Spec §3.1.6).
     pub struct MStatus: Word {
         const SIE   = 1 << 1;
         const MIE   = 1 << 3;
@@ -42,18 +45,22 @@ bitflags! {
 }
 
 impl MStatus {
+    /// Extract the Machine Previous Privilege (MPP) field.
     pub fn mpp(self) -> PrivilegeMode {
         PrivilegeMode::from_bits((self.bits() >> 11) & 0x3)
     }
 
+    /// Return a copy with MPP set to `mode`.
     pub fn with_mpp(self, mode: PrivilegeMode) -> Self {
         Self::from_bits_truncate((self.bits() & !Self::MPP.bits()) | ((mode as Word) << 11))
     }
 
+    /// Extract the Supervisor Previous Privilege (SPP) field.
     pub fn spp(self) -> PrivilegeMode {
         PrivilegeMode::from_bits((self.bits() >> 8) & 0x1)
     }
 
+    /// Return a copy with SPP set to `mode` (must not be Machine).
     pub fn with_spp(self, mode: PrivilegeMode) -> Self {
         debug_assert!(
             mode != PrivilegeMode::Machine,

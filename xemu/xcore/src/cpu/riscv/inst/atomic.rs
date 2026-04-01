@@ -1,3 +1,5 @@
+//! A extension: atomic LR/SC and AMO (.w/.d) handlers.
+
 // Word-to-u32 casts/masks are no-ops on isa32 but needed on isa64.
 #![allow(clippy::identity_op, clippy::unnecessary_cast)]
 

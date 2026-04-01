@@ -1,17 +1,22 @@
+//! Bit-field extraction and sign-extension helpers.
+
 use crate::config::{SWord, Word};
 
+/// Extract bits `[hi:lo]` (inclusive) from a 32-bit value.
 #[inline(always)]
 pub fn bit_u32(value: u32, hi: u8, lo: u8) -> u32 {
     assert!(hi < 32 && lo <= hi);
     (value >> lo) & ((1u32 << (hi - lo + 1)) - 1)
 }
 
+/// Sign-extend a `bits`-wide value to 32 bits.
 #[inline(always)]
 pub fn sext_u32(value: u32, bits: u8) -> i32 {
     let shift = 32 - bits;
     ((value << shift) as i32) >> shift
 }
 
+/// Sign-extend a `bits`-wide value to [`Word`] width.
 #[inline(always)]
 pub fn sext_word(value: Word, bits: u32) -> Word {
     let shift = Word::BITS - bits;

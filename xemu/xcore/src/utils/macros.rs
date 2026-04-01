@@ -1,3 +1,6 @@
+//! Master instruction table macro — single source of truth for all RISC-V
+//! instruction names, formats, and operand fields.
+
 #[macro_export]
 macro_rules! rv_inst_table {
     ($macro:ident) => {

@@ -1,3 +1,9 @@
+//! xdb — interactive debugger and non-interactive runner for xemu.
+//!
+//! In `debug` mode: provides a GDB-style REPL with breakpoints, watchpoints,
+//! expression evaluation, and optional difftest against QEMU/Spike.
+//! In release mode: boots and runs to completion (firmware or bare-metal).
+
 #[macro_use]
 extern crate log;
 #[macro_use]
@@ -13,6 +19,7 @@ mod expr;
 mod session;
 mod watchpoint;
 
+/// Entry point: initialize, boot, and run the emulator.
 pub fn main() -> anyhow::Result<()> {
     init_xdb();
 

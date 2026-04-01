@@ -1,3 +1,5 @@
+//! ACLINT: RISC-V Advanced Core Local Interruptor (MSWI + MTIMER + SSWI).
+
 use std::{
     sync::{
         Arc,
@@ -28,6 +30,7 @@ mmio_regs! {
 /// 512 balances accuracy (~50µs granularity at 10M IPS) vs. overhead.
 const SYNC_INTERVAL: u64 = 512;
 
+/// ACLINT timer/software interrupt controller.
 pub struct Aclint {
     epoch: Instant,
     mtime: u64,
@@ -39,6 +42,7 @@ pub struct Aclint {
 }
 
 impl Aclint {
+    /// Create ACLINT with shared IRQ state and SSIP edge flag.
     pub fn new(irq: IrqState, ssip: Arc<AtomicBool>) -> Self {
         Self {
             epoch: Instant::now(),

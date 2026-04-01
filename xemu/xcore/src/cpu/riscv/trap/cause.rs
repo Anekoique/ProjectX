@@ -1,17 +1,24 @@
+//! Trap cause encoding and `mcause`/`scause` value generation.
+
 use super::{Exception, Interrupt};
 use crate::config::Word;
 
+/// Trap cause: either a synchronous exception or an asynchronous interrupt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrapCause {
+    /// Synchronous fault or system call.
     Exception(Exception),
+    /// Asynchronous interrupt (timer, software, external).
     Interrupt(Interrupt),
 }
 
 impl TrapCause {
+    /// True if this is an asynchronous interrupt (not an exception).
     pub fn is_interrupt(&self) -> bool {
         matches!(self, Self::Interrupt(_))
     }
 
+    /// Exception/interrupt code (lower bits of `mcause`/`scause`).
     pub fn code(&self) -> Word {
         match self {
             Self::Exception(e) => *e as Word,
@@ -19,6 +26,7 @@ impl TrapCause {
         }
     }
 
+    /// Encode as `mcause`/`scause` value (interrupt bit | code).
     pub fn to_mcause(self) -> Word {
         match self {
             Self::Exception(_) => self.code(),
@@ -28,6 +36,7 @@ impl TrapCause {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A trap awaiting delivery: cause + trap value (`mtval`/`stval`).
 pub struct PendingTrap {
     pub cause: TrapCause,
     pub tval: Word,

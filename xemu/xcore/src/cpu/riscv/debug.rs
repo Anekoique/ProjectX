@@ -1,3 +1,6 @@
+//! RISC-V implementation of [`DebugOps`]: breakpoints, register/memory reads,
+//! instruction fetch, and disassembly.
+
 use super::{
     RVCore,
     csr::{CsrAddr, find_desc},

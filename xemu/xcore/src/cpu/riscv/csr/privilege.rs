@@ -1,7 +1,10 @@
+//! RISC-V privilege modes (Machine, Supervisor, User).
+
 use crate::config::Word;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+/// RISC-V privilege level. Ordered: User < Supervisor < Machine.
 pub enum PrivilegeMode {
     User       = 0,
     Supervisor = 1,
@@ -10,6 +13,7 @@ pub enum PrivilegeMode {
 }
 
 impl PrivilegeMode {
+    /// Decode from the 2-bit encoding. Reserved value 2 maps to Machine.
     pub fn from_bits(bits: Word) -> Self {
         match bits & 0x3 {
             0 => Self::User,

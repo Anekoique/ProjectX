@@ -1,3 +1,5 @@
+//! RISC-V instruction set: decoder, instruction kinds, and register names.
+
 mod decoder;
 mod inst;
 mod reg;
@@ -6,6 +8,7 @@ pub use decoder::{DECODER, DecodedInst};
 pub use inst::{InstFormat, InstKind};
 pub use reg::RVReg;
 
+/// Built-in test image: auipc + sb + lbu + ebreak + data.
 pub const IMG: [u32; 5] = [
     0x00000297, // auipc t0,0
     0x00028823, // sb  zero,16(t0)

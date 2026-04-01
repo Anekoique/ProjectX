@@ -1,3 +1,5 @@
+//! RV32I/RV64I base integer instruction handlers.
+
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use super::{RVCore, rv64_only, rv64_op};

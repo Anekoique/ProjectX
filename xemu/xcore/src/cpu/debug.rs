@@ -1,3 +1,6 @@
+//! Arch-agnostic debug inspection trait: breakpoints, register/memory reads,
+//! and instruction disassembly.
+
 use crate::error::XResult;
 
 /// Breakpoint with stable user-visible ID.
@@ -10,11 +13,13 @@ pub struct Breakpoint {
 /// Unified debug facade — breakpoint management + read-only inspection.
 /// Implemented per-arch, called through CPU pass-through methods.
 pub trait DebugOps: super::CoreOps {
-    // ── Breakpoint management ──
-
+    /// Insert a breakpoint at `addr`, returning its stable ID.
     fn add_breakpoint(&mut self, addr: usize) -> u32;
+    /// Remove breakpoint by ID. Returns `true` if found.
     fn remove_breakpoint(&mut self, id: u32) -> bool;
+    /// List all active breakpoints.
     fn list_breakpoints(&self) -> &[Breakpoint];
+    /// Skip breakpoint check for the next step (used after hitting one).
     fn set_skip_bp(&mut self);
 
     // ── State snapshot ──

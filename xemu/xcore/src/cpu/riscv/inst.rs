@@ -1,3 +1,9 @@
+//! Instruction dispatch and per-extension handlers (I/M/A/F/D/C/Zicsr).
+//!
+//! The [`build_dispatch!`] macro generates a single match on [`DecodedInst`]
+//! that routes to per-instruction handler methods. Shared macros [`rv64_op!`]
+//! and [`rv64_only!`] handle RV32/RV64 width gating.
+
 mod atomic;
 mod base;
 mod compressed;
@@ -50,6 +56,7 @@ use rv64_only;
 
 macro_rules! build_dispatch {
     ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
+        /// Route a decoded instruction to its handler method.
         #[inline]
         pub fn dispatch(&mut self, decoded: DecodedInst) -> XResult {
             match decoded {

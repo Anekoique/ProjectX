@@ -1,3 +1,8 @@
+//! Emulated hardware devices: memory bus, RAM, UART, interrupt controllers.
+//!
+//! All devices implement the [`Device`] trait for uniform MMIO dispatch.
+//! Shared interrupt state is communicated via [`IrqState`] (lock-free atomic).
+
 pub mod bus;
 pub mod intc;
 pub mod ram;
@@ -14,26 +19,38 @@ use crate::{config::Word, error::XResult};
 /// MMIO device interface. All offsets are relative to the device's base
 /// address.
 pub trait Device: Send {
+    /// Read `size` bytes at `offset`. Returns the value as a [`Word`].
     fn read(&mut self, offset: usize, size: usize) -> XResult<Word>;
+    /// Write `size` bytes of `value` at `offset`.
     fn write(&mut self, offset: usize, size: usize, value: Word) -> XResult;
+    /// Called every bus tick to advance device state (e.g. timer, FIFO drain).
     fn tick(&mut self) {}
+    /// True if the device is asserting its interrupt line.
     fn irq_line(&self) -> bool {
         false
     }
+    /// Notify the device of current IRQ line bitmap (PLIC only).
     fn notify(&mut self, _irq_lines: u32) {}
+    /// Reset device to power-on state.
     fn reset(&mut self) {}
+    /// Return the current machine timer value (ACLINT only).
     fn mtime(&self) -> Option<u64> {
         None
     }
 }
 
-// Interrupt bit positions in mip
-pub const SSIP: u64 = 1 << 1;
-pub const MSIP: u64 = 1 << 3;
-pub const STIP: u64 = 1 << 5;
-pub const MTIP: u64 = 1 << 7;
-pub const SEIP: u64 = 1 << 9;
-pub const MEIP: u64 = 1 << 11;
+/// RISC-V `mip` bit positions — shared vocabulary between CPU and devices.
+pub const SSIP: u64 = 1 << 1; // Supervisor software interrupt pending
+/// Machine software interrupt pending.
+pub const MSIP: u64 = 1 << 3; // Machine software interrupt pending
+/// Supervisor timer interrupt pending.
+pub const STIP: u64 = 1 << 5; // Supervisor timer interrupt pending
+/// Machine timer interrupt pending.
+pub const MTIP: u64 = 1 << 7; // Machine timer interrupt pending
+/// Supervisor external interrupt pending.
+pub const SEIP: u64 = 1 << 9; // Supervisor external interrupt pending
+/// Machine external interrupt pending.
+pub const MEIP: u64 = 1 << 11; // Machine external interrupt pending
 
 /// Hardware-wired mip bits managed via IrqState (excludes SSIP/STIP —
 /// software-controlled). STIP is managed by Sstc stimecmp comparison.
@@ -44,18 +61,23 @@ pub const HW_IP_MASK: Word = (MSIP | MTIP | SEIP | MEIP) as Word;
 pub struct IrqState(Arc<AtomicU64>);
 
 impl IrqState {
+    /// Create a new state with all bits cleared.
     pub fn new() -> Self {
         Self(Arc::new(AtomicU64::new(0)))
     }
+    /// Atomically assert interrupt bit(s).
     pub fn set(&self, bit: u64) {
         self.0.fetch_or(bit, Relaxed);
     }
+    /// Atomically deassert interrupt bit(s).
     pub fn clear(&self, bit: u64) {
         self.0.fetch_and(!bit, Relaxed);
     }
+    /// Read current interrupt pending bitmap.
     pub fn load(&self) -> u64 {
         self.0.load(Relaxed)
     }
+    /// Clear all pending interrupts.
     pub fn reset(&self) {
         self.0.store(0, Relaxed);
     }

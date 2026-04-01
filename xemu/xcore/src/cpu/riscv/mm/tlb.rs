@@ -1,3 +1,5 @@
+//! Translation Lookaside Buffer (TLB) with ASID-aware flush.
+
 use memory_addr::VirtAddr;
 
 use super::{PAGE_SHIFT, PAGE_SIZE, PteFlags, SvConfig};
@@ -58,6 +60,7 @@ pub(in crate::cpu::riscv) struct Tlb {
 }
 
 impl Tlb {
+    /// Create an empty TLB.
     pub fn new() -> Self {
         Self {
             entries: vec![TlbEntry::default(); TLB_SIZE],
@@ -73,6 +76,7 @@ impl Tlb {
         self.entries[entry.vpn & (TLB_SIZE - 1)] = entry;
     }
 
+    /// Invalidate entries matching the given VPN and/or ASID.
     pub fn flush(&mut self, vpn: Option<usize>, asid: Option<u16>) {
         self.entries
             .iter_mut()

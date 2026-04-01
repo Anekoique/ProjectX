@@ -1,9 +1,12 @@
+//! RISC-V general-purpose register enum (x0–x31) with ABI name lookup.
+
 use std::ops::{Index, IndexMut};
 
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 
 use crate::{XError, XResult};
 
+/// RISC-V general-purpose register (x0–x31) with ABI names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 #[allow(non_camel_case_types)]
@@ -50,11 +53,13 @@ impl RVReg {
     ];
 
     #[inline]
+    /// Convert register index (0-31) to enum variant.
     pub fn from_u8(value: u8) -> XResult<Self> {
         Self::try_from(value).map_err(|_| XError::InvalidReg)
     }
 
     #[inline]
+    /// Convert register index from u32.
     pub fn from_u32(value: u32) -> XResult<Self> {
         u8::try_from(value)
             .map_err(|_| XError::InvalidReg)

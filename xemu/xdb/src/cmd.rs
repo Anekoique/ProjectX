@@ -1,3 +1,6 @@
+//! Debugger command implementations: step, continue, examine, breakpoints,
+//! watchpoints, register inspection, and difftest control.
+
 use xcore::{XResult, with_xcpu};
 
 #[cfg(feature = "difftest")]
@@ -55,10 +58,12 @@ fn step_loop(sess: &mut Session, count: Option<u64>) -> XResult {
     Ok(())
 }
 
+/// Step `count` instructions with watchpoint/difftest checks.
 pub fn cmd_step(count: u64, sess: &mut Session) -> XResult {
     step_loop(sess, Some(count))
 }
 
+/// Continue execution until termination or watchpoint hit.
 pub fn cmd_continue(sess: &mut Session) -> XResult {
     if !sess.has_hooks() {
         return with_xcpu(|cpu| cpu.run(u64::MAX));
@@ -81,6 +86,7 @@ fn check_watchpoints(watch_mgr: &mut WatchManager) -> Option<String> {
 
 // ── Breakpoints ──
 
+/// Set a breakpoint at the given hex address.
 pub fn cmd_break(addr_str: &str) -> XResult {
     let addr = parse_addr(addr_str).map_err(|_| xcore::XError::BadAddress)?;
     let id = with_xcpu(|cpu| cpu.add_breakpoint(addr));
@@ -88,6 +94,7 @@ pub fn cmd_break(addr_str: &str) -> XResult {
     Ok(())
 }
 
+/// Delete a breakpoint by ID.
 pub fn cmd_break_delete(id: u32) -> XResult {
     let ok = with_xcpu(|cpu| cpu.remove_breakpoint(id));
     let msg = if ok { "Deleted" } else { "No" };
@@ -95,6 +102,7 @@ pub fn cmd_break_delete(id: u32) -> XResult {
     Ok(())
 }
 
+/// List all active breakpoints.
 pub fn cmd_break_list() -> XResult {
     with_xcpu(|cpu| {
         let bps = cpu.list_breakpoints();
@@ -176,6 +184,7 @@ fn examine_bytes(ops: &dyn xcore::DebugOps, base: usize, count: usize) {
 
 // ── Print expression ──
 
+/// Evaluate and print an expression.
 pub fn cmd_print(expr_str: &str) -> XResult {
     with_xcpu(|cpu| {
         let ops = cpu.debug_ops();
@@ -193,6 +202,7 @@ pub fn cmd_print(expr_str: &str) -> XResult {
 
 // ── Info ──
 
+/// Display register values.
 pub fn cmd_info(what: &str, name: Option<&str>) -> XResult {
     match what {
         "reg" | "r" => with_xcpu(|cpu| match name {
@@ -215,6 +225,7 @@ pub fn cmd_info(what: &str, name: Option<&str>) -> XResult {
 
 // ── Watchpoints ──
 
+/// Create a watchpoint on an expression.
 pub fn cmd_watch(expr_str: &str, watch_mgr: &mut WatchManager) -> XResult {
     // Validate expression before creating watchpoint — reject syntax errors
     let result = with_xcpu(|cpu| {
@@ -240,6 +251,7 @@ pub fn cmd_watch(expr_str: &str, watch_mgr: &mut WatchManager) -> XResult {
     Ok(())
 }
 
+/// List all active watchpoints.
 pub fn cmd_watch_list(watch_mgr: &WatchManager) {
     let wps = watch_mgr.list();
     if wps.is_empty() {
@@ -257,10 +269,12 @@ pub fn cmd_watch_list(watch_mgr: &WatchManager) {
 
 // ── Existing ──
 
+/// Load a binary file into memory.
 pub fn cmd_load(file: String) -> XResult {
     with_xcpu!(load(Some(file)).map(|_| ()))
 }
 
+/// Reset the CPU.
 pub fn cmd_reset() -> XResult {
     with_xcpu!(reset())
 }
@@ -268,6 +282,7 @@ pub fn cmd_reset() -> XResult {
 // ── Difftest ──
 
 #[cfg(feature = "difftest")]
+/// Attach a difftest backend (QEMU or Spike).
 pub fn cmd_dt_attach(backend: &str, sess: &mut Session) -> XResult {
     if sess.diff.is_some() {
         println!("Already attached. Use 'dt detach' first.");
@@ -301,6 +316,7 @@ pub fn cmd_dt_attach(backend: &str, sess: &mut Session) -> XResult {
 }
 
 #[cfg(feature = "difftest")]
+/// Detach the current difftest backend.
 pub fn cmd_dt_detach(sess: &mut Session) -> XResult {
     println!(
         "{}",
@@ -314,6 +330,7 @@ pub fn cmd_dt_detach(sess: &mut Session) -> XResult {
 }
 
 #[cfg(feature = "difftest")]
+/// Print difftest status.
 pub fn cmd_dt_status(sess: &Session) {
     match &sess.diff {
         Some(h) => println!(

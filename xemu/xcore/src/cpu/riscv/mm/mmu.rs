@@ -1,3 +1,5 @@
+//! MMU: multi-level page table walker with hardware A/D bit updates.
+
 use memory_addr::VirtAddr;
 
 use super::{
@@ -13,6 +15,7 @@ use crate::{
     error::{XError, XResult},
 };
 
+/// Memory Management Unit: satp-driven address translation with TLB cache.
 pub struct Mmu {
     pub(in crate::cpu::riscv) tlb: Tlb,
     sv: SvMode,
@@ -23,6 +26,7 @@ pub struct Mmu {
 }
 
 impl Mmu {
+    /// Create an MMU in bare (identity-mapped) mode.
     pub fn new() -> Self {
         Self {
             tlb: Tlb::new(),
@@ -34,6 +38,7 @@ impl Mmu {
         }
     }
 
+    /// Update translation mode and root page table from satp.
     pub fn update_satp(&mut self, raw: Word) {
         let satp = Satp::parse(raw);
         self.sv = satp.mode;
@@ -42,11 +47,13 @@ impl Mmu {
         self.tlb.flush(None, None);
     }
 
+    /// Update SUM and MXR flags from mstatus.
     pub fn update_mstatus(&mut self, sum: bool, mxr: bool) {
         self.sum = sum;
         self.mxr = mxr;
     }
 
+    /// Translate a virtual address, consulting TLB then page walker.
     pub fn translate(
         &mut self,
         vaddr: VirtAddr,

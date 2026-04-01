@@ -1,3 +1,6 @@
+//! Memory management: virtual address translation (Sv32/Sv39), TLB caching,
+//! PMP access control, and RVCore load/store/fetch wrappers.
+
 mod mmu;
 pub(super) mod pmp;
 mod tlb;
@@ -16,18 +19,20 @@ use crate::{
     error::{XError, XResult},
 };
 
-// --- MemOp ---
-
+/// Memory access type for permission checking.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum MemOp {
+    /// Instruction fetch.
     Fetch,
+    /// Data load.
     Load,
+    /// Data store.
     Store,
+    /// Atomic read-modify-write.
     Amo,
 }
 
-// --- SvMode + SvConfig ---
-
+/// Virtual memory translation mode (decoded from `satp`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum SvMode {
@@ -39,6 +44,7 @@ pub enum SvMode {
 }
 
 impl SvMode {
+    /// Decode translation mode from the `satp` register value.
     pub fn from_satp(satp: Word) -> Self {
         #[cfg(isa32)]
         if satp >> 31 == 1 {
@@ -56,6 +62,7 @@ impl SvMode {
 
     #[inline]
     #[rustfmt::skip]
+    /// Return the page table geometry for this mode. Panics on `Bare`.
     pub fn config(self) -> SvConfig {
         match self {
             Self::Bare => unreachable!("config() called on Bare mode"),
@@ -71,6 +78,7 @@ impl SvMode {
     }
 }
 
+/// Page table geometry parameters for a given Sv mode.
 pub struct SvConfig {
     pub levels: usize,
     pub pte_size: usize,
@@ -88,6 +96,7 @@ pub(super) struct Satp {
 }
 
 impl Satp {
+    /// Parse ppn, asid, and mode from a raw satp value.
     pub fn parse(raw: Word) -> Self {
         Self {
             mode: SvMode::from_satp(raw),
@@ -164,40 +173,48 @@ impl PteFlags {
 pub(super) struct Pte(pub usize);
 
 impl Pte {
+    /// Extract PTE permission flags.
     #[inline]
     pub fn flags(self) -> PteFlags {
         PteFlags::from_bits_truncate(self.0)
     }
 
+    /// PTE V bit set.
     #[inline]
     pub fn is_valid(self) -> bool {
         self.flags().contains(PteFlags::V)
     }
 
+    /// True if any of R/W/X is set (leaf PTE).
     #[inline]
     pub fn is_leaf(self) -> bool {
         self.flags().intersects(PteFlags::R | PteFlags::X)
     }
 
+    /// W without R is reserved.
     pub fn is_reserved(self) -> bool {
         self.flags().contains(PteFlags::W) && !self.flags().contains(PteFlags::R)
     }
 
+    /// Non-leaf PTE must not have A or D set.
     pub fn has_nonleaf_reserved_bits(self) -> bool {
         self.flags()
             .intersects(PteFlags::D | PteFlags::A | PteFlags::U)
     }
 
+    /// Check reserved high bits above ppn_top.
     pub fn has_high_reserved_bits(self, sv: &SvConfig) -> bool {
         let ppn_top = 10 + sv.ppn_bits;
         ppn_top < usize::BITS as usize && (self.0 >> ppn_top) != 0
     }
 
+    /// Extract the physical page number from bits [53:10].
     #[inline]
     pub fn ppn(self, sv: &SvConfig) -> usize {
         (self.0 >> 10) & ((1 << sv.ppn_bits) - 1)
     }
 
+    /// Superpage PPNs must be naturally aligned.
     pub fn superpage_aligned(self, level: usize, sv: &SvConfig) -> bool {
         level == 0 || (self.ppn(sv) & ((1 << (level * sv.vpn_bits)) - 1)) == 0
     }

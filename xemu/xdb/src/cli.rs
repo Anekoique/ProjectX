@@ -1,3 +1,6 @@
+//! CLI front-end: clap command parsing, GDB-style `x/Nf` preprocessing, and
+//! REPL input handling.
+
 use std::{io::Write, sync::OnceLock};
 
 use clap::{Parser, Subcommand};
@@ -95,6 +98,7 @@ enum Commands {
 
 #[cfg(feature = "difftest")]
 #[derive(Debug, Subcommand)]
+/// Difftest subcommands.
 pub enum DtSubcommand {
     /// Attach difftest backend (requires loaded binary)
     Attach {
@@ -122,6 +126,7 @@ fn preprocess_line(line: &str) -> String {
     }
 }
 
+/// Parse and execute one debugger command line.
 pub fn respond(line: &str, sess: &mut Session) -> Result<bool, String> {
     let line = preprocess_line(line);
     let args = shlex::split(&line).ok_or("error: Invalid quoting")?;
@@ -187,6 +192,7 @@ pub fn respond(line: &str, sess: &mut Session) -> Result<bool, String> {
     })
 }
 
+/// Print prompt and read one line from stdin.
 pub fn readline() -> Result<String, String> {
     print!("xdb> ");
     std::io::stdout().flush().map_err(|e| e.to_string())?;

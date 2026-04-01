@@ -1,3 +1,8 @@
+//! RISC-V CPU core: RV32/RV64 IMAFDCZicsr with M/S/U privilege modes.
+//!
+//! [`RVCore`] implements the fetch–decode–execute–retire pipeline, with
+//! interrupt synchronization, trap delivery, and hardware A/D bit updates.
+
 pub mod context;
 pub mod csr;
 pub mod debug;
@@ -27,6 +32,7 @@ use crate::{
     isa::{DECODER, DecodedInst, RVReg},
 };
 
+/// RISC-V CPU core: registers, CSR file, MMU, PMP, bus, and trap state.
 pub struct RVCore {
     gpr: [Word; 32],
     fpr: [u64; 32],
@@ -49,6 +55,8 @@ pub struct RVCore {
 }
 
 impl RVCore {
+    /// Create a new RVCore with default device bus (ACLINT, PLIC, UART,
+    /// Finisher).
     pub fn new() -> Self {
         let irq = IrqState::new();
         let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE);
@@ -82,6 +90,7 @@ impl RVCore {
         Self::with_bus(bus, irq)
     }
 
+    /// Create an RVCore with an externally constructed bus and IRQ state.
     pub fn with_bus(bus: Bus, irq: IrqState) -> Self {
         Self {
             gpr: [0; 32],
@@ -134,6 +143,7 @@ impl RVCore {
         );
     }
 
+    /// Queue a trap for delivery during the next retire phase.
     pub fn raise_trap(&mut self, cause: TrapCause, tval: Word) {
         debug_assert!(
             self.pending_trap.is_none(),

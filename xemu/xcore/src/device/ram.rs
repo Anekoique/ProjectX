@@ -1,3 +1,5 @@
+//! Physical RAM: contiguous byte-addressable memory with little-endian access.
+
 use std::ops::Range;
 
 use super::Device;
@@ -6,12 +8,14 @@ use crate::{
     error::{XError, XResult},
 };
 
+/// Contiguous physical RAM with little-endian byte access.
 pub struct Ram {
     range: Range<usize>,
     data: Vec<u8>,
 }
 
 impl Ram {
+    /// Allocate RAM at `base` with `size` bytes, zero-initialized.
     pub fn new(base: usize, size: usize) -> Self {
         Self {
             range: base..base.checked_add(size).expect("RAM range overflow"),
@@ -19,9 +23,11 @@ impl Ram {
         }
     }
 
+    /// Physical address range covered by this RAM.
     pub fn range(&self) -> &Range<usize> {
         &self.range
     }
+    /// Size in bytes.
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -35,6 +41,7 @@ impl Ram {
         Ok(Word::from_le_bytes(buf))
     }
 
+    /// Bulk-copy `data` into RAM at `offset`.
     pub fn load(&mut self, offset: usize, data: &[u8]) -> XResult {
         let end = offset
             .checked_add(data.len())

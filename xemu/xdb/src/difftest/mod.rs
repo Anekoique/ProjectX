@@ -9,6 +9,7 @@ use xcore::CoreContext;
 
 // ── Backend trait ──
 
+/// Reference emulator backend for per-instruction comparison.
 pub trait DiffBackend {
     fn step(&mut self) -> Result<(), String>;
     fn read_context(&mut self) -> Result<CoreContext, String>;
@@ -19,6 +20,7 @@ pub trait DiffBackend {
 
 // ── Mismatch ──
 
+/// A single register mismatch between DUT and REF.
 pub struct DiffMismatch {
     pub inst_count: u64,
     pub reg_name: &'static str,
@@ -28,12 +30,14 @@ pub struct DiffMismatch {
 
 // ── Harness ──
 
+/// Orchestrates step-compare-sync against a reference backend.
 pub struct DiffHarness {
     backend: Box<dyn DiffBackend>,
     inst_count: u64,
 }
 
 impl DiffHarness {
+    /// Wrap a backend into a harness.
     pub fn new(backend: Box<dyn DiffBackend>) -> Self {
         Self {
             backend,
@@ -61,6 +65,7 @@ impl DiffHarness {
             .map(|ref_ctx| diff_contexts(dut_ctx, &ref_ctx, self.inst_count))
     }
 
+    /// Print a formatted mismatch report to stderr.
     pub fn report_mismatch(m: &DiffMismatch) {
         eprintln!(
             "DIFFTEST MISMATCH at instruction {}:\n  register: {}\n  DUT: {:#018x}\n  REF: \
@@ -69,10 +74,12 @@ impl DiffHarness {
         );
     }
 
+    /// Number of instructions checked so far.
     pub fn inst_count(&self) -> u64 {
         self.inst_count
     }
 
+    /// Name of the attached backend.
     pub fn backend_name(&self) -> &str {
         self.backend.name()
     }
@@ -80,6 +87,7 @@ impl DiffHarness {
 
 // ── Comparison (free function — CoreContext defined in xcore) ──
 
+/// Compare DUT and REF contexts, returning the first mismatch.
 pub fn diff_contexts(
     dut: &CoreContext,
     refr: &CoreContext,

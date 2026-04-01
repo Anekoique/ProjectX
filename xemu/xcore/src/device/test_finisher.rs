@@ -1,3 +1,5 @@
+//! SiFive Test Finisher — halt/reboot device used by OpenSBI for `shutdown`.
+
 use super::{Device, mmio_regs};
 use crate::{
     config::Word,
@@ -6,9 +8,11 @@ use crate::{
 
 mmio_regs! { enum Reg { Finisher = 0x0000 } }
 
+/// SiFive test finisher device.
 pub struct TestFinisher;
 
 impl TestFinisher {
+    /// Create a new test finisher.
     pub fn new() -> Self {
         Self
     }

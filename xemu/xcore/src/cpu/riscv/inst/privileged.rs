@@ -1,3 +1,6 @@
+//! Privileged instructions: `ecall`, `ebreak`, `mret`, `sret`, `wfi`,
+//! `sfence.vma`, and memory fences.
+
 use super::RVCore;
 use crate::{
     config::{SWord, Word},

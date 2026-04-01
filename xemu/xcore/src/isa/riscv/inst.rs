@@ -1,7 +1,10 @@
+//! Instruction kind enum, format classification, and string conversion.
+
 use crate::{XError, XResult};
 
 macro_rules! define_inst_kind {
     ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
+        /// Instruction mnemonic identifier, generated from the instruction table.
         #[allow(non_camel_case_types)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[repr(u8)]
@@ -10,6 +13,7 @@ macro_rules! define_inst_kind {
         }
 
         impl InstKind {
+            /// Look up an instruction kind by mnemonic string.
             #[inline]
             pub fn from_name(name: &str) -> XResult<Self> {
                 match name {
@@ -18,6 +22,7 @@ macro_rules! define_inst_kind {
                 }
             }
 
+            /// Return the mnemonic string (e.g. `"add"`, `"jal"`).
             #[inline]
             pub fn as_str(self) -> &'static str {
                 match self {
@@ -48,6 +53,7 @@ impl InstKind {
     }
 }
 
+/// RISC-V instruction encoding format (R, I, S, B, U, J, compressed, FP).
 #[derive(Debug, Clone, Copy)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum InstFormat {
@@ -72,6 +78,7 @@ pub enum InstFormat {
 
 impl InstFormat {
     #[inline]
+    /// True for 16-bit compressed instruction formats.
     pub fn is_compressed(self) -> bool {
         !matches!(
             self,
