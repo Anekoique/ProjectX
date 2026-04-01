@@ -6,18 +6,18 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 
 ### What Works
 
-- **ISA**: RV32I/RV64I base, M (mul/div), A (atomics: LR/SC + 9 AMO ops), C (compressed), Zicsr, Zifencei (fence.i)
-- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus), satp with MMU side effects, pmpcfg/pmpaddr with lock semantics, misa (IMACSU), stimecmp (Sstc), menvcfg/senvcfg, time (mtime shadow)
+- **ISA**: RV32I/RV64I base, M (mul/div), A (atomics: LR/SC + 9 AMO ops), C (compressed), F (single-float), D (double-float), Zicsr, Zifencei (fence.i)
+- **CSR subsystem**: mstatus/sstatus (WARL), mtvec/stvec (direct + vectored), mepc/sepc, mcause/scause, medeleg/mideleg, mcounteren/scounteren, shadow registers (sie→mie, sip→mip, sstatus→mstatus), satp with MMU side effects, pmpcfg/pmpaddr with lock semantics, misa (IMAFDCSU), stimecmp (Sstc), menvcfg/senvcfg, time (mtime shadow), fcsr/fflags/frm (shifted subfield aliases)
 - **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
 - **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint, page faults), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
 - **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, hardware A/D update), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics, M-mode fast-path bypass), sfence.vma, satp WARL (Sv39-only on RV64)
 - **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI, amortized wall-clock sync), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout + PTY/stdio RX, THRE interrupt), SiFive test finisher (shutdown/reboot), `IrqState` lock-free interrupt delivery
-- **Decoding**: pest-based pattern matcher, 130 instruction patterns
+- **Decoding**: pest-based pattern matcher, 200+ instruction patterns (including F/D/compressed-D)
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser, difftest (`dt attach qemu|spike`)
 - **Difftest**: Per-instruction DUT/REF comparison against QEMU (GDB RSP) and Spike (FFI). Compares PC + GPR + privilege + 14 whitelisted CSRs (masked). MMIO-skip with raw-value sync. `csr_table!` macro `@ difftest` annotation auto-generates whitelist. Feature-gated (`DIFFTEST=1`)
 - **Logging**: Colored, timestamped, configurable levels. Per-instruction trace (`LOG=trace`), device/CSR debug (`LOG=debug`), lifecycle info (`LOG=info`). Comprehensive coverage across trap handler, memory access, CSR side effects, PLIC, ACLINT, UART, Bus.
-- **Tests**: 278 unit tests passing, 31 cpu-tests-rs, 7 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
+- **Tests**: 324 unit tests passing, 31 cpu-tests-rs, 8 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts, float), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
 - **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1.44 (initramfs, boots to interactive shell in ~3s)
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
 - **Performance**: Lock-free bus (owned, no Mutex), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
@@ -175,13 +175,13 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 
 All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float). Without F/D, the dynamic linker hits SIGILL on the first FP instruction. Currently we use a minimal static init (rv64imac) as a workaround.
 
-- [ ] **F extension** (RV32F / RV64F) — 32 float registers (f0–f31), `fcsr`/`fflags`/`frm` CSRs, ~26 instructions (fadd.s, fsub.s, fmul.s, fdiv.s, fsqrt.s, fmin.s, fmax.s, fcvt.w.s, fcvt.s.w, fmv.x.w, fmv.w.x, feq.s, flt.s, fle.s, fclass.s, flw, fsw, fmadd.s, fmsub.s, fnmadd.s, fnmsub.s, fsgnj.s, fsgnjn.s, fsgnjx.s)
-- [ ] **D extension** (RV32D / RV64D) — extend f-registers to 64-bit (NaN-boxing for F), ~26 instructions (fadd.d, fsub.d, fmul.d, fdiv.d, fsqrt.d, fcvt.d.s, fcvt.s.d, fcvt.w.d, fcvt.d.w, fmv.x.d, fmv.d.x, fld, fsd, fmadd.d, fmsub.d, fnmadd.d, fnmsub.d, etc.)
-- [ ] **CSR updates** — mstatus.FS field (Off/Initial/Clean/Dirty), misa bits F(5)+D(3)
-- [ ] **Decoder patterns** — ~52 new entries in riscv.instpat
+- [x] **F extension** (RV32F / RV64F) — 32 float registers (f0–f31), `fcsr`/`fflags`/`frm` CSRs, 26 instructions via `softfloat_pure` (pure Rust Berkeley softfloat-3), NaN-boxing, `mstatus.FS` tracking, RV64-only guards
+- [x] **D extension** (RV32D / RV64D) — extend f-registers to 64-bit NaN-boxed storage, 26 instructions, compressed D load/store (C.FLD/C.FSD/C.FLDSP/C.FSDSP)
+- [x] **CSR updates** — mstatus.FS (Off/Initial/Clean/Dirty), SD recomputation, misa F(5)+D(3), fcsr/fflags/frm as shifted subfield aliases via extended descriptor model
+- [x] **Decoder patterns** — 70 new entries (52 scalar FR + 8 FMA FR4 + 6 load/store I/S + 4 compressed), `DecodedInst::FR`/`FR4` with explicit `rm` field
+- [x] **Softfloat** — `softfloat_pure` (pure Rust, RISC-V NaN canonicalization, per-op rounding + exception flags)
 - [ ] **DTS update** — `riscv,isa = "rv64imafdcsu_sstc"`
 - [ ] **Buildroot initramfs** — replace minimal init.c with busybox from bootlin rootfs
-- [ ] **Softfloat** — use Berkeley softfloat or Rust `softfloat-wrapper` for IEEE 754 compliance
 
 ### Phase 9: Performance Optimization — PARTIAL
 

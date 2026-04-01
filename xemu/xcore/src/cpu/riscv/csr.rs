@@ -21,6 +21,8 @@ pub enum AccessRule {
     BlockedByMstatus(MStatus),
     /// Gated by mcounteren / scounteren
     CounterGated,
+    /// FP CSR: requires mstatus.FS != Off
+    RequireFP,
 }
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,7 @@ pub struct CsrDesc {
     pub wmask: Word,
     pub storage: u16,
     pub view_mask: Word,
+    pub view_shift: u8,
     pub access: AccessRule,
 }
 
@@ -107,23 +110,39 @@ macro_rules! csr_table {
 
     // RW(wmask) — normal register
     (@desc $addr:expr, RW($wmask:expr)) => {
-        CsrDesc { wmask: $wmask, storage: $addr, view_mask: !0, access: AccessRule::Standard }
+        CsrDesc { wmask: $wmask, storage: $addr, view_mask: !0, view_shift: 0, access: AccessRule::Standard }
     };
-    // RW(wmask) => alias(vmask) — shadow register
+    // RW(wmask) => alias(vmask) — shadow register (same bit positions)
     (@desc $addr:expr, RW($wmask:expr) => $alias:ident($vmask:expr)) => {
-        CsrDesc { wmask: $wmask, storage: CsrAddr::$alias as u16, view_mask: $vmask, access: AccessRule::Standard }
+        CsrDesc { wmask: $wmask, storage: CsrAddr::$alias as u16, view_mask: $vmask, view_shift: 0, access: AccessRule::Standard }
+    };
+    // RW(wmask) => alias(vmask, shift) — shifted subfield alias
+    (@desc $addr:expr, RW($wmask:expr) => $alias:ident($vmask:expr, $vshift:expr)) => {
+        CsrDesc { wmask: $wmask, storage: CsrAddr::$alias as u16, view_mask: $vmask, view_shift: $vshift, access: AccessRule::Standard }
     };
     // RO — read-only register
     (@desc $addr:expr, RO) => {
-        CsrDesc { wmask: 0, storage: $addr, view_mask: !0, access: AccessRule::Standard }
+        CsrDesc { wmask: 0, storage: $addr, view_mask: !0, view_shift: 0, access: AccessRule::Standard }
     };
     // RW + blocked_by(flag)
     (@desc $addr:expr, RW($wmask:expr), blocked_by($flag:ident)) => {
-        CsrDesc { wmask: $wmask, storage: $addr, view_mask: !0, access: AccessRule::BlockedByMstatus(MStatus::$flag) }
+        CsrDesc { wmask: $wmask, storage: $addr, view_mask: !0, view_shift: 0, access: AccessRule::BlockedByMstatus(MStatus::$flag) }
     };
     // RO + counter_gated
     (@desc $addr:expr, RO, counter_gated) => {
-        CsrDesc { wmask: 0, storage: $addr, view_mask: !0, access: AccessRule::CounterGated }
+        CsrDesc { wmask: 0, storage: $addr, view_mask: !0, view_shift: 0, access: AccessRule::CounterGated }
+    };
+    // RW(wmask), require_fp — FP CSR
+    (@desc $addr:expr, RW($wmask:expr), require_fp) => {
+        CsrDesc { wmask: $wmask, storage: $addr, view_mask: !0, view_shift: 0, access: AccessRule::RequireFP }
+    };
+    // RW(wmask) => alias(vmask), require_fp — FP CSR subfield alias
+    (@desc $addr:expr, RW($wmask:expr) => $alias:ident($vmask:expr), require_fp) => {
+        CsrDesc { wmask: $wmask, storage: CsrAddr::$alias as u16, view_mask: $vmask, view_shift: 0, access: AccessRule::RequireFP }
+    };
+    // RW(wmask) => alias(vmask, shift), require_fp — FP CSR shifted subfield alias
+    (@desc $addr:expr, RW($wmask:expr) => $alias:ident($vmask:expr, $vshift:expr), require_fp) => {
+        CsrDesc { wmask: $wmask, storage: CsrAddr::$alias as u16, view_mask: $vmask, view_shift: $vshift, access: AccessRule::RequireFP }
     };
 }
 
@@ -209,6 +228,12 @@ csr_table! {
     mimpid     = 0xF13 => [RO],
     mhartid    = 0xF14 => [RO],
 
+    // ---- Floating-Point CSRs ----
+    // fcsr is canonical storage; fflags/frm are shifted subfield aliases.
+    fflags     = 0x001 => [RW(0x1F) => fcsr(0x1F), require_fp],
+    frm        = 0x002 => [RW(0x07) => fcsr(0x07, 5), require_fp],
+    fcsr       = 0x003 => [RW(0xFF), require_fp],
+
     // ---- Counters ----
     cycle      = 0xC00 => [RO, counter_gated],
     time       = 0xC01 => [RO, counter_gated],
@@ -223,16 +248,19 @@ pub struct CsrFile {
     regs: [Word; 4096],
 }
 
-// misa: MXL | A(0) | C(2) | I(8) | M(12) | S(18) | U(20)
+// misa: MXL | A(0) | C(2) | D(3) | F(5) | I(8) | M(12) | S(18) | U(20)
 #[cfg(isa64)]
-const MISA_VALUE: Word = (2 << 62) | (1 << 20) | (1 << 18) | (1 << 12) | (1 << 8) | (1 << 2) | 1;
+const MISA_VALUE: Word =
+    (2 << 62) | (1 << 20) | (1 << 18) | (1 << 12) | (1 << 8) | (1 << 5) | (1 << 3) | (1 << 2) | 1;
 #[cfg(isa32)]
-const MISA_VALUE: Word = (1 << 30) | (1 << 20) | (1 << 18) | (1 << 12) | (1 << 8) | (1 << 2) | 1;
+const MISA_VALUE: Word =
+    (1 << 30) | (1 << 20) | (1 << 18) | (1 << 12) | (1 << 8) | (1 << 5) | (1 << 3) | (1 << 2) | 1;
 
 impl Default for CsrFile {
     fn default() -> Self {
         let mut regs = [0; 4096];
         regs[CsrAddr::misa as usize] = MISA_VALUE;
+        regs[CsrAddr::mstatus as usize] = 1 << 13; // FS = Initial (0b01)
         regs[CsrAddr::stimecmp as usize] = !0; // Sstc: no timer until software sets stimecmp
         Self { regs }
     }
@@ -258,16 +286,18 @@ impl CsrFile {
         self.regs[addr as usize] = val;
     }
 
-    /// Read using a pre-resolved descriptor.
+    /// Read using a pre-resolved descriptor (supports shifted subfield
+    /// aliases).
     pub fn read_with_desc(&self, desc: CsrDesc) -> Word {
-        self.regs[desc.storage as usize] & desc.view_mask
+        (self.regs[desc.storage as usize] >> desc.view_shift) & desc.view_mask
     }
 
-    /// Write using a pre-resolved descriptor.
+    /// Write using a pre-resolved descriptor (supports shifted subfield
+    /// aliases).
     pub fn write_with_desc(&mut self, desc: CsrDesc, val: Word) {
         let slot = &mut self.regs[desc.storage as usize];
-        let mask = desc.view_mask & desc.wmask;
-        *slot = (*slot & !mask) | (val & mask);
+        let mask = (desc.view_mask & desc.wmask) << desc.view_shift;
+        *slot = (*slot & !mask) | ((val & desc.wmask) << desc.view_shift);
     }
 
     /// Convenience: lookup + read. Returns None for unknown CSR.
@@ -389,10 +419,11 @@ mod tests {
     fn misa_initialized_with_extensions() {
         let csr = CsrFile::new();
         let misa = csr.get(CsrAddr::misa);
+        // MXL | A(0) | C(2) | D(3) | F(5) | I(8) | M(12) | S(18) | U(20)
         #[cfg(isa64)]
-        assert_eq!(misa, 0x8000_0000_0014_1105);
+        assert_eq!(misa, 0x8000_0000_0014_112D);
         #[cfg(isa32)]
-        assert_eq!(misa, 0x4014_1105);
+        assert_eq!(misa, 0x4014_112D);
     }
 
     #[test]

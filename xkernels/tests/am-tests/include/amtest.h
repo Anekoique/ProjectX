@@ -10,5 +10,6 @@ void test_csr_warl(void);
 void test_trap_ecall(void);
 void test_rtc(void);
 void test_keyboard(void);
+void test_float(void);
 
 #endif

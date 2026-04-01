@@ -21,6 +21,7 @@ static const char *descriptions[256] = {
     ['e'] = "trap-ecall:  ecall roundtrip",
     ['R'] = "rtc:         clock accuracy (interactive)",
     ['k'] = "keyboard:    UART RX echo (interactive)",
+    ['f'] = "float:       F/D floating-point",
     ['a'] = "Run all tests",
     ['h'] = "Show this help",
 };
@@ -41,6 +42,7 @@ int main(const char *args) {
         CASE('e', test_trap_ecall);
         CASE('R', test_rtc);
         CASE('k', test_keyboard);
+        CASE('f', test_float);
     case 'a':
         printf("=== am-tests ===\n");
         test_uart_putc();
@@ -50,6 +52,7 @@ int main(const char *args) {
         test_timer_irq();
         test_soft_irq();
         test_plic_access();
+        test_float();
         printf("=== ALL PASSED ===\n");
         break;
     case 'h':

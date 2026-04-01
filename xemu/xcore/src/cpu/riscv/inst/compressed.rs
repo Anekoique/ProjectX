@@ -352,6 +352,34 @@ impl RVCore {
         self.store_op(RVReg::sp, rs2, imm as SWord, 4)
     }
 
+    // --- Compressed FP D load/store (§16.3) ---
+
+    pub(super) fn c_fld(&mut self, inst: u32) -> XResult {
+        let rd = reg_prime(inst, 4, 2)?;
+        let rs1 = reg_prime(inst, 9, 7)?;
+        let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 5) << 6);
+        self.fload_op(rd, rs1, imm as SWord, 8, |v| v as _)
+    }
+
+    pub(super) fn c_fsd(&mut self, inst: u32) -> XResult {
+        let rs2 = reg_prime(inst, 4, 2)?;
+        let rs1 = reg_prime(inst, 9, 7)?;
+        let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 6, 5) << 6);
+        self.fstore_op(rs1, rs2, imm as SWord, 8, |v| v as _)
+    }
+
+    pub(super) fn c_fldsp(&mut self, inst: u32) -> XResult {
+        let rd = reg(inst, 11, 7)?;
+        let imm = (bits(inst, 12, 12) << 5) | (bits(inst, 6, 5) << 3) | (bits(inst, 4, 2) << 6);
+        self.fload_op(rd, RVReg::sp, imm as SWord, 8, |v| v as _)
+    }
+
+    pub(super) fn c_fsdsp(&mut self, inst: u32) -> XResult {
+        let rs2 = reg(inst, 6, 2)?;
+        let imm = (bits(inst, 12, 10) << 3) | (bits(inst, 9, 7) << 6);
+        self.fstore_op(RVReg::sp, rs2, imm as SWord, 8, |v| v as _)
+    }
+
     pub(super) fn c_sdsp(&mut self, inst: u32) -> XResult {
         #[cfg(isa32)]
         {

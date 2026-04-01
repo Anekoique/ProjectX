@@ -155,13 +155,15 @@ impl RVDecoder {
 #[derive(Clone, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum DecodedInst {
-    R { kind: InstKind, rd: RVReg, rs1: RVReg, rs2: RVReg },
-    I { kind: InstKind, rd: RVReg, rs1: RVReg, imm: SWord },
-    S { kind: InstKind, rs1: RVReg, rs2: RVReg, imm: SWord },
-    B { kind: InstKind, rs1: RVReg, rs2: RVReg, imm: SWord },
-    U { kind: InstKind, rd: RVReg, imm: SWord },
-    J { kind: InstKind, rd: RVReg, imm: SWord },
-    C { kind: InstKind, inst: u32 },
+    R  { kind: InstKind, rd: RVReg, rs1: RVReg, rs2: RVReg },
+    FR { kind: InstKind, rd: RVReg, rs1: RVReg, rs2: RVReg, rm: u8 },
+    FR4 { kind: InstKind, rd: RVReg, rs1: RVReg, rs2: RVReg, rs3: RVReg, rm: u8 },
+    I  { kind: InstKind, rd: RVReg, rs1: RVReg, imm: SWord },
+    S  { kind: InstKind, rs1: RVReg, rs2: RVReg, imm: SWord },
+    B  { kind: InstKind, rs1: RVReg, rs2: RVReg, imm: SWord },
+    U  { kind: InstKind, rd: RVReg, imm: SWord },
+    J  { kind: InstKind, rd: RVReg, imm: SWord },
+    C  { kind: InstKind, inst: u32 },
 }
 
 #[rustfmt::skip]
@@ -169,13 +171,15 @@ impl Debug for DecodedInst {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         use DecodedInst::*;
         match self {
-            R { kind, rd, rs1, rs2 } => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}"),
-            I { kind, rd, rs1, imm } => write!(f, "{kind:?} {rd:?}, {rs1:?}, {imm:#x}"),
-            S { kind, rs1, rs2, imm } => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
-            B { kind, rs1, rs2, imm } => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
-            U { kind, rd, imm }       => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
-            J { kind, rd, imm }       => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
-            C { kind, inst }          => write!(f, "{kind:?} {inst:?}"),
+            R  { kind, rd, rs1, rs2 }          => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}"),
+            FR { kind, rd, rs1, rs2, rm }      => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}, rm={rm}"),
+            FR4 { kind, rd, rs1, rs2, rs3, rm } => write!(f, "{kind:?} {rd:?}, {rs1:?}, {rs2:?}, {rs3:?}, rm={rm}"),
+            I  { kind, rd, rs1, imm }          => write!(f, "{kind:?} {rd:?}, {rs1:?}, {imm:#x}"),
+            S  { kind, rs1, rs2, imm }         => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
+            B  { kind, rs1, rs2, imm }         => write!(f, "{kind:?} {rs1:?}, {rs2:?}, {imm:#x}"),
+            U  { kind, rd, imm }               => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
+            J  { kind, rd, imm }               => write!(f, "{kind:?} {rd:?}, {imm:#x}"),
+            C  { kind, inst }                  => write!(f, "{kind:?} {inst:?}"),
         }
     }
 }
@@ -194,6 +198,21 @@ impl DecodedInst {
                 rd: reg(7)?,
                 rs1: reg(15)?,
                 rs2: reg(20)?,
+            }),
+            InstFormat::FR => Ok(Self::FR {
+                kind,
+                rd: reg(7)?,
+                rs1: reg(15)?,
+                rs2: reg(20)?,
+                rm: ((inst >> 12) & 0x7) as u8,
+            }),
+            InstFormat::FR4 => Ok(Self::FR4 {
+                kind,
+                rd: reg(7)?,
+                rs1: reg(15)?,
+                rs2: reg(20)?,
+                rs3: reg(27)?,
+                rm: ((inst >> 12) & 0x7) as u8,
             }),
             InstFormat::I => Ok(Self::I {
                 kind,

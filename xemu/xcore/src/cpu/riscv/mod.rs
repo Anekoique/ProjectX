@@ -9,7 +9,7 @@ use memory_addr::{MemoryAddr, VirtAddr};
 
 pub use self::{RVCore as Core, context::RVCoreContext as CoreContext, trap::PendingTrap};
 use self::{
-    csr::{CsrAddr, CsrFile, PrivilegeMode},
+    csr::{CsrAddr, CsrFile, MStatus, PrivilegeMode},
     mm::{Mmu, Pmp},
     trap::TrapCause,
 };
@@ -23,12 +23,13 @@ use crate::{
         test_finisher::TestFinisher,
         uart::Uart,
     },
-    error::XResult,
+    error::{XError, XResult},
     isa::{DECODER, DecodedInst, RVReg},
 };
 
 pub struct RVCore {
     gpr: [Word; 32],
+    fpr: [u64; 32],
     pc: VirtAddr,
     npc: VirtAddr,
     pub(crate) csr: CsrFile,
@@ -84,6 +85,7 @@ impl RVCore {
     pub fn with_bus(bus: Bus, irq: IrqState) -> Self {
         Self {
             gpr: [0; 32],
+            fpr: [0; 32],
             pc: VirtAddr::from(0),
             npc: VirtAddr::from(0),
             csr: CsrFile::new(),
@@ -115,6 +117,20 @@ impl RVCore {
         let mip =
             (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !(STIP as Word)) | (hw & HW_IP_MASK) | stip;
         self.csr.set(CsrAddr::mip, mip);
+    }
+
+    /// Trap if mstatus.FS == Off (floating-point disabled).
+    pub(crate) fn require_fp(&self) -> XResult {
+        ((self.csr.get(CsrAddr::mstatus) >> 13) & 0x3 != 0).ok_or(XError::InvalidInst)
+    }
+
+    /// Set mstatus.FS = Dirty (0b11) and SD = 1.
+    pub(crate) fn dirty_fp(&mut self) {
+        let ms = self.csr.get(CsrAddr::mstatus);
+        self.csr.set(
+            CsrAddr::mstatus,
+            ms | MStatus::FS.bits() | MStatus::SD.bits(),
+        );
     }
 
     pub fn raise_trap(&mut self, cause: TrapCause, tval: Word) {
@@ -178,6 +194,7 @@ impl CoreOps for RVCore {
 
     fn reset(&mut self) -> XResult {
         self.gpr.fill(0);
+        self.fpr.fill(0);
         self.pc = VirtAddr::from(RESET_VECTOR);
         self.npc = self.pc;
         self.csr = CsrFile::new();
