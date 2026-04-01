@@ -10,7 +10,7 @@
 		stdout-path = "/soc/serial@10000000";
 		bootargs = "earlycon=sbi console=ttyS0 rdinit=/init";
 		linux,initrd-start = <0x0 0x84000000>;
-		linux,initrd-end = <0x0 0x84100000>;
+		linux,initrd-end = <0x0 0x85000000>;
 	};
 
 	memory@80000000 {
@@ -39,7 +39,7 @@
 			reg = <0>;
 			status = "okay";
 			compatible = "riscv";
-			riscv,isa = "rv64imacsu_sstc";
+			riscv,isa = "rv64imafdcsu_sstc";
 			mmu-type = "riscv,sv39";
 
 			cpu0_intc: interrupt-controller {
