@@ -180,8 +180,8 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 - [x] **CSR updates** — mstatus.FS (Off/Initial/Clean/Dirty), SD recomputation, misa F(5)+D(3), fcsr/fflags/frm as shifted subfield aliases via extended descriptor model
 - [x] **Decoder patterns** — 70 new entries (52 scalar FR + 8 FMA FR4 + 6 load/store I/S + 4 compressed), `DecodedInst::FR`/`FR4` with explicit `rm` field
 - [x] **Softfloat** — `softfloat_pure` (pure Rust, RISC-V NaN canonicalization, per-op rounding + exception flags)
-- [ ] **DTS update** — `riscv,isa = "rv64imafdcsu_sstc"`
-- [ ] **Buildroot initramfs** — replace minimal init.c with busybox from bootlin rootfs
+- [x] **DTS update** — `riscv,isa = "rv64imafdcsu_sstc"`
+- [x] **Buildroot initramfs** — bootlin rootfs (busybox + glibc lp64d), auto-downloaded and packed into cpio.gz
 
 ### Phase 9: Performance Optimization — PARTIAL
 
@@ -207,7 +207,7 @@ The critical path to OS boot is:
 4. ~~**Phase 6 (Difftest)**~~ — COMPLETE (framework + QEMU/Spike backends; CI integration deferred)
 5. ~~**Keyboard**~~ — COMPLETE (PTY-based UART serial console)
 6. ~~**Phase 7 (OS boot)**~~ — COMPLETE (OpenSBI + xv6 + Linux to interactive shell)
-7. **Phase 8 (F/D extension)** — floating-point for busybox/buildroot Linux userspace
+7. ~~**Phase 8 (F/D extension)**~~ — COMPLETE (F/D float + buildroot/busybox Linux boot)
 8. ~~**Phase 9 (Performance)**~~ — PARTIAL (lock-free bus, amortized timer, PMP fast-path, split tick)
 9. **Instruction cache** — hot-path decode caching for further speedup
 
