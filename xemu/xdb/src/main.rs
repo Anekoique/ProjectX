@@ -23,7 +23,8 @@ mod watchpoint;
 pub fn main() -> anyhow::Result<()> {
     init_xdb();
 
-    xcore::init_xcore().map_err(|e| anyhow!("XCore Error: {e}"))?;
+    let config = machine_config()?;
+    xcore::init_xcore(config).map_err(|e| anyhow!("XCore Error: {e}"))?;
 
     run(boot_config()).map_err(|e| anyhow!("XDB Error: {e}"))?;
 
@@ -37,6 +38,19 @@ fn init_xdb() {
     xlogger::init();
     xlogger::set_max_level(option_env!("X_LOG").unwrap_or(""));
     info!("Hello, xdb!");
+}
+
+fn machine_config() -> anyhow::Result<xcore::MachineConfig> {
+    let env = |n: &str| std::env::var(n).ok().filter(|s| !s.is_empty());
+    match env("X_DISK") {
+        Some(path) => {
+            let disk = std::fs::read(&path)
+                .map_err(|e| anyhow!("Failed to read disk image {path}: {e}"))?;
+            info!("Loaded disk image: {} ({} bytes)", path, disk.len());
+            Ok(xcore::MachineConfig::with_disk(disk))
+        }
+        None => Ok(xcore::MachineConfig::default()),
+    }
 }
 
 fn boot_config() -> xcore::BootConfig {

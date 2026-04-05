@@ -14,8 +14,9 @@ DTB       := xemu.dtb
 include opensbi.mk
 include xv6.mk
 include linux.mk
+include debian.mk
 
-.PHONY: all dtb clean opensbi xv6 linux
+.PHONY: all dtb clean opensbi xv6 linux debian
 
 all: dtb build-opensbi build-xv6
 
@@ -27,5 +28,5 @@ opensbi: run-opensbi
 xv6:     run-xv6
 linux:   run-linux
 
-clean: clean-opensbi clean-xv6 clean-linux
+clean: clean-opensbi clean-xv6 clean-linux clean-debian
 	rm -f $(DTB)

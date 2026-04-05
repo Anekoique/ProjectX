@@ -1,9 +1,45 @@
 //! Platform configuration: memory layout, word-width types, and shift helpers.
 
 /// Physical RAM base address.
-pub const CONFIG_MBASE: usize = 0x80000000;
-/// Physical RAM size (128 MB).
-pub const CONFIG_MSIZE: usize = 0x8000000;
+pub const CONFIG_MBASE: usize = 0x8000_0000;
+/// Default physical RAM size (128 MB).
+pub const CONFIG_MSIZE: usize = 0x0800_0000;
+
+/// Machine configuration — independent inputs driving bus, devices, and boot.
+pub struct MachineConfig {
+    pub ram_size: usize,
+    pub disk: Option<Vec<u8>>,
+}
+
+impl Default for MachineConfig {
+    fn default() -> Self {
+        Self {
+            ram_size: CONFIG_MSIZE,
+            disk: None,
+        }
+    }
+}
+
+impl MachineConfig {
+    /// Disk profile: 1 GB RAM + disk image.
+    pub fn with_disk(disk: Vec<u8>) -> Self {
+        Self {
+            ram_size: 0x4000_0000,
+            disk: Some(disk),
+        }
+    }
+
+    /// FDT load address: 1 MB below top of RAM.
+    pub fn fdt_addr(&self) -> usize {
+        CONFIG_MBASE + self.ram_size - 0x10_0000
+    }
+}
+
+/// Boot layout persisted in CPU across resets.
+#[derive(Clone, Copy, Debug)]
+pub struct BootLayout {
+    pub fdt_addr: usize,
+}
 
 /// Unsigned machine word (u64 on RV64, u32 on RV32).
 #[cfg(isa64)]

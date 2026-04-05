@@ -35,6 +35,8 @@ pub enum XError {
     DebugBreak(usize),
     /// Feature not yet implemented.
     Unimplemented,
+    /// init_xcore() called more than once.
+    AlreadyInitialized,
 }
 
 /// Convenience alias: `Result<T, XError>` with default `T = ()`.
@@ -66,6 +68,7 @@ impl XError {
             XError::ProgramExit(_) => "program exit",
             XError::DebugBreak(_) => "breakpoint hit",
             XError::Unimplemented => "unimplemented",
+            XError::AlreadyInitialized => "already initialized",
         }
     }
 }
@@ -107,6 +110,7 @@ mod tests {
             XError::FailedToRead,
             XError::FailedToWrite,
             XError::Unimplemented,
+            XError::AlreadyInitialized,
         ];
         for v in &variants {
             assert!(!v.as_str().is_empty());

@@ -6,3 +6,5 @@
 /opensbi
 /xv6
 /linux
+/debian
+*.img.tar.xz

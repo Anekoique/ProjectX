@@ -159,47 +159,59 @@ impl Bus {
         }
     }
 
-    /// Reset all MMIO devices to initial state.
+    /// Hard-reset all MMIO devices to power-on state.
     pub fn reset_devices(&mut self) {
         debug!("bus: resetting all devices");
         for r in &mut self.mmio {
-            r.dev.reset();
+            r.dev.hard_reset();
         }
     }
 
-    fn find_mmio(&mut self, addr: usize, size: usize) -> XResult<(&mut dyn Device, usize)> {
+    fn find_mmio_idx(&self, addr: usize, size: usize) -> XResult<usize> {
         let end = addr.checked_add(size).ok_or(XError::BadAddress)?;
-        let r = self
-            .mmio
-            .iter_mut()
-            .find(|r| r.contains(addr, end))
-            .ok_or(XError::BadAddress)?;
-        Ok((r.dev.as_mut(), addr - r.range.start))
-    }
-
-    fn dispatch<T>(
-        &mut self,
-        addr: usize,
-        size: usize,
-        f: impl FnOnce(&mut dyn Device, usize) -> XResult<T>,
-    ) -> XResult<T> {
-        if let Some(off) = self.ram_offset(addr, size) {
-            return f(&mut self.ram, off);
-        }
-        #[cfg(feature = "difftest")]
-        self.mmio_accessed.store(true, Relaxed);
-        let (dev, off) = self.find_mmio(addr, size)?;
-        f(dev, off)
+        self.mmio
+            .iter()
+            .position(|r| r.contains(addr, end))
+            .ok_or(XError::BadAddress)
     }
 
     /// Read from RAM or MMIO device at physical address.
     pub fn read(&mut self, addr: usize, size: usize) -> XResult<Word> {
-        self.dispatch(addr, size, |dev, off| dev.read(off, size))
+        if let Some(off) = self.ram_offset(addr, size) {
+            return self.ram.read(off, size);
+        }
+        #[cfg(feature = "difftest")]
+        self.mmio_accessed.store(true, Relaxed);
+        let idx = self.find_mmio_idx(addr, size)?;
+        let off = addr - self.mmio[idx].range.start;
+        self.mmio[idx].dev.read(off, size)
     }
 
     /// Write to RAM or MMIO device at physical address.
     pub fn write(&mut self, addr: usize, size: usize, value: Word) -> XResult {
-        self.dispatch(addr, size, |dev, off| dev.write(off, size, value))
+        if let Some(off) = self.ram_offset(addr, size) {
+            return self.ram.write(off, size, value);
+        }
+        #[cfg(feature = "difftest")]
+        self.mmio_accessed.store(true, Relaxed);
+        let idx = self.find_mmio_idx(addr, size)?;
+        let off = addr - self.mmio[idx].range.start;
+        self.mmio[idx].dev.write(off, size, value)?;
+        self.maybe_process_dma(idx);
+        Ok(())
+    }
+
+    /// If a device flagged a pending DMA notification, process it now.
+    fn maybe_process_dma(&mut self, idx: usize) {
+        if !self.mmio[idx].dev.take_notify() {
+            return;
+        }
+        let ram_base = self.ram.range().start;
+        let mut dma = DmaCtx {
+            ram: &mut self.ram,
+            ram_base,
+        };
+        self.mmio[idx].dev.process_dma(&mut dma);
     }
 
     /// Direct RAM read (no MMIO dispatch, no side effects).
@@ -228,6 +240,76 @@ impl Bus {
         (end <= self.ram.len()).then_some(off)
     }
 }
+
+// ---------------------------------------------------------------------------
+// DMA context — safe guest-memory accessor for DMA-capable devices
+// ---------------------------------------------------------------------------
+
+/// Safe guest-memory accessor created by Bus during DMA processing.
+pub struct DmaCtx<'a> {
+    ram: &'a mut Ram,
+    ram_base: usize,
+}
+
+impl<'a> DmaCtx<'a> {
+    /// Create a DmaCtx for unit tests (not used in production).
+    #[cfg(test)]
+    pub fn test_new(ram: &'a mut Ram, ram_base: usize) -> Self {
+        Self { ram, ram_base }
+    }
+
+    fn offset(&self, paddr: usize, len: usize) -> XResult<usize> {
+        paddr
+            .checked_sub(self.ram_base)
+            .filter(|&off| {
+                off.checked_add(len)
+                    .is_some_and(|end| end <= self.ram.len())
+            })
+            .ok_or(XError::BadAddress)
+    }
+
+    /// Read a contiguous byte slice from guest physical address.
+    pub fn read_bytes(&self, paddr: usize, buf: &mut [u8]) -> XResult {
+        let off = self.offset(paddr, buf.len())?;
+        self.ram.read_bytes(off, buf)
+    }
+
+    /// Write a contiguous byte slice to guest physical address.
+    pub fn write_bytes(&mut self, paddr: usize, data: &[u8]) -> XResult {
+        let off = self.offset(paddr, data.len())?;
+        self.ram.write_bytes(off, data)
+    }
+
+    /// Read a little-endian value of any primitive type.
+    pub fn read_val<T: LeBytes>(&self, paddr: usize) -> XResult<T> {
+        let mut buf = T::Buf::default();
+        self.read_bytes(paddr, buf.as_mut())?;
+        Ok(T::from_le(buf))
+    }
+
+    /// Write a little-endian value of any primitive type.
+    pub fn write_val<T: LeBytes>(&mut self, paddr: usize, val: T) -> XResult {
+        self.write_bytes(paddr, val.to_le().as_ref())
+    }
+}
+
+/// Little-endian byte conversion for DMA primitive reads/writes.
+pub trait LeBytes: Sized {
+    type Buf: Default + AsMut<[u8]> + AsRef<[u8]>;
+    fn from_le(buf: Self::Buf) -> Self;
+    fn to_le(self) -> Self::Buf;
+}
+
+macro_rules! impl_le_bytes {
+    ($($ty:ty),*) => { $(
+        impl LeBytes for $ty {
+            type Buf = [u8; std::mem::size_of::<$ty>()];
+            fn from_le(buf: Self::Buf) -> Self { <$ty>::from_le_bytes(buf) }
+            fn to_le(self) -> Self::Buf { self.to_le_bytes() }
+        }
+    )* };
+}
+impl_le_bytes!(u8, u16, u32, u64);
 
 #[cfg(test)]
 mod tests {

@@ -11,14 +11,14 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Privilege modes**: M/S/U transitions, trap delegation, mret/sret with MPRV handling
 - **Trap handling**: Exception dispatch (ecall per mode, illegal instruction, breakpoint, page faults), interrupt priority/masking (MIE/SIE gating, global enable, delegation), vectored mode
 - **Memory subsystem**: Device trait + Bus (Ram + MMIO routing), MMU (SV32/SV39 page walk, hardware A/D update), TLB (64-entry direct-mapped, ASID-tagged), PMP (16 entries, TOR/NA4/NAPOT, lock semantics, M-mode fast-path bypass), sfence.vma, satp WARL (Sv39-only on RV64)
-- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI, amortized wall-clock sync), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout + PTY/stdio RX, THRE interrupt), SiFive test finisher (shutdown/reboot), `IrqState` lock-free interrupt delivery
+- **Device emulation**: ACLINT (MSWI + MTIMER 10MHz + SSWI, amortized wall-clock sync), PLIC (32 sources, 2 contexts, level-triggered), UART 16550 (TX stdout + PTY/stdio RX, THRE interrupt, Ctrl-A X exit), SiFive test finisher (shutdown/reboot), VirtIO-blk (MMIO legacy v1, split virtqueue DMA via `DmaCtx`, snapshot-backed), `IrqState` lock-free interrupt delivery
 - **Decoding**: pest-based pattern matcher, 200+ instruction patterns (including F/D/compressed-D)
 - **xlib (klib)**: Freestanding C library — printf/sprintf (format.c), puts/putch (stdio.c), memset/memcpy/strlen/strcmp/strcat/strchr (string.c)
 - **Debugger (xdb)**: breakpoints (stable IDs), watchpoints (expression-based), expression evaluator (`$reg`, `*addr`, arithmetic), disassembly (`x/Ni`), memory examine (`x/Nx`), register inspect (`info reg`), GDB-style `x/Nf` pre-parser, difftest (`dt attach qemu|spike`)
 - **Difftest**: Per-instruction DUT/REF comparison against QEMU (GDB RSP) and Spike (FFI). Compares PC + GPR + privilege + 14 whitelisted CSRs (masked). MMIO-skip with raw-value sync. `csr_table!` macro `@ difftest` annotation auto-generates whitelist. Feature-gated (`DIFFTEST=1`)
 - **Logging**: Colored, timestamped, configurable levels. Per-instruction trace (`LOG=trace`), device/CSR debug (`LOG=debug`), lifecycle info (`LOG=info`). Comprehensive coverage across trap handler, memory access, CSR side effects, PLIC, ACLINT, UART, Bus.
-- **Tests**: 324 unit tests passing, 31 cpu-tests-rs, 8 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts, float), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
-- **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1.44 (initramfs, boots to interactive shell in ~3s)
+- **Tests**: 336 unit tests passing, 31 cpu-tests-rs, 8 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts, float), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
+- **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1.44 (initramfs, boots to interactive shell in ~3s), **Debian 13 Trixie** (4 GB ext4 root via VirtIO-blk, 288 dpkg packages, Python3 verified)
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
 - **Performance**: Lock-free bus (owned, no Mutex), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
@@ -47,8 +47,8 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Disassembly | None | LLVM-based disassembler |
 | Performance profiling | None | Per-instruction counters |
 
-**Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic extensions, clean WARL CSR model, dual-backend difftest.
-**Key gaps**: No VGA, no disk.
+**Key strength of xemu**: Dual RV32/RV64 via `cfg`, compressed + atomic + float extensions, clean WARL CSR model, dual-backend difftest, VirtIO-blk disk boot.
+**Key gaps**: No VGA.
 
 ### vs remu (~3,800 lines, RV32)
 
@@ -65,8 +65,8 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 | Configuration | Makefile env vars | Kconfig system (.config -> config.rs) |
 | Linux boot | OpenSBI + Linux 6.1 (initramfs) | OpenSBI + Linux 5.15 |
 
-**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic insts, full trap delegation, dual-backend difftest. Boots OpenSBI + xv6 + Linux.
-**Key gaps**: No VGA, audio, disk. Fewer device types overall. Slower (no instruction cache).
+**Key strength of xemu**: Cleaner architecture (traits, generics), RV64 support, compressed + atomic + float insts, full trap delegation, dual-backend difftest, VirtIO-blk. Boots OpenSBI + xv6 + Linux + Debian.
+**Key gaps**: No VGA, audio. Fewer device types overall. Slower (no instruction cache).
 
 ### Architectural Advantages of xemu
 
@@ -166,8 +166,8 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
   - UART stdio mode: stdin/stdout for non-debug firmware boot, PTY for debug mode
 - [x] **Keyboard** — PTY-based UART serial console (completed as prerequisite)
 - [x] **Boot infrastructure** — `BootConfig` enum, `BootMode` trait, FDT support, initrd loading
+- [x] **VirtIO-blk** — block device for filesystem support (Phase 10)
 - [ ] **VGA framebuffer** — graphical output (deferred)
-- [ ] **Disk** — block device for filesystem support (deferred)
 
 ### Phase 8: F/D Floating-Point Extension
 
@@ -182,6 +182,20 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 - [x] **Softfloat** — `softfloat_pure` (pure Rust, RISC-V NaN canonicalization, per-op rounding + exception flags)
 - [x] **DTS update** — `riscv,isa = "rv64imafdcsu_sstc"`
 - [x] **Buildroot initramfs** — bootlin rootfs (busybox + glibc lp64d), auto-downloaded and packed into cpio.gz
+
+### Phase 10: VirtIO Block Device & Debian Boot — COMPLETE
+
+**Goal**: Boot a real Linux distribution from a block device to validate emulator correctness.
+
+- [x] **VirtIO-blk** — MMIO legacy (v1) transport, split virtqueue (128 entries), synchronous DMA processing
+- [x] **`DmaCtx`** — bus-mediated guest-memory accessor with `LeBytes` trait for type-safe reads/writes, no unsafe aliasing
+- [x] **`BlkStorage`** — separated from transport state for safe borrow splitting in `process_dma`
+- [x] **`MachineConfig`** — config-aware `XCPU` construction (`OnceLock`), `BootLayout` persists FDT address
+- [x] **Two-tier reset** — VirtIO transport reset (disk preserved) vs emulator `hard_reset` (disk snapshot restored)
+- [x] **UART Ctrl-A X** — QEMU-style escape for clean exit from firmware boot
+- [x] **Debian 13 Trixie** — 4 GB ext4 rootfs mounted via `/dev/vda`, 288 dpkg packages, Python3 verified
+- [x] **Build system** — `make debian` downloads pre-built image, compiles DTB, boots with bootlin kernel
+- [x] **Device tree** — `xemu-debian.dts` with 1 GB RAM, `virtio,mmio` node, `root=/dev/vda rw`
 
 ### Phase 9: Performance Optimization — PARTIAL
 
@@ -209,7 +223,8 @@ The critical path to OS boot is:
 6. ~~**Phase 7 (OS boot)**~~ — COMPLETE (OpenSBI + xv6 + Linux to interactive shell)
 7. ~~**Phase 8 (F/D extension)**~~ — COMPLETE (F/D float + buildroot/busybox Linux boot)
 8. ~~**Phase 9 (Performance)**~~ — PARTIAL (lock-free bus, amortized timer, PMP fast-path, split tick)
-9. **Instruction cache** — hot-path decode caching for further speedup
+9. ~~**Phase 10 (VirtIO/Debian)**~~ — COMPLETE (VirtIO-blk + Debian 13 Trixie boot)
+10. **Instruction cache** — hot-path decode caching for further speedup
 
 ---
 

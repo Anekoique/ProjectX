@@ -51,10 +51,31 @@ impl Ram {
         Ok(())
     }
 
+    /// Read a contiguous byte slice at `offset`.
+    pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> XResult {
+        let end = self.check_range(offset, buf.len())?;
+        buf.copy_from_slice(&self.data[offset..end]);
+        Ok(())
+    }
+
+    /// Write a contiguous byte slice at `offset`.
+    pub fn write_bytes(&mut self, offset: usize, data: &[u8]) -> XResult {
+        let end = self.check_range(offset, data.len())?;
+        self.data[offset..end].copy_from_slice(data);
+        Ok(())
+    }
+
     fn check_bounds(&self, offset: usize, size: usize) -> XResult<usize> {
         offset
             .checked_add(size)
             .filter(|&e| e <= self.data.len() && size <= std::mem::size_of::<Word>())
+            .ok_or(XError::BadAddress)
+    }
+
+    fn check_range(&self, offset: usize, size: usize) -> XResult<usize> {
+        offset
+            .checked_add(size)
+            .filter(|&e| e <= self.data.len())
             .ok_or(XError::BadAddress)
     }
 }

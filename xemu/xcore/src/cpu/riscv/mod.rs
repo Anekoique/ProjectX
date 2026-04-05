@@ -20,13 +20,14 @@ use self::{
 };
 use super::{CoreOps, RESET_VECTOR};
 use crate::{
-    config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
+    config::{CONFIG_MBASE, MachineConfig, Word},
     device::{
         HW_IP_MASK, IrqState, SSIP, STIP,
         bus::Bus,
         intc::{aclint::Aclint, plic::Plic},
         test_finisher::TestFinisher,
         uart::Uart,
+        virtio_blk::VirtioBlk,
     },
     error::{XError, XResult},
     isa::{DECODER, DecodedInst, RVReg},
@@ -55,11 +56,15 @@ pub struct RVCore {
 }
 
 impl RVCore {
-    /// Create a new RVCore with default device bus (ACLINT, PLIC, UART,
-    /// Finisher).
+    /// Create a new RVCore with default machine profile (128 MB, no disk).
     pub fn new() -> Self {
+        Self::with_config(MachineConfig::default())
+    }
+
+    /// Create an RVCore from a machine configuration.
+    pub fn with_config(config: MachineConfig) -> Self {
         let irq = IrqState::new();
-        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE);
+        let mut bus = Bus::new(CONFIG_MBASE, config.ram_size);
         let aclint_idx = bus.mmio.len();
         bus.add_mmio(
             "aclint",
@@ -79,7 +84,6 @@ impl RVCore {
         );
         bus.set_irq_sink(plic_idx);
         bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
-        // SiFive test finisher — OpenSBI writes here on shutdown/reboot.
         bus.add_mmio(
             "finisher",
             0x10_0000,
@@ -87,6 +91,15 @@ impl RVCore {
             Box::new(TestFinisher::new()),
             0,
         );
+        if let Some(disk) = config.disk {
+            bus.add_mmio(
+                "virtio-blk0",
+                0x1000_1000,
+                0x1000,
+                Box::new(VirtioBlk::new(disk)),
+                1,
+            );
+        }
         Self::with_bus(bus, irq)
     }
 

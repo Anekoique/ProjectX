@@ -8,6 +8,8 @@ pub mod intc;
 pub mod ram;
 pub mod test_finisher;
 pub mod uart;
+pub mod virtio;
+pub mod virtio_blk;
 
 use std::sync::{
     Arc,
@@ -31,8 +33,19 @@ pub trait Device: Send {
     }
     /// Notify the device of current IRQ line bitmap (PLIC only).
     fn notify(&mut self, _irq_lines: u32) {}
-    /// Reset device to power-on state.
+    /// Soft reset: clear device-level state (VirtIO transport reset).
     fn reset(&mut self) {}
+    /// Hard reset: full restore to power-on state (emulator-level reset).
+    /// Default delegates to `reset()`. VirtioBlk overrides to restore disk.
+    fn hard_reset(&mut self) {
+        self.reset();
+    }
+    /// Return true if the device needs DMA processing after a write.
+    fn take_notify(&mut self) -> bool {
+        false
+    }
+    /// Process pending DMA operations with guest-memory access.
+    fn process_dma(&mut self, _dma: &mut bus::DmaCtx) {}
     /// Return the current machine timer value (ACLINT only).
     fn mtime(&self) -> Option<u64> {
         None

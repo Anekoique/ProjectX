@@ -89,17 +89,36 @@ extern "C" fn restore_and_exit(_sig: i32) {
 }
 
 /// Spawn a background reader thread that drains `fd` into a shared buffer.
-/// Non-blocking fds (PTY) retry on EAGAIN; blocking fds (stdin) block
-/// naturally.
+/// Implements QEMU-style Ctrl-A escape: Ctrl-A X exits, Ctrl-A Ctrl-A
+/// sends a literal Ctrl-A to the guest.
 fn spawn_reader(fd: i32) -> Arc<Mutex<VecDeque<u8>>> {
     let buf = Arc::new(Mutex::new(VecDeque::<u8>::new()));
     let rx = buf.clone();
     std::thread::spawn(move || {
         let mut b = [0u8; 64];
+        let mut escape = false;
         loop {
             let n = unsafe { libc::read(fd, b.as_mut_ptr().cast(), b.len()) };
             if n > 0 {
-                rx.lock().unwrap().extend(&b[..n as usize]);
+                let mut guard = rx.lock().unwrap();
+                for &ch in &b[..n as usize] {
+                    match escape {
+                        true => {
+                            escape = false;
+                            match ch {
+                                b'x' | b'X' => {
+                                    drop(guard);
+                                    restore_termios();
+                                    std::process::exit(0);
+                                }
+                                0x01 => guard.push_back(0x01), // Ctrl-A Ctrl-A → literal
+                                _ => {}                        // ignore unknown escape
+                            }
+                        }
+                        false if ch == 0x01 => escape = true, // Ctrl-A prefix
+                        false => guard.push_back(ch),
+                    }
+                }
             } else if n == 0 {
                 break;
             } else {

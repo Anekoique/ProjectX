@@ -24,13 +24,14 @@ extern crate log;
 #[macro_use]
 extern crate xlogger;
 
-mod config;
+pub mod config;
 mod cpu;
 pub(crate) mod device;
 mod error;
 mod isa;
 mod utils;
 
+pub use config::{BootLayout, MachineConfig};
 pub use cpu::{
     BootConfig, CoreContext, RESET_VECTOR, State, XCPU,
     debug::{Breakpoint, DebugOps},
@@ -39,8 +40,18 @@ pub use cpu::{
 pub use device::uart::Uart;
 pub use error::{XError, XResult};
 
-/// Initialize the emulator core and reset the CPU to its initial state.
-pub fn init_xcore() -> XResult {
+/// Initialize the emulator core from a machine configuration.
+/// Must be called exactly once before any `with_xcpu` access.
+pub fn init_xcore(config: MachineConfig) -> XResult {
+    use std::sync::Mutex;
     info!("Hello xcore!");
+    let layout = BootLayout {
+        fdt_addr: config.fdt_addr(),
+    };
+    let core = cpu::Core::with_config(config);
+    let cpu = cpu::CPU::new(core, layout);
+    cpu::XCPU
+        .set(Mutex::new(cpu))
+        .map_err(|_| XError::AlreadyInitialized)?;
     with_xcpu!(reset())
 }

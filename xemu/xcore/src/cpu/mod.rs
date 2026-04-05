@@ -6,7 +6,7 @@
 mod core;
 pub mod debug;
 
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Mutex, OnceLock};
 
 use inherit_methods_macro::inherit_methods;
 use memory_addr::VirtAddr;
@@ -14,7 +14,7 @@ use xlogger::ColorCode;
 
 use self::{core::CoreOps, debug::DebugOps};
 use crate::{
-    config::Word,
+    config::{BootLayout, Word},
     error::{XError, XResult},
 };
 
@@ -35,7 +35,6 @@ pub enum BootConfig {
 // Boot memory layout (matches OpenSBI fw_jump convention):
 const KERNEL_LOAD_ADDR: usize = 0x8020_0000; // FW_JUMP_ADDR: 2MB after DRAM base
 const INITRD_LOAD_ADDR: usize = 0x8400_0000; // after kernel region
-const FDT_LOAD_ADDR: usize = 0x87F0_0000; // near top of 128MB DRAM
 
 cfg_if::cfg_if! {
     if #[cfg(riscv)] {
@@ -47,8 +46,8 @@ cfg_if::cfg_if! {
     }
 }
 
-/// Global singleton CPU instance, protected by a mutex.
-pub static XCPU: LazyLock<Mutex<CPU<Core>>> = LazyLock::new(|| Mutex::new(CPU::new(Core::new())));
+/// Global singleton CPU instance, initialized by `init_xcore(config)`.
+pub static XCPU: OnceLock<Mutex<CPU<Core>>> = OnceLock::new();
 
 /// DRAM base address where the first instruction executes.
 pub const RESET_VECTOR: usize = 0x80000000;
@@ -81,17 +80,19 @@ pub struct CPU<Core: CoreOps> {
     halt_pc: VirtAddr,
     halt_ret: Word,
     boot_config: BootConfig,
+    boot_layout: BootLayout,
 }
 
 impl<Core: CoreOps + DebugOps> CPU<Core> {
     /// Create a CPU wrapper around an arch-specific core.
-    pub fn new(core: Core) -> Self {
+    pub fn new(core: Core, layout: BootLayout) -> Self {
         Self {
             core,
             state: State::Idle,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
             boot_config: BootConfig::Direct { file: None },
+            boot_layout: layout,
         }
     }
 
@@ -137,6 +138,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         initrd: Option<String>,
         fdt: String,
     ) -> XResult {
+        let fdt_addr = self.boot_layout.fdt_addr;
         self.load_file_at(&fw, RESET_VECTOR)?;
         if let Some(ref k) = kernel {
             self.load_file_at(k, KERNEL_LOAD_ADDR)?;
@@ -144,10 +146,8 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         if let Some(ref rd) = initrd {
             self.load_file_at(rd, INITRD_LOAD_ADDR)?;
         }
-        self.load_file_at(&fdt, FDT_LOAD_ADDR)?;
-        self.core.setup_boot(core::BootMode::Firmware {
-            fdt_addr: FDT_LOAD_ADDR,
-        });
+        self.load_file_at(&fdt, fdt_addr)?;
+        self.core.setup_boot(core::BootMode::Firmware { fdt_addr });
         info!("firmware boot: fw={fw}, kernel={kernel:?}, initrd={initrd:?}, fdt={fdt}");
         Ok(())
     }
@@ -251,6 +251,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
             State::Idle => {}
         }
     }
+
     /// Access the core's debug inspection interface.
     pub fn debug_ops(&self) -> &dyn DebugOps {
         &self.core
@@ -280,7 +281,11 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
 /// Lock the global CPU and execute `f` with exclusive access.
 pub fn with_xcpu<R>(f: impl FnOnce(&mut CPU<Core>) -> R) -> R {
-    let mut guard = XCPU.lock().expect("Poisoned lock on CPU mutex");
+    let mut guard = XCPU
+        .get()
+        .expect("XCPU not initialized — call init_xcore() first")
+        .lock()
+        .expect("Poisoned lock on CPU mutex");
     f(&mut guard)
 }
 
@@ -308,7 +313,10 @@ mod tests {
     use super::*;
 
     fn new_cpu() -> CPU<Core> {
-        let mut cpu = CPU::new(Core::new());
+        let layout = BootLayout {
+            fdt_addr: crate::config::CONFIG_MBASE + crate::config::CONFIG_MSIZE - 0x10_0000,
+        };
+        let mut cpu = CPU::new(Core::new(), layout);
         cpu.reset().unwrap();
         cpu
     }
