@@ -14,7 +14,7 @@ use memory_addr::{MemoryAddr, VirtAddr};
 
 pub use self::{RVCore as Core, context::RVCoreContext as CoreContext, trap::PendingTrap};
 use self::{
-    csr::{CsrAddr, CsrFile, MStatus, PrivilegeMode},
+    csr::{CsrAddr, CsrFile, MStatus, Mip, PrivilegeMode},
     mm::{Mmu, Pmp},
     trap::TrapCause,
 };
@@ -22,7 +22,7 @@ use super::{CoreOps, RESET_VECTOR};
 use crate::{
     config::{CONFIG_MBASE, MachineConfig, Word},
     device::{
-        HW_IP_MASK, IrqState, SSIP, STIP,
+        HW_IP_MASK, IrqState,
         bus::Bus,
         intc::{aclint::Aclint, plic::Plic},
         test_finisher::TestFinisher,
@@ -133,12 +133,13 @@ impl RVCore {
         let hw = self.irq.load() as Word;
         let stip: Word =
             if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
-                STIP as Word
+                Mip::STIP.bits()
             } else {
                 0
             };
-        let mip =
-            (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !(STIP as Word)) | (hw & HW_IP_MASK) | stip;
+        let mip = (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !Mip::STIP.bits())
+            | (hw & HW_IP_MASK)
+            | stip;
         self.csr.set(CsrAddr::mip, mip);
     }
 
@@ -239,7 +240,7 @@ impl CoreOps for RVCore {
         self.csr.set(CsrAddr::time, self.bus.mtime() as Word);
         if self.bus.take_ssip() {
             let mip = self.csr.get(CsrAddr::mip);
-            self.csr.set(CsrAddr::mip, mip | SSIP as Word);
+            self.csr.set(CsrAddr::mip, mip | Mip::SSIP.bits());
         }
         self.sync_interrupts();
 
@@ -382,8 +383,8 @@ mod tests {
 
     #[test]
     fn sswi_edge_delivered_once_and_clearable() {
-        use crate::device::SSIP;
         let mut core = setup_core();
+        let ssip = Mip::SSIP.bits();
         write_inst(&mut core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
 
         // Write SETSSIP=1 via ACLINT MMIO (base=0x0200_0000, offset=0xC000)
@@ -392,16 +393,16 @@ mod tests {
         // Step: SSIP should be set in mip after step
         core.step().unwrap();
         assert_ne!(
-            core.csr.get(CsrAddr::mip) as u64 & SSIP,
+            core.csr.get(CsrAddr::mip) & ssip,
             0,
             "SSIP should be set after SSWI"
         );
 
         // Guest clears SSIP via CSR write (mip bit 1 is software-writable)
         let mip = core.csr.get(CsrAddr::mip);
-        core.csr.set(CsrAddr::mip, mip & !(SSIP as Word));
+        core.csr.set(CsrAddr::mip, mip & !ssip);
         assert_eq!(
-            core.csr.get(CsrAddr::mip) as u64 & SSIP,
+            core.csr.get(CsrAddr::mip) & ssip,
             0,
             "SSIP should be cleared"
         );
@@ -412,7 +413,7 @@ mod tests {
         // Step again: SSIP should NOT be reasserted (no new SETSSIP write)
         core.step().unwrap();
         assert_eq!(
-            core.csr.get(CsrAddr::mip) as u64 & SSIP,
+            core.csr.get(CsrAddr::mip) & ssip,
             0,
             "SSIP must not be reasserted without new SETSSIP"
         );

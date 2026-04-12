@@ -11,8 +11,8 @@ const NUM_SRC: usize = 32;
 const NUM_CTX: usize = 2; // 0 = M-mode, 1 = S-mode
 
 const PRIORITY_END: usize = NUM_SRC * 4;
-const PENDING_OFF: usize = 0x001000;
-const ENABLE_BASE: usize = 0x002000;
+const PENDING_OFF: usize = 0x1000;
+const ENABLE_BASE: usize = 0x2000;
 const ENABLE_STRIDE: usize = 0x80;
 const THRESHOLD_BASE: usize = 0x200000;
 const CLAIM_BASE: usize = 0x200004;
@@ -52,10 +52,10 @@ impl Plic {
     /// Sources claimed by any context are excluded from re-pending.
     fn update(&mut self, irq_lines: u32) {
         for src in 1..NUM_SRC {
-            let bit = 1u32 << src;
             if self.is_claimed(src as u32) {
                 continue;
             }
+            let bit = 1u32 << src;
             if irq_lines & bit != 0 {
                 self.pending |= bit;
             } else {

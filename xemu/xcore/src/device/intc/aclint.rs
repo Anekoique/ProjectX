@@ -94,14 +94,13 @@ impl Device for Aclint {
             Some(Reg::Msip) => self.msip as Word,
             Some(Reg::MtimecmpLo) => self.mtimecmp as u32 as Word,
             Some(Reg::MtimecmpHi) => (self.mtimecmp >> 32) as u32 as Word,
-            Some(Reg::MtimeLo | Reg::MtimeHi) => {
-                // Guest explicitly reading mtime — return fresh wall-clock.
+            Some(Reg::MtimeLo) => {
                 self.sync_wallclock();
-                if offset == 0xBFF8 {
-                    self.mtime as u32 as Word
-                } else {
-                    (self.mtime >> 32) as u32 as Word
-                }
+                self.mtime as u32 as Word
+            }
+            Some(Reg::MtimeHi) => {
+                self.sync_wallclock();
+                (self.mtime >> 32) as u32 as Word
             }
             Some(Reg::Setssip) => 0,
             None => 0,

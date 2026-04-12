@@ -53,10 +53,12 @@ pub trait Device: Send {
 }
 
 /// RISC-V `mip` bit positions — shared vocabulary between CPU and devices.
+#[allow(dead_code)]
 pub const SSIP: u64 = 1 << 1; // Supervisor software interrupt pending
 /// Machine software interrupt pending.
 pub const MSIP: u64 = 1 << 3; // Machine software interrupt pending
 /// Supervisor timer interrupt pending.
+#[allow(dead_code)]
 pub const STIP: u64 = 1 << 5; // Supervisor timer interrupt pending
 /// Machine timer interrupt pending.
 pub const MTIP: u64 = 1 << 7; // Machine timer interrupt pending

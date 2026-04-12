@@ -5,10 +5,12 @@
 //! whitelist. Access rules (privilege, counter gating, FP requirement)
 //! are encoded per-descriptor in [`AccessRule`].
 
+mod mip;
 mod mstatus;
 mod ops;
 mod privilege;
 
+pub use mip::Mip;
 pub use mstatus::MStatus;
 pub use privilege::PrivilegeMode;
 
