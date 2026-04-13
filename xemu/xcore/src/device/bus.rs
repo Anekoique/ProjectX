@@ -1,5 +1,5 @@
 //! Memory bus: RAM backing store + MMIO region dispatch with split-tick
-//! optimization (ACLINT every step, UART/PLIC every 64 steps).
+//! optimization (MTIMER every step, UART/PLIC every 64 steps).
 
 use std::{
     ops::Range,
@@ -40,7 +40,7 @@ const SLOW_TICK_DIVISOR: u64 = 64;
 pub struct Bus {
     ram: Ram,
     pub(crate) mmio: Vec<MmioRegion>,
-    aclint_idx: Option<usize>,
+    mtimer_idx: Option<usize>,
     plic_idx: Option<usize>,
     tick_count: u64,
     ssip_pending: Arc<AtomicBool>,
@@ -54,7 +54,7 @@ impl Bus {
         Self {
             ram: Ram::new(ram_base, ram_size),
             mmio: Vec::new(),
-            aclint_idx: None,
+            mtimer_idx: None,
             plic_idx: None,
             tick_count: 0,
             ssip_pending: Arc::new(AtomicBool::new(false)),
@@ -63,7 +63,7 @@ impl Bus {
         }
     }
 
-    /// Returns the shared SSIP pending flag for ACLINT SSWI edge delivery.
+    /// Returns the shared SSIP pending flag for SSWI edge delivery.
     pub fn ssip_flag(&self) -> Arc<AtomicBool> {
         self.ssip_pending.clone()
     }
@@ -110,9 +110,9 @@ impl Bus {
             .dev = dev;
     }
 
-    /// Designate a device as the timer source (ACLINT).
+    /// Designate a device as the timer source (MTIMER).
     pub fn set_timer_source(&mut self, idx: usize) {
-        self.aclint_idx = Some(idx);
+        self.mtimer_idx = Some(idx);
     }
 
     /// Designate a device as the interrupt controller (PLIC).
@@ -120,19 +120,19 @@ impl Bus {
         self.plic_idx = Some(idx);
     }
 
-    /// Read mtime directly from ACLINT (avoids MMIO dispatch).
+    /// Read mtime directly from MTIMER (avoids MMIO dispatch).
     #[inline]
     pub fn mtime(&self) -> u64 {
-        self.aclint_idx
+        self.mtimer_idx
             .and_then(|i| self.mmio[i].dev.mtime())
             .unwrap_or(0)
     }
 
-    /// Tick devices. ACLINT ticks every step; slow devices (UART, PLIC)
+    /// Tick devices. MTIMER ticks every step; slow devices (UART, PLIC)
     /// tick every `SLOW_TICK_DIVISOR` steps to reduce overhead.
     pub fn tick(&mut self) {
-        // Fast path: always tick ACLINT (timer source)
-        if let Some(i) = self.aclint_idx {
+        // Fast path: always tick MTIMER (timer source)
+        if let Some(i) = self.mtimer_idx {
             self.mmio[i].dev.tick();
         }
         self.tick_count += 1;
@@ -145,7 +145,7 @@ impl Bus {
             .iter_mut()
             .enumerate()
             .fold(0u32, |lines, (idx, r)| {
-                if Some(idx) != self.aclint_idx {
+                if Some(idx) != self.mtimer_idx {
                     r.dev.tick();
                 }
                 if r.irq_source > 0 && r.dev.irq_line() {

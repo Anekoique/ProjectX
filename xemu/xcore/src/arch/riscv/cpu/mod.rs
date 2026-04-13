@@ -58,15 +58,8 @@ impl RVCore {
     pub fn with_config(config: MachineConfig) -> Self {
         let irq = IrqState::new();
         let mut bus = Bus::new(CONFIG_MBASE, config.ram_size);
-        let aclint_idx = bus.mmio.len();
-        bus.add_mmio(
-            "aclint",
-            0x0200_0000,
-            0x1_0000,
-            Box::new(Aclint::new(irq.clone(), bus.ssip_flag())),
-            0,
-        );
-        bus.set_timer_source(aclint_idx);
+        let mtimer_idx = Aclint::new(irq.clone(), bus.ssip_flag()).install(&mut bus, 0x0200_0000);
+        bus.set_timer_source(mtimer_idx);
         let plic_idx = bus.mmio.len();
         bus.add_mmio(
             "plic",

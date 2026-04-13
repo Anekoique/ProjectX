@@ -1,0 +1,164 @@
+//! ACLINT: RISC-V Advanced Core Local Interruptor.
+//!
+//! Composed of three spec-mandated sub-devices (MSWI + MTIMER + SSWI),
+//! each mounted as its own MMIO region by [`Aclint::install`].
+
+mod mswi;
+mod mtimer;
+mod sswi;
+
+use std::sync::{Arc, atomic::AtomicBool};
+
+use self::{mswi::Mswi, mtimer::Mtimer, sswi::Sswi};
+use crate::device::{IrqState, bus::Bus};
+
+/// ACLINT façade: composes MSWI + MTIMER + SSWI and installs them on the bus.
+pub struct Aclint {
+    mswi: Mswi,
+    mtimer: Mtimer,
+    sswi: Sswi,
+}
+
+impl Aclint {
+    /// Build all three sub-devices sharing the given IRQ state and SSIP flag.
+    pub fn new(irq: IrqState, ssip: Arc<AtomicBool>) -> Self {
+        Self {
+            mswi: Mswi::new(irq.clone()),
+            mtimer: Mtimer::new(irq),
+            sswi: Sswi::new(ssip),
+        }
+    }
+
+    /// Register the three sub-devices on `bus` at the given `base`:
+    ///   MSWI   at base+0x0000 (size 0x4000)
+    ///   MTIMER at base+0x4000 (size 0x8000)
+    ///   SSWI   at base+0xC000 (size 0x4000)
+    /// Returns the bus index of the MTIMER region (for
+    /// `Bus::set_timer_source`).
+    pub fn install(self, bus: &mut Bus, base: usize) -> usize {
+        bus.add_mmio("mswi", base, 0x4000, Box::new(self.mswi), 0);
+        let mtimer_idx = bus.mmio.len();
+        bus.add_mmio("mtimer", base + 0x4000, 0x8000, Box::new(self.mtimer), 0);
+        bus.add_mmio("sswi", base + 0xC000, 0x4000, Box::new(self.sswi), 0);
+        mtimer_idx
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering::Relaxed;
+
+    use super::*;
+    use crate::{
+        arch::riscv::cpu::trap::interrupt::{MSIP, MTIP},
+        config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
+        device::bus::Bus,
+    };
+
+    const ACLINT_BASE: usize = 0x0200_0000;
+
+    fn new_bus() -> Bus {
+        Bus::new(CONFIG_MBASE, CONFIG_MSIZE)
+    }
+
+    fn new_aclint(bus: &Bus) -> (Aclint, IrqState) {
+        let irq = IrqState::new();
+        (Aclint::new(irq.clone(), bus.ssip_flag()), irq)
+    }
+
+    #[test]
+    fn install_wires_all_three() {
+        let mut bus = new_bus();
+        let (aclint, irq) = new_aclint(&bus);
+        let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
+        bus.set_timer_source(mtimer_idx);
+
+        // MSWI — MSIP toggles MSIP bit at global +0x0000.
+        bus.write(ACLINT_BASE + 0x0000, 4, 1).unwrap();
+        assert_ne!(irq.load() & MSIP, 0);
+        assert_eq!(bus.read(ACLINT_BASE + 0x0000, 4).unwrap() as u32, 1);
+
+        // MTIMER — mtimecmp=0 (global +0x4000/+0x4004) → MTIP set on tick.
+        bus.write(ACLINT_BASE + 0x4000, 4, 0).unwrap();
+        bus.write(ACLINT_BASE + 0x4004, 4, 0).unwrap();
+        bus.tick();
+        assert_ne!(irq.load() & MTIP, 0);
+        // mtime is readable at global +0xBFF8/+0xBFFC.
+        let _ = bus.read(ACLINT_BASE + 0xBFF8, 4).unwrap();
+        let _ = bus.read(ACLINT_BASE + 0xBFFC, 4).unwrap();
+
+        // SSWI — edge-triggered pending flag at global +0xC000.
+        bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
+        assert!(bus.take_ssip());
+    }
+
+    #[test]
+    fn install_returns_mtimer_index() {
+        let mut bus = new_bus();
+        let (aclint, _irq) = new_aclint(&bus);
+        let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
+        bus.set_timer_source(mtimer_idx);
+        // Drive enough ticks + a MtimeLo read to cross SYNC_INTERVAL.
+        for _ in 0..1024 {
+            bus.tick();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let _ = bus.read(ACLINT_BASE + 0xBFF8, 4).unwrap();
+        assert!(bus.mtime() > 0, "mtime must advance after ticks");
+    }
+
+    #[test]
+    fn reset_clears_state_across_sub_devices() {
+        let mut bus = new_bus();
+        let (aclint, irq) = new_aclint(&bus);
+        let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
+        bus.set_timer_source(mtimer_idx);
+
+        bus.write(ACLINT_BASE + 0x0000, 4, 1).unwrap();
+        bus.write(ACLINT_BASE + 0x4000, 4, 0).unwrap();
+        bus.write(ACLINT_BASE + 0x4004, 4, 0).unwrap();
+        bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
+        bus.tick();
+        assert_ne!(irq.load(), 0);
+
+        bus.reset_devices();
+        irq.reset();
+        bus.tick();
+        assert_eq!(irq.load() & MTIP, 0);
+        assert_eq!(bus.read(ACLINT_BASE + 0x0000, 4).unwrap() as u32, 0);
+        assert!(!bus.ssip_flag().load(Relaxed));
+    }
+
+    #[test]
+    #[should_panic(expected = "overlaps")]
+    fn install_panics_if_called_twice() {
+        let mut bus = new_bus();
+        let (a, _) = new_aclint(&bus);
+        let _ = a.install(&mut bus, ACLINT_BASE);
+        let (b, _) = new_aclint(&bus);
+        let _ = b.install(&mut bus, ACLINT_BASE);
+    }
+
+    #[test]
+    fn install_byte_compat_offsets() {
+        // Spot-check each guest-visible global offset lands on the right region.
+        let mut bus = new_bus();
+        let (aclint, irq) = new_aclint(&bus);
+        let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
+        bus.set_timer_source(mtimer_idx);
+
+        bus.write(ACLINT_BASE + 0x0000, 4, 1).unwrap();
+        assert_ne!(irq.load() & MSIP, 0);
+        bus.write(ACLINT_BASE + 0x0000, 4, 0).unwrap();
+
+        bus.write(ACLINT_BASE + 0x4000, 4, u32::MAX as Word)
+            .unwrap();
+        bus.write(ACLINT_BASE + 0x4004, 4, u32::MAX as Word)
+            .unwrap();
+        bus.tick();
+        assert_eq!(irq.load() & MTIP, 0);
+
+        bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
+        assert!(bus.take_ssip());
+    }
+}
