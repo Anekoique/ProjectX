@@ -4,7 +4,6 @@
 //! Shared interrupt state is communicated via [`IrqState`] (lock-free atomic).
 
 pub mod bus;
-pub mod intc;
 pub mod ram;
 pub mod test_finisher;
 pub mod uart;
@@ -51,25 +50,6 @@ pub trait Device: Send {
         None
     }
 }
-
-/// RISC-V `mip` bit positions — shared vocabulary between CPU and devices.
-#[allow(dead_code)]
-pub const SSIP: u64 = 1 << 1; // Supervisor software interrupt pending
-/// Machine software interrupt pending.
-pub const MSIP: u64 = 1 << 3; // Machine software interrupt pending
-/// Supervisor timer interrupt pending.
-#[allow(dead_code)]
-pub const STIP: u64 = 1 << 5; // Supervisor timer interrupt pending
-/// Machine timer interrupt pending.
-pub const MTIP: u64 = 1 << 7; // Machine timer interrupt pending
-/// Supervisor external interrupt pending.
-pub const SEIP: u64 = 1 << 9; // Supervisor external interrupt pending
-/// Machine external interrupt pending.
-pub const MEIP: u64 = 1 << 11; // Machine external interrupt pending
-
-/// Hardware-wired mip bits managed via IrqState (excludes SSIP/STIP —
-/// software-controlled). STIP is managed by Sstc stimecmp comparison.
-pub const HW_IP_MASK: Word = (MSIP | MTIP | SEIP | MEIP) as Word;
 
 /// Shared interrupt state between CPU and devices.
 #[derive(Clone)]

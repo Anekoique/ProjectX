@@ -1,13 +1,13 @@
 //! ISA-specific instruction decoder and register definitions.
 //!
-//! Compile-time `cfg(riscv)` / `cfg(loongarch)` selects the active ISA.
+//! The per-arch decoder, instruction tags, and register enums live under
+//! `isa/<arch>/`; this top-level module re-exports them cfg-gated on the
+//! active arch. The neutral pest grammar lives in `isa/instpat/`.
 
-cfg_if::cfg_if! {
-    if #[cfg(riscv)] {
-        mod riscv;
-        pub use self::riscv::*;
-    } else if #[cfg(loongarch)] {
-        mod loongarch;
-        pub use self::loongarch::*;
-    }
-}
+#[cfg(riscv)]
+mod riscv;
+#[cfg(riscv)]
+pub use riscv::{DECODER, DecodedInst, IMG, InstFormat, InstKind, RVReg};
+
+#[cfg(loongarch)]
+pub use crate::arch::loongarch::isa::IMG;

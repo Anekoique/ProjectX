@@ -33,12 +33,28 @@ All iteration artifacts reside in `docs/<feature>/`.
 6. All PLAN / REVIEW / MASTER documents must follow the templates in `docs/template`.
 7. Never overwrite previous iteration documents. Always create the next numbered file.
 8. If implementation requires a meaningful design change, open a new iteration instead of silently deviating from the approved PLAN.
+9. All iteration artifacts are produced by sub-agents dispatched from the main session,
+   never by manual external tooling and never inlined into the main conversation. The
+   canonical mapping is:
+
+   | Artifact | Sub-agent |
+   |----------|-----------|
+   | `NN_PLAN.md` | **`plan-executor`** |
+   | `NN_REVIEW.md` | **`plan-reviewer`** |
+   | `NN_IMPL_REVIEW.md` | **`code-reviewer`** (or a language-specific reviewer) |
+
+   MASTER documents (`NN_MASTER.md`, `NN_IMPL_MASTER.md`) are authored by the human user
+   and are the only artifacts the main session may write by hand. Do not invoke
+   `codex`, the `ask-codex` skill, or any other external reviewer for these artifacts;
+   do not write PLAN or REVIEW files from the main session. Each sub-agent runs in
+   isolation, reads the target artifact and repo state, and writes its output file
+   itself.
 
 ### Iteration Lifecycle
 
 Round N:
-- Executor writes `NN_PLAN.md`
-- Reviewer audits → `NN_REVIEW.md`
+- Executor dispatches the `plan-executor` sub-agent → `NN_PLAN.md`
+- Executor dispatches the `plan-reviewer` sub-agent → `NN_REVIEW.md`
 - Master directs → `NN_MASTER.md` (optional)
 
 Repeat until:
@@ -50,7 +66,8 @@ Repeat until:
 
 After an approved PLAN:
 - Executor implements the code and records the result → `NN_IMPL.md`
-- Reviewer audits the implementation → `NN_IMPL_REVIEW.md`
+- Executor dispatches the implementation-reviewer sub-agent (`code-reviewer` or a
+  language-specific reviewer such as `rust-reviewer`) → `NN_IMPL_REVIEW.md`
 - Master directs if needed → `NN_IMPL_MASTER.md` (optional)
 
 Implementation review must use the **actual code changes as the primary review target**.  

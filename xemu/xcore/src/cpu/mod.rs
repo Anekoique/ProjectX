@@ -1,9 +1,10 @@
 //! CPU lifecycle: boot configuration, step/run loop, and termination handling.
 //!
 //! The generic [`CPU`] wrapper dispatches to an arch-specific core (e.g.
-//! [`RVCore`](super::cpu::riscv::RVCore)) via the [`CoreOps`] trait.
+//! `RVCore` under `arch/riscv/cpu`) via the [`CoreOps`] trait. Concrete arch
+//! types cross the seam as cfg-gated `pub type` aliases below.
 
-mod core;
+pub(crate) mod core;
 pub mod debug;
 
 use std::sync::{Mutex, OnceLock};
@@ -36,15 +37,14 @@ pub enum BootConfig {
 const KERNEL_LOAD_ADDR: usize = 0x8020_0000; // FW_JUMP_ADDR: 2MB after DRAM base
 const INITRD_LOAD_ADDR: usize = 0x8400_0000; // after kernel region
 
-cfg_if::cfg_if! {
-    if #[cfg(riscv)] {
-        mod riscv;
-        pub use self::riscv::*;
-    } else if #[cfg(loongarch)] {
-        mod loongarch;
-        pub use self::loongarch::*;
-    }
-}
+#[cfg(riscv)]
+pub type Core = crate::arch::riscv::cpu::RVCore;
+#[cfg(riscv)]
+pub type CoreContext = crate::arch::riscv::cpu::context::RVCoreContext;
+#[cfg(riscv)]
+pub type PendingTrap = crate::arch::riscv::cpu::trap::PendingTrap;
+#[cfg(loongarch)]
+pub type Core = crate::arch::loongarch::cpu::LACore;
 
 /// Global singleton CPU instance, initialized by `init_xcore(config)`.
 pub static XCPU: OnceLock<Mutex<CPU<Core>>> = OnceLock::new();

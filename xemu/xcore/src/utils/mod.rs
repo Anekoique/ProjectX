@@ -2,6 +2,6 @@
 //! macro.
 
 pub(crate) mod bit;
-mod macros;
+mod riscv;
 
 pub use bit::{bit_u32, sext_u32, sext_word};

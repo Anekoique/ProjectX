@@ -228,6 +228,31 @@ The critical path to OS boot is:
 
 ---
 
+## Manual Review TODOs
+
+Architectural issues captured in [MANUAL_REVIEW.md](./MANUAL_REVIEW.md) are split into
+independent fix tasks under [`docs/fix/`](./fix/). Tackle them one at a time, in order.
+
+| # | Task | Dir | MANUAL_REVIEW items | Status |
+|---|------|-----|---------------------|--------|
+| 1 | Consolidate arch into `arch/` module | [`docs/fix/archModule/`](./fix/archModule/) | #3, #4 | Implemented (rounds 00–03, 5 PRs) |
+| 1b | Reorganise `arch/<name>/` internal layout | [`docs/fix/archLayout/`](./fix/archLayout/) | follow-up to #1 | Implemented (rounds 00–04, 2 PRs + cleanup — commit `a6d4009`) |
+| 2 | Split ACLINT into MSWI / MTIMER / SSWI | [`docs/fix/aclintSplit/`](./fix/aclintSplit/) | #2 | **Active (00_PLAN pending)** |
+| 3 | Hart abstraction for multi-hart support | [`docs/fix/multiHart/`](./fix/multiHart/) | #1 | Queued |
+| 4 | PLIC redesign: Gateway + Core + Context (level + edge) | [`docs/fix/plicGateway/`](./fix/plicGateway/) | #6, #7 | Queued |
+| 5 | External devices signal PLIC directly (bypass bus); async decoupling | [`docs/fix/directIrq/`](./fix/directIrq/) | #5, #6 | Queued |
+
+Rules:
+
+- Each task ships its own `00_PLAN.md` → `00_REVIEW.md` → `00_MASTER.md` (and further
+  iterations if needed) using the templates under [`docs/template/`](./template/).
+- Do not open a later task's plan until the previous task is landed and its invariants
+  hold under `cargo test --workspace`, `make linux`, and `make debian`.
+- The Plan/Review/Master iteration scheme is numbered (00_PLAN, 01_REVIEW, 01_PLAN, ...)
+  per feedback in `MEMORY.md`.
+
+---
+
 ## Design Principles
 
 - **Incremental correctness**: Each phase should be testable in isolation. Add tests before features.
