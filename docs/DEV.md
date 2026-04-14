@@ -239,8 +239,8 @@ independent fix tasks under [`docs/fix/`](./fix/). Tackle them one at a time, in
 | 1b | Reorganise `arch/<name>/` internal layout | [`docs/fix/archLayout/`](./fix/archLayout/) | follow-up to #1 | Implemented (rounds 00–04, 2 PRs + cleanup — commit `a6d4009`) |
 | 2 | Split ACLINT into MSWI / MTIMER / SSWI | [`docs/fix/aclintSplit/`](./fix/aclintSplit/) | #2 | Implemented (rounds 00–01, 1 PR) |
 | 3 | Hart abstraction for multi-hart support | [`docs/fix/multiHart/`](./fix/multiHart/) | #1 | Implemented (rounds 00–07, 1 PR) |
-| 4 | PLIC redesign: Gateway + Core + Context (level + edge) | [`docs/fix/plicGateway/`](./fix/plicGateway/) | #6, #7 | **Active next** |
-| 5 | External devices signal PLIC directly (bypass bus); async decoupling | [`docs/fix/directIrq/`](./fix/directIrq/) | #5, #6 | Queued |
+| 4 | PLIC redesign: Gateway + Core + Source (level + edge) | [`docs/fix/plicGateway/`](./fix/plicGateway/) | #6, #7 | Implemented (rounds 00–02, 1 PR) |
+| 5 | External devices signal PLIC directly (bypass bus); async decoupling | [`docs/fix/directIrq/`](./fix/directIrq/) | #5, #6 | **Active next** |
 
 Rules:
 
