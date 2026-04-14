@@ -4,6 +4,7 @@
 //! Shared interrupt state is communicated via [`IrqState`] (lock-free atomic).
 
 pub mod bus;
+pub mod irq;
 pub mod ram;
 pub mod test_finisher;
 pub mod uart;
@@ -12,26 +13,26 @@ pub mod virtio_blk;
 
 use std::sync::{
     Arc,
-    atomic::{AtomicU64, Ordering::Relaxed},
+    atomic::{
+        AtomicBool, AtomicU64,
+        Ordering::{Acquire, Release},
+    },
 };
 
+pub use self::irq::IrqLine;
 use crate::{config::Word, error::XResult};
 
 /// MMIO device interface. All offsets are relative to the device's base
-/// address.
+/// address. IRQ-raising devices own an [`IrqLine`] handle and signal the
+/// PLIC directly (see `device::irq`); the bus does not poll device IRQ state.
 pub trait Device: Send {
     /// Read `size` bytes at `offset`. Returns the value as a [`Word`].
     fn read(&mut self, offset: usize, size: usize) -> XResult<Word>;
     /// Write `size` bytes of `value` at `offset`.
     fn write(&mut self, offset: usize, size: usize, value: Word) -> XResult;
-    /// Called every bus tick to advance device state (e.g. timer, FIFO drain).
+    /// Called every bus tick to advance device state (e.g. timer, FIFO drain,
+    /// PLIC signal-plane drain).
     fn tick(&mut self) {}
-    /// True if the device is asserting its interrupt line.
-    fn irq_line(&self) -> bool {
-        false
-    }
-    /// Notify the device of current IRQ line bitmap (PLIC only).
-    fn notify(&mut self, _irq_lines: u32) {}
     /// Soft reset: clear device-level state (VirtIO transport reset).
     fn reset(&mut self) {}
     /// Hard reset: full restore to power-on state (emulator-level reset).
@@ -52,29 +53,73 @@ pub trait Device: Send {
 }
 
 /// Shared interrupt state between CPU and devices.
-#[derive(Clone)]
-pub struct IrqState(Arc<AtomicU64>);
+///
+/// `bits` carries the hardware-level `mip` pending bitmap (MEIP/SEIP/MSIP/
+/// MTIP). `ssip_edge` is the edge-triggered SSIP signal raised by ACLINT
+/// SSWI. `epoch` is a publish flag bumped by every producer-side change so
+/// the CPU can fast-path its step loop when nothing new has arrived —
+/// `take_epoch` returns `false` on a hot loop with no pending hardware
+/// event, turning `sync_interrupts` into a single `Acquire` swap.
+pub struct IrqState {
+    bits: Arc<AtomicU64>,
+    ssip_edge: Arc<AtomicBool>,
+    epoch: Arc<AtomicBool>,
+}
+
+impl Clone for IrqState {
+    fn clone(&self) -> Self {
+        Self {
+            bits: self.bits.clone(),
+            ssip_edge: self.ssip_edge.clone(),
+            epoch: self.epoch.clone(),
+        }
+    }
+}
 
 impl IrqState {
     /// Create a new state with all bits cleared.
     pub fn new() -> Self {
-        Self(Arc::new(AtomicU64::new(0)))
+        Self {
+            bits: Arc::new(AtomicU64::new(0)),
+            ssip_edge: Arc::new(AtomicBool::new(false)),
+            epoch: Arc::new(AtomicBool::new(false)),
+        }
     }
-    /// Atomically assert interrupt bit(s).
+    /// Atomically assert interrupt bit(s). Publishes via `epoch` (Release).
     pub fn set(&self, bit: u64) {
-        self.0.fetch_or(bit, Relaxed);
+        self.bits.fetch_or(bit, Release);
+        self.epoch.store(true, Release);
     }
-    /// Atomically deassert interrupt bit(s).
+    /// Atomically deassert interrupt bit(s). Publishes via `epoch`.
     pub fn clear(&self, bit: u64) {
-        self.0.fetch_and(!bit, Relaxed);
+        self.bits.fetch_and(!bit, Release);
+        self.epoch.store(true, Release);
     }
-    /// Read current interrupt pending bitmap.
+    /// Read current interrupt pending bitmap (Acquire — pairs with `set`).
     pub fn load(&self) -> u64 {
-        self.0.load(Relaxed)
+        self.bits.load(Acquire)
     }
-    /// Clear all pending interrupts.
+    /// Raise the SSIP edge signal. Called by ACLINT SSWI's `setssip`.
+    pub fn raise_ssip_edge(&self) {
+        self.ssip_edge.store(true, Release);
+        self.epoch.store(true, Release);
+    }
+    /// Consume and return the SSIP edge signal.
+    pub fn take_ssip_edge(&self) -> bool {
+        self.ssip_edge.swap(false, Acquire)
+    }
+    /// Swap the publish epoch to `false`. Returns `true` iff a producer
+    /// raised the flag since the last call — a fast-path gate for the CPU
+    /// step loop. `Acquire` pairs with every producer's `Release` store.
+    pub fn take_epoch(&self) -> bool {
+        self.epoch.swap(false, Acquire)
+    }
+    /// Clear all pending interrupts. Forces the next `take_epoch` to return
+    /// `true` so the CPU observes the cleared state.
     pub fn reset(&self) {
-        self.0.store(0, Relaxed);
+        self.bits.store(0, Release);
+        self.ssip_edge.store(false, Release);
+        self.epoch.store(true, Release);
     }
 }
 

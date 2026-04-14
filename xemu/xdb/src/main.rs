@@ -90,15 +90,17 @@ fn boot_config() -> xcore::BootConfig {
 
 fn run(config: xcore::BootConfig) -> Result<(), String> {
     xcore::with_xcpu(|cpu| {
-        let uart = if cfg!(feature = "debug") {
-            xcore::Uart::with_pty()
-                .inspect_err(|e| warn!("PTY UART unavailable ({e})"))
-                .ok()
-        } else if matches!(config, xcore::BootConfig::Firmware { .. }) {
-            Some(xcore::Uart::with_stdio())
-        } else {
-            None
-        };
+        let uart = cpu.uart_line().and_then(|irq| {
+            if cfg!(feature = "debug") {
+                xcore::Uart::with_pty(irq)
+                    .inspect_err(|e| warn!("PTY UART unavailable ({e})"))
+                    .ok()
+            } else if matches!(config, xcore::BootConfig::Firmware { .. }) {
+                Some(xcore::Uart::with_stdio(irq))
+            } else {
+                None
+            }
+        });
 
         if let Some(u) = uart {
             cpu.replace_device("uart0", Box::new(u));

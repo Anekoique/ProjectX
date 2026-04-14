@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::Device;
+use super::{Device, IrqLine};
 use crate::{
     config::Word,
     error::{XError, XResult},
@@ -155,17 +155,13 @@ pub struct Uart {
     tx: TxSink,
     // Prevent PTY teardown while the UART is alive.
     _pty_slave: Option<OwnedFd>,
-}
-
-impl Default for Uart {
-    fn default() -> Self {
-        Self::new()
-    }
+    // Direct PLIC signaling; state transitions call raise/lower.
+    irq: IrqLine,
 }
 
 impl Uart {
     /// TX-only UART. Output goes to stdout, no RX.
-    pub fn new() -> Self {
+    pub fn new(irq: IrqLine) -> Self {
         Self {
             ier: 0,
             lcr: 0x03,
@@ -179,12 +175,13 @@ impl Uart {
             rx_buf: Arc::new(Mutex::new(VecDeque::new())),
             tx: TxSink::Stdout,
             _pty_slave: None,
+            irq,
         }
     }
 
     /// Bidirectional UART using the process's stdin/stdout.
     /// TX goes to stdout, RX reads from stdin (raw mode).
-    pub fn with_stdio() -> Self {
+    pub fn with_stdio(irq: IrqLine) -> Self {
         // Save original termios and put stdin into raw mode.
         unsafe {
             let mut orig = std::mem::MaybeUninit::uninit();
@@ -204,14 +201,14 @@ impl Uart {
         }
         Self {
             rx_buf: spawn_reader(0),
-            ..Self::new()
+            ..Self::new(irq)
         }
     }
 
     /// UART backed by a pseudo-terminal. TX and RX go through the PTY master;
     /// the slave path is printed so the user can `screen <path>` in another
     /// terminal.
-    pub fn with_pty() -> Result<Self, String> {
+    pub fn with_pty(irq: IrqLine) -> Result<Self, String> {
         let (master, slave, name) = open_pty()?;
         let rx_buf = spawn_reader(master.as_raw_fd());
 
@@ -225,8 +222,26 @@ impl Uart {
             rx_buf,
             tx: TxSink::PtyWithStdout(master),
             _pty_slave: Some(slave),
-            ..Self::new()
+            ..Self::new(irq)
         })
+    }
+
+    /// True while the UART should be asserting its IRQ line — RX data or
+    /// THRE pending, with the matching IER bit set. Called after every
+    /// state change and synced to the line via [`Self::sync_irq`].
+    fn should_assert(&self) -> bool {
+        let rx = !self.rx_fifo.is_empty() && self.ier & 0x01 != 0;
+        let thre = self.thre_ip && self.ier & 0x02 != 0;
+        rx || thre
+    }
+
+    /// Mirror the current IRQ state onto the line. Idempotent per I-D2/I-D3.
+    fn sync_irq(&self) {
+        if self.should_assert() {
+            self.irq.raise();
+        } else {
+            self.irq.lower();
+        }
     }
 
     fn dlab(&self) -> bool {
@@ -268,7 +283,7 @@ impl Device for Uart {
         if size != 1 {
             return Err(XError::BadAddress);
         }
-        Ok(match offset {
+        let val = match offset {
             0 if self.dlab() => self.dll,
             0 => self.rx_fifo.pop_front().unwrap_or(0),
             1 if self.dlab() => self.dlm,
@@ -280,7 +295,12 @@ impl Device for Uart {
             6 => 0,
             7 => self.scr,
             _ => 0,
-        } as Word)
+        };
+        // RBR pop and IIR-read-clears-THRE both mutate IRQ-relevant state.
+        if matches!(offset, 0 | 2) {
+            self.sync_irq();
+        }
+        Ok(val as Word)
     }
 
     fn write(&mut self, offset: usize, size: usize, val: Word) -> XResult {
@@ -302,6 +322,7 @@ impl Device for Uart {
                 if old & 0x02 == 0 && self.ier & 0x02 != 0 {
                     self.thre_pending = true;
                 }
+                self.sync_irq(); // IER mask change may (un)mask an assertion.
             }
             2 => {} // FCR: FIFO control — ignored; IIR always reports FIFOs enabled
             3 => self.lcr = b,
@@ -321,12 +342,7 @@ impl Device for Uart {
         if let Ok(mut buf) = self.rx_buf.try_lock() {
             self.rx_fifo.extend(buf.drain(..));
         }
-    }
-
-    fn irq_line(&self) -> bool {
-        let rx = !self.rx_fifo.is_empty() && self.ier & 0x01 != 0;
-        let thre = self.thre_ip && self.ier & 0x02 != 0;
-        rx || thre
+        self.sync_irq();
     }
 
     fn reset(&mut self) {
@@ -343,22 +359,32 @@ impl Device for Uart {
         if let Ok(mut buf) = self.rx_buf.try_lock() {
             buf.clear();
         }
+        self.sync_irq();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::device::irq::PlicSignals;
+
+    /// Detached UART for unit tests: the IrqLine points at a throwaway
+    /// signal plane no PLIC is draining. Keeps the raise/lower side-effect
+    /// safe without coupling tests to the PLIC state machine.
+    fn detached() -> Uart {
+        let plane = Arc::new(PlicSignals::new());
+        Uart::new(IrqLine::new(plane, 10))
+    }
 
     #[test]
     fn lsr_thre_always_set() {
-        let mut u = Uart::new();
+        let mut u = detached();
         assert_ne!(u.read(5, 1).unwrap() as u8 & 0x60, 0);
     }
 
     #[test]
     fn lsr_dr_reflects_rx_fifo() {
-        let mut u = Uart::new();
+        let mut u = detached();
         assert_eq!(u.read(5, 1).unwrap() as u8 & 0x01, 0);
         u.rx_fifo.push_back(0x42);
         assert_ne!(u.read(5, 1).unwrap() as u8 & 0x01, 0);
@@ -366,7 +392,7 @@ mod tests {
 
     #[test]
     fn rbr_pops_from_fifo() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.rx_fifo.push_back(0xAA);
         u.rx_fifo.push_back(0xBB);
         assert_eq!(u.read(0, 1).unwrap() as u8, 0xAA);
@@ -376,7 +402,7 @@ mod tests {
 
     #[test]
     fn dlab_switches_registers() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.write(3, 1, 0x80).unwrap();
         u.write(0, 1, 0x03).unwrap();
         u.write(1, 1, 0x00).unwrap();
@@ -388,14 +414,14 @@ mod tests {
 
     #[test]
     fn ier_write_masked() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.write(1, 1, 0xFF).unwrap();
         assert_eq!(u.read(1, 1).unwrap() as u8, 0x0F);
     }
 
     #[test]
     fn iir_rx_data_available() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.ier = 0x01;
         assert_eq!(u.read(2, 1).unwrap() as u8, 0xC1);
         u.rx_fifo.push_back(0x42);
@@ -403,32 +429,32 @@ mod tests {
     }
 
     #[test]
-    fn irq_line_rx_data_and_ier() {
-        let mut u = Uart::new();
-        assert!(!u.irq_line());
+    fn should_assert_tracks_rx_and_ier_mask() {
+        let mut u = detached();
+        assert!(!u.should_assert());
         u.rx_fifo.push_back(0x42);
-        assert!(!u.irq_line());
+        assert!(!u.should_assert()); // masked until IER[0] is set
         u.ier = 0x01;
-        assert!(u.irq_line());
+        assert!(u.should_assert());
     }
 
     #[test]
     fn scratch_register() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.write(7, 1, 0xAB).unwrap();
         assert_eq!(u.read(7, 1).unwrap() as u8, 0xAB);
     }
 
     #[test]
     fn non_byte_access_error() {
-        let mut u = Uart::new();
+        let mut u = detached();
         assert!(u.read(0, 4).is_err());
         assert!(u.write(0, 2, 0).is_err());
     }
 
     #[test]
     fn tick_drains_rx_buf() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.rx_buf.lock().unwrap().push_back(0x11);
         u.rx_buf.lock().unwrap().push_back(0x22);
         u.tick();
@@ -438,7 +464,7 @@ mod tests {
 
     #[test]
     fn reset_clears_buffers_and_registers() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.rx_buf.lock().unwrap().push_back(0xAA);
         u.rx_fifo.push_back(0xBB);
         u.ier = 0x0F;
@@ -450,7 +476,7 @@ mod tests {
 
     #[test]
     fn reset_preserves_backend_for_post_reset_rx() {
-        let mut u = Uart::new();
+        let mut u = detached();
         u.rx_buf.lock().unwrap().push_back(0xAA);
         u.reset();
         u.rx_buf.lock().unwrap().push_back(0xBB);
@@ -461,7 +487,8 @@ mod tests {
 
     #[test]
     fn pty_creates_working_uart() {
-        let mut u = Uart::with_pty().unwrap();
+        let plane = Arc::new(PlicSignals::new());
+        let mut u = Uart::with_pty(IrqLine::new(plane, 10)).unwrap();
         assert_ne!(u.read(5, 1).unwrap() as u8 & 0x60, 0);
         u.write(7, 1, 0xCD).unwrap();
         assert_eq!(u.read(7, 1).unwrap() as u8, 0xCD);

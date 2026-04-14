@@ -7,25 +7,6 @@ mod mswi;
 mod mtimer;
 mod sswi;
 
-#[cfg(test)]
-pub(super) mod test_utils {
-    use std::sync::{Arc, atomic::AtomicBool};
-
-    use crate::device::IrqState;
-
-    /// Construct `n` independent per-hart IRQ states.
-    pub fn make_irqs(n: usize) -> Vec<IrqState> {
-        (0..n).map(|_| IrqState::new()).collect()
-    }
-
-    /// Construct `n` independent per-hart SSIP edge flags.
-    pub fn make_ssips(n: usize) -> Vec<Arc<AtomicBool>> {
-        (0..n).map(|_| Arc::new(AtomicBool::new(false))).collect()
-    }
-}
-
-use std::sync::{Arc, atomic::AtomicBool};
-
 use self::{mswi::Mswi, mtimer::Mtimer, sswi::Sswi};
 use crate::device::{IrqState, bus::Bus};
 
@@ -37,14 +18,14 @@ pub struct Aclint {
 }
 
 impl Aclint {
-    /// Build all three sub-devices with per-hart IRQ state and SSIP flags.
-    pub fn new(num_harts: usize, irqs: Vec<IrqState>, ssips: Vec<Arc<AtomicBool>>) -> Self {
+    /// Build all three sub-devices with per-hart IRQ state. SSIP edge
+    /// signals route through `IrqState::raise_ssip_edge` (directIrq Task 5).
+    pub fn new(num_harts: usize, irqs: Vec<IrqState>) -> Self {
         debug_assert_eq!(irqs.len(), num_harts);
-        debug_assert_eq!(ssips.len(), num_harts);
         Self {
             mswi: Mswi::new(num_harts, irqs.clone()),
-            mtimer: Mtimer::new(num_harts, irqs),
-            sswi: Sswi::new(num_harts, ssips),
+            mtimer: Mtimer::new(num_harts, irqs.clone()),
+            sswi: Sswi::new(num_harts, irqs),
         }
     }
 
@@ -55,22 +36,29 @@ impl Aclint {
     /// Returns the bus index of the MTIMER region (for
     /// `Bus::set_timer_source`).
     pub fn install(self, bus: &mut Bus, base: usize) -> usize {
-        bus.add_mmio("mswi", base, 0x4000, Box::new(self.mswi), 0);
-        let mtimer_idx = bus.add_mmio("mtimer", base + 0x4000, 0x8000, Box::new(self.mtimer), 0);
-        bus.add_mmio("sswi", base + 0xC000, 0x4000, Box::new(self.sswi), 0);
+        bus.add_mmio("mswi", base, 0x4000, Box::new(self.mswi));
+        let mtimer_idx = bus.add_mmio("mtimer", base + 0x4000, 0x8000, Box::new(self.mtimer));
+        bus.add_mmio("sswi", base + 0xC000, 0x4000, Box::new(self.sswi));
         mtimer_idx
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::atomic::Ordering::Relaxed;
+pub(super) mod test_utils {
+    use crate::device::IrqState;
 
+    /// Construct `n` independent per-hart IRQ states.
+    pub fn make_irqs(n: usize) -> Vec<IrqState> {
+        (0..n).map(|_| IrqState::new()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
     use super::*;
     use crate::{
         arch::riscv::cpu::trap::interrupt::{MSIP, MTIP},
         config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
-        cpu::core::HartId,
         device::bus::Bus,
     };
 
@@ -80,16 +68,15 @@ mod tests {
         Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1)
     }
 
-    fn new_aclint(bus: &Bus) -> (Aclint, IrqState) {
+    fn new_aclint() -> (Aclint, IrqState) {
         let irq = IrqState::new();
-        let ssip = bus.ssip_flag(HartId(0));
-        (Aclint::new(1, vec![irq.clone()], vec![ssip]), irq)
+        (Aclint::new(1, vec![irq.clone()]), irq)
     }
 
     #[test]
     fn install_wires_all_three() {
         let mut bus = new_bus();
-        let (aclint, irq) = new_aclint(&bus);
+        let (aclint, irq) = new_aclint();
         let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
         bus.set_timer_source(mtimer_idx);
 
@@ -109,13 +96,13 @@ mod tests {
 
         // SSWI — edge-triggered pending flag at global +0xC000.
         bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
-        assert!(bus.take_ssip(HartId(0)));
+        assert!(irq.take_ssip_edge());
     }
 
     #[test]
     fn install_returns_mtimer_index() {
         let mut bus = new_bus();
-        let (aclint, _irq) = new_aclint(&bus);
+        let (aclint, _irq) = new_aclint();
         let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
         bus.set_timer_source(mtimer_idx);
         // Drive enough ticks + a MtimeLo read to cross SYNC_INTERVAL.
@@ -130,7 +117,7 @@ mod tests {
     #[test]
     fn reset_clears_state_across_sub_devices() {
         let mut bus = new_bus();
-        let (aclint, irq) = new_aclint(&bus);
+        let (aclint, irq) = new_aclint();
         let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
         bus.set_timer_source(mtimer_idx);
 
@@ -146,16 +133,16 @@ mod tests {
         bus.tick();
         assert_eq!(irq.load() & MTIP, 0);
         assert_eq!(bus.read(ACLINT_BASE + 0x0000, 4).unwrap() as u32, 0);
-        assert!(!bus.ssip_flag(HartId(0)).load(Relaxed));
+        assert!(!irq.take_ssip_edge());
     }
 
     #[test]
     #[should_panic(expected = "overlaps")]
     fn install_panics_if_called_twice() {
         let mut bus = new_bus();
-        let (a, _) = new_aclint(&bus);
+        let (a, _) = new_aclint();
         let _ = a.install(&mut bus, ACLINT_BASE);
-        let (b, _) = new_aclint(&bus);
+        let (b, _) = new_aclint();
         let _ = b.install(&mut bus, ACLINT_BASE);
     }
 
@@ -163,7 +150,7 @@ mod tests {
     fn install_byte_compat_offsets() {
         // Spot-check each guest-visible global offset lands on the right region.
         let mut bus = new_bus();
-        let (aclint, irq) = new_aclint(&bus);
+        let (aclint, irq) = new_aclint();
         let mtimer_idx = aclint.install(&mut bus, ACLINT_BASE);
         bus.set_timer_source(mtimer_idx);
 
@@ -179,6 +166,6 @@ mod tests {
         assert_eq!(irq.load() & MTIP, 0);
 
         bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
-        assert!(bus.take_ssip(HartId(0)));
+        assert!(irq.take_ssip_edge());
     }
 }

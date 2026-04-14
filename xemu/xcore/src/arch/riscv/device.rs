@@ -4,4 +4,5 @@
 //! ACLINT/PLIC register maps) are RISC-V specific. Neutral devices (RAM,
 //! UART, VirtIO, TestFinisher) remain in the top-level `device/` module.
 
-pub mod intc;
+pub mod aclint;
+pub mod plic;

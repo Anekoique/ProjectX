@@ -16,8 +16,8 @@
 //! `cfg(loongarch)`. Word width (`u32` or `u64`) is selected by `cfg(isa32)` /
 //! `cfg(isa64)`. Concrete per-ISA backends live under the `arch/<name>/`
 //! module tree (`arch/riscv/`, `arch/loongarch/`); upper-layer seam modules
-//! (`cpu/mod.rs`, `isa/mod.rs`, `device/intc/mod.rs`, `device/mod.rs`) name
-//! them through cfg-gated `pub type` / `pub use` aliases. Upper layers
+//! (`cpu/mod.rs`, `isa/mod.rs`, `device/mod.rs`) name them through cfg-gated
+//! `pub type` / `pub use` aliases. Upper layers
 //! ([`BootConfig`], [`DebugOps`]) use trait-based abstractions and never
 //! expose ISA-specific types.
 

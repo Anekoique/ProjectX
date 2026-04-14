@@ -7,13 +7,9 @@
 //! peer reservations covering the same 8-byte granule (RISC-V A-extension
 //! §8.2 cross-hart invalidation rule).
 
-use std::{
-    ops::Range,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering::Relaxed},
-    },
-};
+use std::ops::Range;
+#[cfg(feature = "difftest")]
+use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
 use super::{Device, ram::Ram};
 use crate::{
@@ -44,7 +40,6 @@ pub(crate) struct MmioRegion {
     pub name: &'static str,
     pub range: Range<usize>,
     pub dev: Box<dyn Device>,
-    pub irq_source: u32,
 }
 
 impl MmioRegion {
@@ -68,8 +63,6 @@ pub struct Bus {
     /// Per-hart LR/SC reservation: physical address of the reserved
     /// 8-byte granule, or `None` if the hart has no live reservation.
     reservations: Vec<Option<usize>>,
-    /// Per-hart SSWI edge flag.
-    ssip_pending: Vec<Arc<AtomicBool>>,
     #[cfg(feature = "difftest")]
     mmio_accessed: AtomicBool,
 }
@@ -87,9 +80,6 @@ impl Bus {
             tick_count: 0,
             num_harts,
             reservations: vec![None; num_harts],
-            ssip_pending: (0..num_harts)
-                .map(|_| Arc::new(AtomicBool::new(false)))
-                .collect(),
             #[cfg(feature = "difftest")]
             mmio_accessed: AtomicBool::new(false),
         }
@@ -98,16 +88,6 @@ impl Bus {
     /// Number of harts this bus was sized for.
     pub fn num_harts(&self) -> usize {
         self.num_harts
-    }
-
-    /// Returns the shared SSIP pending flag for SSWI edge delivery on `hart`.
-    pub fn ssip_flag(&self, hart: HartId) -> Arc<AtomicBool> {
-        self.ssip_pending[hart.0 as usize].clone()
-    }
-
-    /// Consume and return `hart`'s SSIP edge signal.
-    pub fn take_ssip(&self, hart: HartId) -> bool {
-        self.ssip_pending[hart.0 as usize].swap(false, Relaxed)
     }
 
     /// Record an LR reservation at `addr` for `hart`.
@@ -155,17 +135,15 @@ impl Bus {
     }
 
     /// Register an MMIO device at the given address range. Returns the
-    /// slot index — useful for pinning the region as timer or IRQ source.
+    /// slot index — useful for pinning the region as timer or IRQ sink.
     pub fn add_mmio(
         &mut self,
         name: &'static str,
         base: usize,
         size: usize,
         dev: Box<dyn Device>,
-        irq_source: u32,
     ) -> usize {
         assert!(size > 0, "region size must be non-zero");
-        assert!(irq_source < 32, "irq_source must be < 32");
         let range = base..base.checked_add(size).expect("address overflow");
         assert!(
             !overlaps(&range, self.ram.range()),
@@ -176,12 +154,7 @@ impl Bus {
         }
         info!("bus: add_mmio '{}' base={:#x} size={:#x}", name, base, size);
         let idx = self.mmio.len();
-        self.mmio.push(MmioRegion {
-            name,
-            range,
-            dev,
-            irq_source,
-        });
+        self.mmio.push(MmioRegion { name, range, dev });
         idx
     }
 
@@ -214,8 +187,11 @@ impl Bus {
 
     /// Tick devices. MTIMER ticks every step; slow devices (UART, PLIC)
     /// tick every `SLOW_TICK_DIVISOR` steps to reduce overhead.
+    ///
+    /// PLIC-last ordering (directIrq I-D16): every non-PLIC device ticks
+    /// before the PLIC so a raise produced inside a device's own `tick` is
+    /// observed in the same slow-tick drain.
     pub fn tick(&mut self) {
-        // Fast path: always tick MTIMER (timer source)
         if let Some(i) = self.mtimer_idx {
             self.mmio[i].dev.tick();
         }
@@ -223,23 +199,13 @@ impl Bus {
         if !self.tick_count.is_multiple_of(SLOW_TICK_DIVISOR) {
             return;
         }
-        // Slow path: tick remaining devices, collect IRQ lines, notify PLIC
-        let irq_lines = self
-            .mmio
-            .iter_mut()
-            .enumerate()
-            .fold(0u32, |lines, (idx, r)| {
-                if Some(idx) != self.mtimer_idx {
-                    r.dev.tick();
-                }
-                if r.irq_source > 0 && r.dev.irq_line() {
-                    lines | (1 << r.irq_source)
-                } else {
-                    lines
-                }
-            });
+        for (idx, r) in self.mmio.iter_mut().enumerate() {
+            if Some(idx) != self.mtimer_idx && Some(idx) != self.plic_idx {
+                r.dev.tick();
+            }
+        }
         if let Some(i) = self.plic_idx {
-            self.mmio[i].dev.notify(irq_lines);
+            self.mmio[i].dev.tick();
         }
     }
 
@@ -470,7 +436,7 @@ mod tests {
     #[test]
     fn mmio_read_write() {
         let mut bus = new_bus();
-        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub(), 0);
+        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub());
         bus.write(MMIO_BASE, 4, 0x42).unwrap();
         assert_eq!(bus.read(MMIO_BASE, 4).unwrap(), 0x42);
     }
@@ -478,7 +444,7 @@ mod tests {
     #[test]
     fn read_ram_rejects_mmio() {
         let mut bus = new_bus();
-        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub(), 0);
+        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub());
         assert!(matches!(
             bus.read_ram(MMIO_BASE, 4),
             Err(XError::BadAddress)
@@ -488,28 +454,28 @@ mod tests {
     #[test]
     #[should_panic(expected = "overlaps RAM")]
     fn mmio_overlaps_ram() {
-        new_bus().add_mmio("bad", CONFIG_MBASE, 0x100, stub(), 0);
+        new_bus().add_mmio("bad", CONFIG_MBASE, 0x100, stub());
     }
 
     #[test]
     #[should_panic(expected = "overlaps")]
     fn mmio_overlaps_mmio() {
         let mut bus = new_bus();
-        bus.add_mmio("a", MMIO_BASE, MMIO_SIZE, stub(), 0);
-        bus.add_mmio("b", MMIO_BASE + MMIO_SIZE / 2, MMIO_SIZE, stub(), 0);
+        bus.add_mmio("a", MMIO_BASE, MMIO_SIZE, stub());
+        bus.add_mmio("b", MMIO_BASE + MMIO_SIZE / 2, MMIO_SIZE, stub());
     }
 
     #[test]
     #[should_panic(expected = "non-zero")]
     fn mmio_zero_size() {
-        new_bus().add_mmio("empty", MMIO_BASE, 0, stub(), 0);
+        new_bus().add_mmio("empty", MMIO_BASE, 0, stub());
     }
 
     #[test]
     fn irq_sink_set_explicitly() {
         let mut bus = new_bus();
         assert!(bus.plic_idx.is_none());
-        bus.add_mmio("plic", MMIO_BASE, MMIO_SIZE, stub(), 0);
+        bus.add_mmio("plic", MMIO_BASE, MMIO_SIZE, stub());
         bus.set_irq_sink(0);
         assert_eq!(bus.plic_idx, Some(0));
     }
@@ -517,7 +483,7 @@ mod tests {
     #[test]
     fn replace_device_swaps_named_region() {
         let mut bus = new_bus();
-        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub(), 0);
+        bus.add_mmio("stub", MMIO_BASE, MMIO_SIZE, stub());
         bus.write(MMIO_BASE, 4, 0x42).unwrap();
         assert_eq!(bus.read(MMIO_BASE, 4).unwrap(), 0x42);
 
@@ -539,15 +505,10 @@ mod tests {
     }
 
     #[test]
-    fn bus_new_two_harts_vec_lengths_and_share() {
+    fn bus_new_two_harts_vec_lengths() {
         let bus = new_bus_two_harts();
         assert_eq!(bus.num_harts(), 2);
         assert_eq!(bus.reservations.len(), 2);
-        assert_eq!(bus.ssip_pending.len(), 2);
-        // Distinct flags per hart.
-        let f0 = bus.ssip_flag(HartId(0));
-        let f1 = bus.ssip_flag(HartId(1));
-        assert!(!Arc::ptr_eq(&f0, &f1));
     }
 
     #[test]

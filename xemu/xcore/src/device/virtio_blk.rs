@@ -5,7 +5,7 @@
 //! executed via `DmaCtx` during the same bus dispatch.
 
 use super::{
-    Device,
+    Device, IrqLine,
     bus::DmaCtx,
     mmio_regs,
     virtio::{
@@ -140,11 +140,13 @@ pub struct VirtioBlk {
     notify_pending: bool,
     // Block storage (split from transport for safe borrow in process_dma)
     storage: BlkStorage,
+    // Direct PLIC signaling; level mirrors `interrupt_status != 0`.
+    irq: IrqLine,
 }
 
 impl VirtioBlk {
     /// Create a block device backed by an in-memory disk snapshot.
-    pub fn new(disk: Vec<u8>) -> Self {
+    pub fn new(disk: Vec<u8>, irq: IrqLine) -> Self {
         Self {
             status: 0,
             dev_features_sel: 0,
@@ -154,6 +156,16 @@ impl VirtioBlk {
             interrupt_status: 0,
             notify_pending: false,
             storage: BlkStorage::new(disk),
+            irq,
+        }
+    }
+
+    /// Mirror `interrupt_status` onto the IRQ line.
+    fn sync_irq(&self) {
+        if self.interrupt_status != 0 {
+            self.irq.raise();
+        } else {
+            self.irq.lower();
         }
     }
 
@@ -216,10 +228,14 @@ impl Device for VirtioBlk {
             Some(Reg::QueueAlign) => self.queue.set_align(val),
             Some(Reg::QueuePfn) => self.queue.set_pfn(val),
             Some(Reg::QueueNotify) => self.notify_pending = true,
-            Some(Reg::InterruptAck) => self.interrupt_status &= !val,
+            Some(Reg::InterruptAck) => {
+                self.interrupt_status &= !val;
+                self.sync_irq();
+            }
             Some(Reg::Status) => {
                 if val == 0 {
                     self.soft_reset();
+                    self.sync_irq();
                 } else {
                     self.status = val;
                 }
@@ -229,17 +245,15 @@ impl Device for VirtioBlk {
         Ok(())
     }
 
-    fn irq_line(&self) -> bool {
-        self.interrupt_status != 0
-    }
-
     fn reset(&mut self) {
         self.soft_reset();
+        self.sync_irq();
     }
 
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.storage.disk = self.storage.original.clone();
+        self.sync_irq();
     }
 
     fn take_notify(&mut self) -> bool {
@@ -254,17 +268,25 @@ impl Device for VirtioBlk {
             .unwrap_or(0);
         if completed > 0 {
             self.interrupt_status |= 1;
+            self.sync_irq();
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
-    use crate::device::{bus::DmaCtx, ram::Ram};
+    use crate::device::{bus::DmaCtx, irq::PlicSignals, ram::Ram};
+
+    /// Detached IrqLine for unit tests: points at a throwaway signal plane.
+    fn detached_line() -> IrqLine {
+        IrqLine::new(Arc::new(PlicSignals::new()), 1)
+    }
 
     fn new_blk() -> VirtioBlk {
-        VirtioBlk::new(vec![0u8; 512 * 8])
+        VirtioBlk::new(vec![0u8; 512 * 8], detached_line())
     }
 
     #[test]
@@ -307,14 +329,14 @@ mod tests {
     fn interrupt_ack_clears() {
         let mut blk = new_blk();
         blk.interrupt_status = 1;
-        assert!(blk.irq_line());
+        assert_ne!(blk.read(0x060, 4).unwrap() as u32, 0);
         blk.write(0x064, 4, 1).unwrap();
-        assert!(!blk.irq_line());
+        assert_eq!(blk.read(0x060, 4).unwrap() as u32, 0);
     }
 
     #[test]
     fn config_capacity() {
-        let blk = VirtioBlk::new(vec![0u8; 512 * 100]);
+        let blk = VirtioBlk::new(vec![0u8; 512 * 100], detached_line());
         assert_eq!(blk.storage.capacity, 100);
         let mut blk = blk;
         let lo = blk.read(0x100, 4).unwrap() as u32;
@@ -325,7 +347,7 @@ mod tests {
 
     #[test]
     fn soft_reset_preserves_disk() {
-        let mut blk = VirtioBlk::new(vec![0u8; 512]);
+        let mut blk = VirtioBlk::new(vec![0u8; 512], detached_line());
         blk.storage.disk[0] = 0xAB;
         blk.soft_reset();
         assert_eq!(blk.storage.disk[0], 0xAB);
@@ -333,7 +355,7 @@ mod tests {
 
     #[test]
     fn hard_reset_restores_disk() {
-        let mut blk = VirtioBlk::new(vec![0u8; 512]);
+        let mut blk = VirtioBlk::new(vec![0u8; 512], detached_line());
         blk.storage.disk[0] = 0xAB;
         blk.hard_reset();
         assert_eq!(blk.storage.disk[0], 0x00);

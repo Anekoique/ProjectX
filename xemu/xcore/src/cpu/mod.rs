@@ -88,6 +88,10 @@ pub struct CPU<Core: CoreOps> {
     halt_ret: Word,
     boot_config: BootConfig,
     boot_layout: BootLayout,
+    /// Pre-minted IRQ line for the platform's UART source, exposed so callers
+    /// (e.g. `xdb`) can construct a PTY/stdio backend without re-entering the
+    /// PLIC to mint a fresh handle.
+    uart_line: Option<crate::device::IrqLine>,
 }
 
 impl<Core: CoreOps + DebugOps> CPU<Core> {
@@ -107,7 +111,14 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
             halt_ret: 0,
             boot_config: BootConfig::Direct { file: None },
             boot_layout: layout,
+            uart_line: None,
         }
+    }
+
+    /// Clone of the pre-minted UART IRQ line (set by the machine factory).
+    /// Returns `None` if no UART source was wired up.
+    pub fn uart_line(&self) -> Option<crate::device::IrqLine> {
+        self.uart_line.clone()
     }
 
     /// Lock the shared bus for the duration of the returned guard.
@@ -335,7 +346,7 @@ impl CPU<Core> {
     /// Build a CPU + Bus + devices from a [`crate::config::MachineConfig`].
     pub fn from_config(config: crate::config::MachineConfig, layout: BootLayout) -> Self {
         use crate::{
-            arch::riscv::device::intc::{aclint::Aclint, plic::Plic},
+            arch::riscv::device::{aclint::Aclint, plic::Plic},
             config::CONFIG_MBASE,
             device::{
                 IrqState, bus::Bus, test_finisher::TestFinisher, uart::Uart, virtio_blk::VirtioBlk,
@@ -347,36 +358,27 @@ impl CPU<Core> {
         let irqs: Vec<IrqState> = (0..num_harts).map(|_| IrqState::new()).collect();
 
         let mut bus = Bus::new(CONFIG_MBASE, config.ram_size, num_harts);
-        let ssips: Vec<_> = (0..num_harts)
-            .map(|h| bus.ssip_flag(HartId::from(h)))
-            .collect();
-
-        let mtimer_idx = Aclint::new(num_harts, irqs.clone(), ssips).install(&mut bus, 0x0200_0000);
+        let mtimer_idx = Aclint::new(num_harts, irqs.clone()).install(&mut bus, 0x0200_0000);
         bus.set_timer_source(mtimer_idx);
 
-        let plic_idx = bus.add_mmio(
-            "plic",
-            0x0C00_0000,
-            0x400_0000,
-            Box::new(Plic::new(num_harts, irqs.clone())),
-            0,
-        );
+        let plic = Plic::new(num_harts, irqs.clone());
+        let uart_line = plic.with_irq_line(10);
+        let virtio_line = plic.with_irq_line(1);
+        let plic_idx = bus.add_mmio("plic", 0x0C00_0000, 0x400_0000, Box::new(plic));
         bus.set_irq_sink(plic_idx);
-        bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
         bus.add_mmio(
-            "finisher",
-            0x10_0000,
-            0x1000,
-            Box::new(TestFinisher::new()),
-            0,
+            "uart0",
+            0x1000_0000,
+            0x100,
+            Box::new(Uart::new(uart_line.clone())),
         );
+        bus.add_mmio("finisher", 0x10_0000, 0x1000, Box::new(TestFinisher::new()));
         if let Some(disk) = config.disk {
             bus.add_mmio(
                 "virtio-blk0",
                 0x1000_1000,
                 0x1000,
-                Box::new(VirtioBlk::new(disk)),
-                1,
+                Box::new(VirtioBlk::new(disk, virtio_line)),
             );
         }
 
@@ -385,7 +387,9 @@ impl CPU<Core> {
             .map(|i| Core::with_id(HartId::from(i), bus_arc.clone(), irqs[i].clone()))
             .collect();
 
-        Self::new(cores, bus_arc, layout)
+        let mut cpu = Self::new(cores, bus_arc, layout);
+        cpu.uart_line = Some(uart_line);
+        cpu
     }
 }
 

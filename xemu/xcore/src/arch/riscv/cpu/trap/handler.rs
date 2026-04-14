@@ -29,18 +29,21 @@ impl RVCore {
             if pending & irq.bit() == 0 {
                 continue;
             }
+            // Per Priv ISA §3.1.9: a non-delegated interrupt always targets
+            // M-mode, regardless of the hart's current privilege. Only a
+            // delegated interrupt (mideleg[bit] == 1) targets S-mode.
             let delegated = (mideleg >> irq as Word) & 1 == 1;
 
-            let enabled = if irq.is_machine() && !delegated {
-                // M-level interrupt, not delegated: taken in M-mode
-                self.privilege != PrivilegeMode::Machine || ms.contains(MStatus::MIE)
-            } else {
-                // S-level or delegated M-level: taken in S-mode
+            let enabled = if delegated {
                 match self.privilege {
                     PrivilegeMode::User => true,
                     PrivilegeMode::Supervisor => ms.contains(MStatus::SIE),
-                    PrivilegeMode::Machine => false, // S-mode interrupt cannot preempt M-mode
+                    PrivilegeMode::Machine => false,
                 }
+            } else {
+                // M-targeted: always fires below M-mode; gated by mstatus.MIE
+                // when the hart is already in M-mode.
+                self.privilege != PrivilegeMode::Machine || ms.contains(MStatus::MIE)
             };
 
             if enabled {

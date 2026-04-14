@@ -105,14 +105,23 @@ impl Core {
         result
     }
 
-    /// Acknowledge a complete for `src` on `ctx`. Returns true iff it matched
-    /// the outstanding claim.
+    /// Acknowledge a complete for `src` on `ctx`. Per PLIC v1.0.0 §9 the
+    /// match is against the context's *enable* mask, not the last-claimed
+    /// id — out-of-order completion is legal. Returns `true` iff `src` is
+    /// enabled on `ctx`; the caller then runs the gateway's `on_complete`.
+    /// The per-context claim slot is cleared on any successful match.
     pub(super) fn complete(&mut self, ctx: usize, src: u32) -> bool {
-        if ctx >= self.num_ctx || self.claimed[ctx] != src {
+        if ctx >= self.num_ctx
+            || src == 0
+            || (src as usize) >= NUM_SRC
+            || self.enable[ctx] & (1u32 << src) == 0
+        {
             return false;
         }
         debug!("plic: complete src={src} for ctx={ctx}");
-        self.claimed[ctx] = 0;
+        if self.claimed[ctx] == src {
+            self.claimed[ctx] = 0;
+        }
         self.evaluate();
         true
     }

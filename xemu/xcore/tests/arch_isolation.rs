@@ -49,7 +49,9 @@ const SEAM_ALLOWED_SYMBOLS: &[&str] = &[
     // device/intc/mod.rs seam re-exports
     "Aclint",
     "Plic",
-    // device/mod.rs seam re-exports (mip bits)
+    // device/mod.rs seam re-exports — directIrq handle (arch-neutral) +
+    // mip bits
+    "IrqLine",
     "SSIP",
     "MSIP",
     "STIP",

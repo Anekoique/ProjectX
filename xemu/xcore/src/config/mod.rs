@@ -31,7 +31,7 @@ impl MachineConfig {
         Self {
             ram_size: 0x4000_0000,
             disk: Some(disk),
-            num_harts: 1,
+            ..Self::default()
         }
     }
 

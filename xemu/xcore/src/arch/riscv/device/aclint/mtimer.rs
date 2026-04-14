@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn mtimer_independent_of_sswi() {
-        // Exercise mtimecmp/mtime standalone — no SSWI, no Bus::take_ssip.
+        // Exercise mtimecmp/mtime standalone — no SSWI coupling.
         let (mut dev, irqs) = setup(1);
         dev.write(0x0000, 4, 0).unwrap();
         dev.write(0x0004, 4, 0).unwrap();

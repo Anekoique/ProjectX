@@ -92,16 +92,26 @@ impl RVCore {
     #[allow(clippy::unnecessary_cast)]
     fn sync_interrupts(&mut self) {
         let hw = self.irq.load() as Word;
-        let stip: Word =
-            if self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64 {
-                Mip::STIP.bits()
-            } else {
-                0
-            };
+        let stip: Word = if self.stip_asserted() {
+            Mip::STIP.bits()
+        } else {
+            0
+        };
         let mip = (self.csr.get(CsrAddr::mip) & !HW_IP_MASK & !Mip::STIP.bits())
             | (hw & HW_IP_MASK)
             | stip;
         self.csr.set(CsrAddr::mip, mip);
+    }
+
+    /// True iff `mip`'s STIP bit should be asserted for the current time.
+    #[allow(clippy::unnecessary_cast)]
+    fn stip_asserted(&self) -> bool {
+        self.csr.get(CsrAddr::time) as u64 >= self.csr.get(CsrAddr::stimecmp) as u64
+    }
+
+    /// True iff `mip`'s current STIP bit matches the computed `stip_asserted`.
+    fn stip_in_sync(&self) -> bool {
+        (self.csr.get(CsrAddr::mip) & Mip::STIP.bits() != 0) == self.stip_asserted()
     }
 
     /// Trap if mstatus.FS == Off (floating-point disabled).
@@ -193,16 +203,22 @@ impl CoreOps for RVCore {
 
     #[allow(clippy::unnecessary_cast)]
     fn step(&mut self) -> XResult {
-        let (mtime, ssip) = {
-            let bus = self.bus.lock().unwrap();
-            (bus.mtime(), bus.take_ssip(self.id))
-        };
+        // Time always advances — rdtime + stimecmp comparisons need it.
+        let mtime = self.bus.lock().unwrap().mtime();
         self.csr.set(CsrAddr::time, mtime as Word);
-        if ssip {
-            let mip = self.csr.get(CsrAddr::mip);
-            self.csr.set(CsrAddr::mip, mip | Mip::SSIP.bits());
+
+        // Event-driven `mip` sync: redo the merge only when a producer
+        // published since the last step OR when STIP's time-driven bit is
+        // out of sync with what `stimecmp` demands. `raise_ssip_edge` always
+        // bumps the epoch, so the ssip_edge consume rides inside the same
+        // gate without an extra atomic swap per step.
+        if self.irq.take_epoch() || !self.stip_in_sync() {
+            if self.irq.take_ssip_edge() {
+                let mip = self.csr.get(CsrAddr::mip);
+                self.csr.set(CsrAddr::mip, mip | Mip::SSIP.bits());
+            }
+            self.sync_interrupts();
         }
-        self.sync_interrupts();
 
         // Breakpoint check (before instruction execution)
         #[cfg(feature = "debug")]
@@ -354,14 +370,10 @@ mod tests {
         let ssip = Mip::SSIP.bits();
         write_inst(&mut core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
 
-        // Set SSIP edge directly (equivalent to SETSSIP write hitting the
-        // bus's ssip_pending flag). RVCore::new() in tests does not install
-        // ACLINT MMIO, so we drive the flag via Bus::ssip_flag.
-        core.bus
-            .lock()
-            .unwrap()
-            .ssip_flag(HartId(0))
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        // Raise the SSIP edge on the core's IrqState directly (equivalent to
+        // a SETSSIP write hitting the hart's edge flag). RVCore::new() in
+        // tests does not install ACLINT MMIO, so we drive the edge manually.
+        core.irq.raise_ssip_edge();
 
         // Step: SSIP should be set in mip after step
         core.step().unwrap();
