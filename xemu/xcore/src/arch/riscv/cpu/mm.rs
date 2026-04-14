@@ -255,8 +255,9 @@ impl RVCore {
             MemOp::Fetch => self.privilege,
             _ => self.effective_priv(),
         };
+        let mut bus = self.bus.lock().unwrap();
         self.mmu
-            .translate(addr, op, priv_mode, &self.pmp, &mut self.bus)
+            .translate(self.id, addr, op, priv_mode, &self.pmp, &mut bus)
             .and_then(|pa| self.pmp.check(pa, size, op, priv_mode).map(|_| pa))
             .map_err(|e| Self::to_trap(e, addr, op))
     }
@@ -264,6 +265,8 @@ impl RVCore {
     fn checked_read(&mut self, addr: VirtAddr, size: usize, op: MemOp) -> XResult<Word> {
         let pa = self.access_bus(addr, op, size)?;
         self.bus
+            .lock()
+            .unwrap()
             .read(pa, size)
             .map_err(|e| Self::to_trap(e, addr, op))
     }
@@ -271,7 +274,9 @@ impl RVCore {
     fn checked_write(&mut self, addr: VirtAddr, size: usize, value: Word, op: MemOp) -> XResult {
         let pa = self.access_bus(addr, op, size)?;
         self.bus
-            .write(pa, size, value)
+            .lock()
+            .unwrap()
+            .store(self.id, pa, size, value)
             .map_err(|e| Self::to_trap(e, addr, op))
     }
 

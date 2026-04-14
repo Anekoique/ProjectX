@@ -10,6 +10,8 @@ mod inst;
 pub(crate) mod mm;
 pub mod trap;
 
+use std::sync::{Arc, Mutex};
+
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use self::{
@@ -17,17 +19,20 @@ use self::{
     mm::{Mmu, Pmp},
     trap::{PendingTrap, TrapCause, interrupt::HW_IP_MASK},
 };
-use super::device::intc::{aclint::Aclint, plic::Plic};
 use crate::{
-    config::{CONFIG_MBASE, MachineConfig, Word},
-    cpu::{RESET_VECTOR, core::CoreOps},
-    device::{IrqState, bus::Bus, test_finisher::TestFinisher, uart::Uart, virtio_blk::VirtioBlk},
+    config::Word,
+    cpu::{
+        RESET_VECTOR,
+        core::{CoreOps, HartId},
+    },
+    device::{IrqState, bus::Bus},
     error::{XError, XResult},
     isa::{DECODER, DecodedInst, RVReg},
 };
 
 /// RISC-V CPU core: registers, CSR file, MMU, PMP, bus, and trap state.
 pub struct RVCore {
+    pub(in crate::arch::riscv) id: HartId,
     pub(in crate::arch::riscv) gpr: [Word; 32],
     pub(in crate::arch::riscv) fpr: [u64; 32],
     pub(in crate::arch::riscv) pc: VirtAddr,
@@ -35,8 +40,7 @@ pub struct RVCore {
     pub(in crate::arch::riscv) csr: CsrFile,
     pub(in crate::arch::riscv) privilege: PrivilegeMode,
     pub(in crate::arch::riscv) pending_trap: Option<PendingTrap>,
-    pub(in crate::arch::riscv) reservation: Option<usize>,
-    pub(in crate::arch::riscv) bus: Bus,
+    pub(in crate::arch::riscv) bus: Arc<Mutex<Bus>>,
     pub(in crate::arch::riscv) mmu: Mmu,
     pub(in crate::arch::riscv) pmp: Pmp,
     pub(in crate::arch::riscv) irq: IrqState,
@@ -49,49 +53,19 @@ pub struct RVCore {
 }
 
 impl RVCore {
-    /// Create a new RVCore with default machine profile (128 MB, no disk).
+    /// Create a default single-hart RVCore around a fresh single-hart bus.
+    /// Convenience for tests; production builds use
+    /// [`crate::cpu::CPU::from_config`].
     pub fn new() -> Self {
-        Self::with_config(MachineConfig::default())
+        use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
+        let bus = Arc::new(Mutex::new(Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1)));
+        Self::with_id(HartId(0), bus, IrqState::new())
     }
 
-    /// Create an RVCore from a machine configuration.
-    pub fn with_config(config: MachineConfig) -> Self {
-        let irq = IrqState::new();
-        let mut bus = Bus::new(CONFIG_MBASE, config.ram_size);
-        let mtimer_idx = Aclint::new(irq.clone(), bus.ssip_flag()).install(&mut bus, 0x0200_0000);
-        bus.set_timer_source(mtimer_idx);
-        let plic_idx = bus.mmio.len();
-        bus.add_mmio(
-            "plic",
-            0x0C00_0000,
-            0x400_0000,
-            Box::new(Plic::new(irq.clone())),
-            0,
-        );
-        bus.set_irq_sink(plic_idx);
-        bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
-        bus.add_mmio(
-            "finisher",
-            0x10_0000,
-            0x1000,
-            Box::new(TestFinisher::new()),
-            0,
-        );
-        if let Some(disk) = config.disk {
-            bus.add_mmio(
-                "virtio-blk0",
-                0x1000_1000,
-                0x1000,
-                Box::new(VirtioBlk::new(disk)),
-                1,
-            );
-        }
-        Self::with_bus(bus, irq)
-    }
-
-    /// Create an RVCore with an externally constructed bus and IRQ state.
-    pub fn with_bus(bus: Bus, irq: IrqState) -> Self {
-        Self {
+    /// Create an RVCore for `id` sharing the given bus and IRQ state.
+    pub fn with_id(id: HartId, bus: Arc<Mutex<Bus>>, irq: IrqState) -> Self {
+        let mut core = Self {
+            id,
             gpr: [0; 32],
             fpr: [0; 32],
             pc: VirtAddr::from(0),
@@ -99,7 +73,6 @@ impl RVCore {
             csr: CsrFile::new(),
             privilege: PrivilegeMode::Machine,
             pending_trap: None,
-            reservation: None,
             bus,
             mmu: Mmu::new(),
             pmp: Pmp::new(),
@@ -109,7 +82,9 @@ impl RVCore {
             breakpoints: Vec::new(),
             next_bp_id: 1,
             skip_bp_once: false,
-        }
+        };
+        core.csr.set(CsrAddr::mhartid, id.0 as Word);
+        core
     }
 
     /// Merge hardware interrupt bits from devices into mip.
@@ -176,16 +151,12 @@ impl RVCore {
 }
 
 impl CoreOps for RVCore {
+    fn id(&self) -> HartId {
+        self.id
+    }
+
     fn pc(&self) -> VirtAddr {
         self.pc
-    }
-
-    fn bus(&self) -> &Bus {
-        &self.bus
-    }
-
-    fn bus_mut(&mut self) -> &mut Bus {
-        &mut self.bus
     }
 
     fn setup_boot(&mut self, mode: crate::cpu::core::BootMode) {
@@ -195,8 +166,9 @@ impl CoreOps for RVCore {
                 self.ebreak_as_trap = false;
             }
             BootMode::Firmware { fdt_addr } => {
-                // SBI convention: a0 = hartid, a1 = FDT pointer
-                self.gpr[RVReg::a0] = 0;
+                // SBI convention: a0 = hartid, a1 = FDT pointer.
+                // Secondary harts get parked by OpenSBI until released via MSIP.
+                self.gpr[RVReg::a0] = self.id.as_word();
                 self.gpr[RVReg::a1] = fdt_addr as Word;
                 self.ebreak_as_trap = true;
             }
@@ -209,22 +181,24 @@ impl CoreOps for RVCore {
         self.pc = VirtAddr::from(RESET_VECTOR);
         self.npc = self.pc;
         self.csr = CsrFile::new();
+        self.csr.set(CsrAddr::mhartid, self.id.as_word());
         self.privilege = PrivilegeMode::Machine;
         self.pending_trap = None;
-        self.reservation = None;
         self.mmu = Mmu::new();
         self.pmp = Pmp::new();
         self.irq.reset();
-        self.bus.reset_devices();
         self.halted = false;
         Ok(())
     }
 
     #[allow(clippy::unnecessary_cast)]
     fn step(&mut self) -> XResult {
-        self.bus.tick();
-        self.csr.set(CsrAddr::time, self.bus.mtime() as Word);
-        if self.bus.take_ssip() {
+        let (mtime, ssip) = {
+            let bus = self.bus.lock().unwrap();
+            (bus.mtime(), bus.take_ssip(self.id))
+        };
+        self.csr.set(CsrAddr::time, mtime as Word);
+        if ssip {
             let mip = self.csr.get(CsrAddr::mip);
             self.csr.set(CsrAddr::mip, mip | Mip::SSIP.bits());
         }
@@ -271,7 +245,10 @@ impl CoreOps for RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::riscv::cpu::{csr::CsrAddr, trap::Exception};
+    use crate::{
+        arch::riscv::cpu::{csr::CsrAddr, trap::Exception},
+        config::CONFIG_MBASE,
+    };
 
     fn setup_core() -> RVCore {
         let mut core = RVCore::new();
@@ -282,7 +259,11 @@ mod tests {
     }
 
     fn write_inst(core: &mut RVCore, inst: u32) {
-        core.bus.write(core.pc.as_usize(), 4, inst as Word).unwrap();
+        core.bus
+            .lock()
+            .unwrap()
+            .write(core.pc.as_usize(), 4, inst as Word)
+            .unwrap();
     }
 
     #[test]
@@ -373,8 +354,14 @@ mod tests {
         let ssip = Mip::SSIP.bits();
         write_inst(&mut core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
 
-        // Write SETSSIP=1 via ACLINT MMIO (base=0x0200_0000, offset=0xC000)
-        core.bus.write(0x0200_C000, 4, 1).unwrap();
+        // Set SSIP edge directly (equivalent to SETSSIP write hitting the
+        // bus's ssip_pending flag). RVCore::new() in tests does not install
+        // ACLINT MMIO, so we drive the flag via Bus::ssip_flag.
+        core.bus
+            .lock()
+            .unwrap()
+            .ssip_flag(HartId(0))
+            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         // Step: SSIP should be set in mip after step
         core.step().unwrap();

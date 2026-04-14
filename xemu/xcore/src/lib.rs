@@ -38,7 +38,7 @@ mod utils;
 
 pub use config::{BootLayout, MachineConfig};
 pub use cpu::{
-    BootConfig, CoreContext, RESET_VECTOR, State, XCPU,
+    BootConfig, CPU, Core, CoreContext, RESET_VECTOR, State, XCPU,
     debug::{Breakpoint, DebugOps},
     with_xcpu,
 };
@@ -53,10 +53,8 @@ pub fn init_xcore(config: MachineConfig) -> XResult {
     let layout = BootLayout {
         fdt_addr: config.fdt_addr(),
     };
-    let core = cpu::Core::with_config(config);
-    let cpu = cpu::CPU::new(core, layout);
-    cpu::XCPU
-        .set(Mutex::new(cpu))
+    let cpu = CPU::<Core>::from_config(config, layout);
+    XCPU.set(Mutex::new(cpu))
         .map_err(|_| XError::AlreadyInitialized)?;
     with_xcpu!(reset())
 }

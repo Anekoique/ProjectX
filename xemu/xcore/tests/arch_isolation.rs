@@ -31,6 +31,7 @@ const ARCH_DIR: &str = "src/arch";
 const SEAM_FILES: &[&str] = &[
     "src/arch/mod.rs",
     "src/cpu/mod.rs",
+    "src/cpu/core.rs",
     "src/isa/mod.rs",
     "src/device/mod.rs",
     "src/device/intc/mod.rs",
@@ -44,6 +45,7 @@ const SEAM_ALLOWED_SYMBOLS: &[&str] = &[
     "Core",
     "CoreContext",
     "PendingTrap",
+    "HartId",
     // device/intc/mod.rs seam re-exports
     "Aclint",
     "Plic",

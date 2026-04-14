@@ -91,16 +91,21 @@ impl DebugOps for RVCore {
     }
 
     fn read_memory(&self, paddr: usize, size: usize) -> XResult<u64> {
-        self.bus.read_ram(paddr, size).map(word_to_u64)
+        self.bus
+            .lock()
+            .unwrap()
+            .read_ram(paddr, size)
+            .map(word_to_u64)
     }
 
     #[allow(clippy::unnecessary_cast)]
     fn fetch_inst(&self, paddr: usize) -> XResult<u32> {
-        let lo = self.bus.read_ram(paddr, 2)? as u32;
+        let bus = self.bus.lock().unwrap();
+        let lo = bus.read_ram(paddr, 2)? as u32;
         if lo & 0x3 != 0x3 {
             return Ok(lo & 0xFFFF);
         }
-        let hi = self.bus.read_ram(paddr + 2, 2)? as u32;
+        let hi = bus.read_ram(paddr + 2, 2)? as u32;
         Ok(lo | (hi << 16))
     }
 

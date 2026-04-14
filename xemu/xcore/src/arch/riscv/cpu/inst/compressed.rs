@@ -549,7 +549,11 @@ mod tests {
         let sp_val = (TEST_BASE + 0x400) as Word;
         core.gpr[RVReg::sp] = sp_val;
 
-        core.bus.write(sp_val as usize, 4, 0x12345678).unwrap();
+        core.bus
+            .lock()
+            .unwrap()
+            .write(sp_val as usize, 4, 0x12345678)
+            .unwrap();
 
         let inst: u32 = 0b010_0_01010_000_00_10;
         core.c_lwsp(inst).unwrap();
@@ -566,7 +570,7 @@ mod tests {
         let inst: u32 = 0b110_0_0000_0_00101_10;
         core.c_swsp(inst).unwrap();
 
-        let stored = core.bus.read(sp_val as usize, 4).unwrap();
+        let stored = core.bus.lock().unwrap().read(sp_val as usize, 4).unwrap();
         assert_eq!(stored as u32, 0xABCD1234);
     }
 

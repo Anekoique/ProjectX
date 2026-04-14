@@ -1,5 +1,11 @@
 //! Memory bus: RAM backing store + MMIO region dispatch with split-tick
 //! optimization (MTIMER every step, UART/PLIC every 64 steps).
+//!
+//! The bus owns per-hart state shared across all harts in the system:
+//! LR/SC reservations and the SSWI edge flag. Every physical store should
+//! route through [`Bus::store`], which performs the write and invalidates
+//! peer reservations covering the same 8-byte granule (RISC-V A-extension
+//! §8.2 cross-hart invalidation rule).
 
 use std::{
     ops::Range,
@@ -12,11 +18,26 @@ use std::{
 use super::{Device, ram::Ram};
 use crate::{
     config::Word,
+    cpu::core::HartId,
     error::{XError, XResult},
 };
 
+/// LR/SC reservation granule: peer-hart stores within this many bytes of an
+/// active reservation invalidate it. RISC-V A-extension §8.2 mandates a
+/// natural-aligned granule of 2..=4096 bytes; 8 is a conservative minimum
+/// that covers all normal store widths up through `sd`.
+const RESERVATION_GRANULE: usize = 8;
+
 fn overlaps(a: &Range<usize>, b: &Range<usize>) -> bool {
     a.start < b.end && b.start < a.end
+}
+
+/// True if the granule-aligned range of reservation `r` overlaps the store
+/// range `[addr, end)`.
+#[inline]
+fn granule_overlaps(r: usize, addr: usize, end: usize) -> bool {
+    let base = r & !(RESERVATION_GRANULE - 1);
+    base < end && base + RESERVATION_GRANULE > addr
 }
 
 pub(crate) struct MmioRegion {
@@ -43,37 +64,98 @@ pub struct Bus {
     mtimer_idx: Option<usize>,
     plic_idx: Option<usize>,
     tick_count: u64,
-    ssip_pending: Arc<AtomicBool>,
+    num_harts: usize,
+    /// Per-hart LR/SC reservation: physical address of the reserved
+    /// 8-byte granule, or `None` if the hart has no live reservation.
+    reservations: Vec<Option<usize>>,
+    /// Per-hart SSWI edge flag.
+    ssip_pending: Vec<Arc<AtomicBool>>,
     #[cfg(feature = "difftest")]
     mmio_accessed: AtomicBool,
 }
 
 impl Bus {
-    /// Create a bus with RAM at the given base address and size.
-    pub fn new(ram_base: usize, ram_size: usize) -> Self {
+    /// Create a bus with RAM at the given base address and size, sized for
+    /// `num_harts` harts.
+    pub fn new(ram_base: usize, ram_size: usize, num_harts: usize) -> Self {
+        debug_assert!((1..=16).contains(&num_harts), "num_harts must be in 1..=16");
         Self {
             ram: Ram::new(ram_base, ram_size),
             mmio: Vec::new(),
             mtimer_idx: None,
             plic_idx: None,
             tick_count: 0,
-            ssip_pending: Arc::new(AtomicBool::new(false)),
+            num_harts,
+            reservations: vec![None; num_harts],
+            ssip_pending: (0..num_harts)
+                .map(|_| Arc::new(AtomicBool::new(false)))
+                .collect(),
             #[cfg(feature = "difftest")]
             mmio_accessed: AtomicBool::new(false),
         }
     }
 
-    /// Returns the shared SSIP pending flag for SSWI edge delivery.
-    pub fn ssip_flag(&self) -> Arc<AtomicBool> {
-        self.ssip_pending.clone()
+    /// Number of harts this bus was sized for.
+    pub fn num_harts(&self) -> usize {
+        self.num_harts
     }
 
-    /// Consume and return the SSIP edge signal.
-    pub fn take_ssip(&self) -> bool {
-        self.ssip_pending.swap(false, Relaxed)
+    /// Returns the shared SSIP pending flag for SSWI edge delivery on `hart`.
+    pub fn ssip_flag(&self, hart: HartId) -> Arc<AtomicBool> {
+        self.ssip_pending[hart.0 as usize].clone()
     }
 
-    /// Register an MMIO device at the given address range.
+    /// Consume and return `hart`'s SSIP edge signal.
+    pub fn take_ssip(&self, hart: HartId) -> bool {
+        self.ssip_pending[hart.0 as usize].swap(false, Relaxed)
+    }
+
+    /// Record an LR reservation at `addr` for `hart`.
+    pub fn reserve(&mut self, hart: HartId, addr: usize) {
+        self.reservations[hart.0 as usize] = Some(addr);
+    }
+
+    /// Read `hart`'s current reservation (if any).
+    pub fn reservation(&self, hart: HartId) -> Option<usize> {
+        self.reservations[hart.0 as usize]
+    }
+
+    /// Clear `hart`'s reservation.
+    pub fn clear_reservation(&mut self, hart: HartId) {
+        self.reservations[hart.0 as usize] = None;
+    }
+
+    /// Clear every hart's reservation (used on CPU reset).
+    pub fn clear_reservations(&mut self) {
+        self.reservations.fill(None);
+    }
+
+    /// Physical-store chokepoint: write to RAM/MMIO and invalidate any
+    /// peer-hart LR/SC reservation that overlaps the touched bytes within
+    /// the reservation granule (RISC-V A-extension §8.2).
+    pub fn store(&mut self, hart: HartId, addr: usize, size: usize, val: Word) -> XResult {
+        self.write(addr, size, val)?;
+        self.invalidate_peer_reservations(hart, addr, size);
+        Ok(())
+    }
+
+    fn invalidate_peer_reservations(&mut self, src: HartId, addr: usize, size: usize) {
+        let end = addr.saturating_add(size);
+        let src_idx = src.0 as usize;
+        for (i, slot) in self.reservations.iter_mut().enumerate() {
+            if i == src_idx {
+                continue;
+            }
+            if let Some(a) = *slot
+                && granule_overlaps(a, addr, end)
+            {
+                *slot = None;
+            }
+        }
+    }
+
+    /// Register an MMIO device at the given address range. Returns the
+    /// slot index — useful for pinning the region as timer or IRQ source.
     pub fn add_mmio(
         &mut self,
         name: &'static str,
@@ -81,7 +163,7 @@ impl Bus {
         size: usize,
         dev: Box<dyn Device>,
         irq_source: u32,
-    ) {
+    ) -> usize {
         assert!(size > 0, "region size must be non-zero");
         assert!(irq_source < 32, "irq_source must be < 32");
         let range = base..base.checked_add(size).expect("address overflow");
@@ -93,12 +175,14 @@ impl Bus {
             panic!("MMIO '{name}' overlaps '{}'", r.name);
         }
         info!("bus: add_mmio '{}' base={:#x} size={:#x}", name, base, size);
+        let idx = self.mmio.len();
         self.mmio.push(MmioRegion {
             name,
             range,
             dev,
             irq_source,
         });
+        idx
     }
 
     /// Swap the device backing a named MMIO region.
@@ -317,7 +401,7 @@ mod tests {
     use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
 
     fn new_bus() -> Bus {
-        Bus::new(CONFIG_MBASE, CONFIG_MSIZE)
+        Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1)
     }
 
     #[test]
@@ -446,5 +530,54 @@ mod tests {
     fn replace_device_panics_on_unknown_name() {
         let mut bus = new_bus();
         bus.replace_device("nonexistent", stub());
+    }
+
+    // ---- Multi-hart Bus state (PR1) ----
+
+    fn new_bus_two_harts() -> Bus {
+        Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 2)
+    }
+
+    #[test]
+    fn bus_new_two_harts_vec_lengths_and_share() {
+        let bus = new_bus_two_harts();
+        assert_eq!(bus.num_harts(), 2);
+        assert_eq!(bus.reservations.len(), 2);
+        assert_eq!(bus.ssip_pending.len(), 2);
+        // Distinct flags per hart.
+        let f0 = bus.ssip_flag(HartId(0));
+        let f1 = bus.ssip_flag(HartId(1));
+        assert!(!Arc::ptr_eq(&f0, &f1));
+    }
+
+    #[test]
+    fn bus_store_invalidates_peer_reservation_in_granule() {
+        let mut bus = new_bus_two_harts();
+        bus.reserve(HartId(0), CONFIG_MBASE + 0x1000);
+        // Hart 1 stores within the same 8-byte granule.
+        bus.store(HartId(1), CONFIG_MBASE + 0x1004, 4, 0xDEAD)
+            .unwrap();
+        assert_eq!(bus.reservation(HartId(0)), None);
+    }
+
+    #[test]
+    fn bus_store_preserves_peer_reservation_outside_granule() {
+        let mut bus = new_bus_two_harts();
+        bus.reserve(HartId(0), CONFIG_MBASE + 0x1000);
+        // Hart 1 stores past the 8-byte granule.
+        bus.store(HartId(1), CONFIG_MBASE + 0x1010, 4, 0xBEEF)
+            .unwrap();
+        assert_eq!(bus.reservation(HartId(0)), Some(CONFIG_MBASE + 0x1000));
+    }
+
+    #[test]
+    fn bus_store_preserves_same_hart_reservation() {
+        let mut bus = new_bus_two_harts();
+        bus.reserve(HartId(0), CONFIG_MBASE + 0x1000);
+        // Same hart store: reservation untouched by the chokepoint
+        // (sc/lr/amo logic clears it explicitly when needed).
+        bus.store(HartId(0), CONFIG_MBASE + 0x1000, 4, 0xCAFE)
+            .unwrap();
+        assert_eq!(bus.reservation(HartId(0)), Some(CONFIG_MBASE + 0x1000));
     }
 }

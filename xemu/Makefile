@@ -7,6 +7,7 @@ KERNEL  ?=
 INITRD  ?=
 FDT     ?=
 DISK    ?=
+HARTS   ?=
 MODE    ?= release
 DEBUG   ?= y
 VERBOSE ?=
@@ -20,6 +21,7 @@ export X_KERNEL = $(KERNEL)
 export X_INITRD = $(INITRD)
 export X_FDT    = $(FDT)
 export X_DISK   = $(DISK)
+export X_HARTS  = $(HARTS)
 
 build_args-release := --release
 verbose := $(if $(VERBOSE),--verbose,)

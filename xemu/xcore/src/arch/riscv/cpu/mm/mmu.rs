@@ -10,6 +10,7 @@ use super::{
 use crate::{
     arch::riscv::cpu::csr::PrivilegeMode,
     config::Word,
+    cpu::core::HartId,
     device::bus::Bus,
     ensure,
     error::{XError, XResult},
@@ -54,8 +55,11 @@ impl Mmu {
     }
 
     /// Translate a virtual address, consulting TLB then page walker.
+    /// `hart` identifies the requesting hart for cross-hart reservation
+    /// invalidation when the page walker writes A/D bits.
     pub fn translate(
         &mut self,
+        hart: HartId,
         vaddr: VirtAddr,
         op: MemOp,
         priv_mode: PrivilegeMode,
@@ -73,14 +77,16 @@ impl Mmu {
             return Ok(entry.translate(vaddr, &sv));
         }
 
-        let entry = self.page_walk(vaddr, op, priv_mode, &sv, pmp, bus)?;
+        let entry = self.page_walk(hart, vaddr, op, priv_mode, &sv, pmp, bus)?;
         let paddr = entry.translate(vaddr, &sv);
         self.tlb.insert(entry);
         Ok(paddr)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn page_walk(
         &self,
+        hart: HartId,
         vaddr: VirtAddr,
         op: MemOp,
         priv_mode: PrivilegeMode,
@@ -121,7 +127,7 @@ impl Mmu {
                         PteFlags::empty()
                     };
                 if !pte.flags().contains(ad) {
-                    let _ = bus.write(pte_addr, sv.pte_size, (pte.0 | ad.bits()) as Word);
+                    let _ = bus.store(hart, pte_addr, sv.pte_size, (pte.0 | ad.bits()) as Word);
                 }
                 return Ok(TlbEntry::new(
                     pte.flags() | ad,
@@ -158,7 +164,7 @@ mod tests {
     use crate::config::{CONFIG_MBASE, CONFIG_MSIZE, Word};
 
     fn test_bus() -> Bus {
-        Bus::new(CONFIG_MBASE, CONFIG_MSIZE)
+        Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1)
     }
 
     fn allow_all_pmp() -> Pmp {
@@ -210,7 +216,14 @@ mod tests {
     }
 
     fn xlate(mmu: &mut Mmu, va: usize, op: MemOp, pmp: &Pmp, bus: &mut Bus) -> XResult<usize> {
-        mmu.translate(VirtAddr::from(va), op, PrivilegeMode::Supervisor, pmp, bus)
+        mmu.translate(
+            HartId(0),
+            VirtAddr::from(va),
+            op,
+            PrivilegeMode::Supervisor,
+            pmp,
+            bus,
+        )
     }
 
     #[test]
@@ -219,6 +232,7 @@ mod tests {
         let mut bus = test_bus();
         assert_eq!(
             mmu.translate(
+                HartId(0),
                 VirtAddr::from(0x8000_1234_usize),
                 MemOp::Load,
                 PrivilegeMode::Machine,
@@ -240,6 +254,7 @@ mod tests {
         let mut bus = test_bus();
         assert_eq!(
             mmu.translate(
+                HartId(0),
                 VirtAddr::from(CONFIG_MBASE),
                 MemOp::Fetch,
                 PrivilegeMode::Machine,

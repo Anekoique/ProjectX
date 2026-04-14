@@ -40,22 +40,40 @@ fn init_xdb() {
     info!("Hello, xdb!");
 }
 
+/// Read a non-empty env var, matching the `X_*` configuration idiom.
+fn env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|s| !s.is_empty())
+}
+
+const MAX_HARTS: usize = 16;
+
 fn machine_config() -> anyhow::Result<xcore::MachineConfig> {
-    let env = |n: &str| std::env::var(n).ok().filter(|s| !s.is_empty());
-    match env("X_DISK") {
+    let base = match env("X_DISK") {
         Some(path) => {
             let disk = std::fs::read(&path)
                 .map_err(|e| anyhow!("Failed to read disk image {path}: {e}"))?;
             info!("Loaded disk image: {} ({} bytes)", path, disk.len());
-            Ok(xcore::MachineConfig::with_disk(disk))
+            xcore::MachineConfig::with_disk(disk)
         }
-        None => Ok(xcore::MachineConfig::default()),
-    }
+        None => xcore::MachineConfig::default(),
+    };
+    let cfg = match env("X_HARTS") {
+        Some(s) => {
+            let n: usize = s
+                .parse()
+                .map_err(|e| anyhow!("X_HARTS must be a usize: {e}"))?;
+            if !(1..=MAX_HARTS).contains(&n) {
+                bail!("X_HARTS must be in [1, {MAX_HARTS}], got {n}");
+            }
+            info!("Configured num_harts = {n}");
+            base.with_harts(n)
+        }
+        None => base,
+    };
+    Ok(cfg)
 }
 
 fn boot_config() -> xcore::BootConfig {
-    let env = |n| std::env::var(n).ok().filter(|s| !s.is_empty());
-
     if let Some((fw, fdt)) = env("X_FW").zip(env("X_FDT")) {
         xcore::BootConfig::Firmware {
             fw,

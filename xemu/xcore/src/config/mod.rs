@@ -7,8 +7,12 @@ pub const CONFIG_MSIZE: usize = 0x0800_0000;
 
 /// Machine configuration — independent inputs driving bus, devices, and boot.
 pub struct MachineConfig {
+    /// Physical RAM size, in bytes.
     pub ram_size: usize,
+    /// Optional pre-loaded VirtIO block disk image.
     pub disk: Option<Vec<u8>>,
+    /// Number of harts to instantiate. Default 1; valid range `1..=16`.
+    pub num_harts: usize,
 }
 
 impl Default for MachineConfig {
@@ -16,6 +20,7 @@ impl Default for MachineConfig {
         Self {
             ram_size: CONFIG_MSIZE,
             disk: None,
+            num_harts: 1,
         }
     }
 }
@@ -26,12 +31,30 @@ impl MachineConfig {
         Self {
             ram_size: 0x4000_0000,
             disk: Some(disk),
+            num_harts: 1,
         }
+    }
+
+    /// Override `num_harts` (builder-style). Must be in `1..=16`.
+    pub fn with_harts(mut self, n: usize) -> Self {
+        debug_assert!((1..=16).contains(&n), "num_harts must be in [1, 16]");
+        self.num_harts = n;
+        self
     }
 
     /// FDT load address: 1 MB below top of RAM.
     pub fn fdt_addr(&self) -> usize {
         CONFIG_MBASE + self.ram_size - 0x10_0000
+    }
+}
+
+#[cfg(test)]
+mod machine_config_tests {
+    use super::*;
+
+    #[test]
+    fn machine_config_default_num_harts_is_one() {
+        assert_eq!(MachineConfig::default().num_harts, 1);
     }
 }
 

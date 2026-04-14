@@ -1072,12 +1072,19 @@ mod tests {
     fn flw_nan_boxes_and_fsw_roundtrip() {
         let mut core = setup();
         let addr = CONFIG_MBASE;
-        core.bus.write(addr, 4, F32_ONE as Word).unwrap();
+        core.bus
+            .lock()
+            .unwrap()
+            .write(addr, 4, F32_ONE as Word)
+            .unwrap();
         core.gpr[RVReg::t0] = addr as Word;
         core.flw(F0, RVReg::t0, 0).unwrap();
         assert_eq!(core.fpr[F0 as usize], nan_box(F32_ONE));
         core.fsw(RVReg::t0, F0, 4).unwrap();
-        assert_eq!(core.bus.read(addr + 4, 4).unwrap() as u32, F32_ONE);
+        assert_eq!(
+            core.bus.lock().unwrap().read(addr + 4, 4).unwrap() as u32,
+            F32_ONE
+        );
     }
 
     #[test]

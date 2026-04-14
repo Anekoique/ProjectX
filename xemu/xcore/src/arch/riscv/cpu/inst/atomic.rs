@@ -27,7 +27,7 @@ impl RVCore {
         let addr = self.amo_addr(rs1);
         let old = self.amo_load(addr, 4)? & 0xFFFF_FFFF;
         self.amo_store(addr, 4, op(old as u32, self.gpr[rs2] as u32) as Word)?;
-        self.reservation = None;
+        self.bus.lock().unwrap().clear_reservation(self.id);
         self.set_gpr(rd, sext_word(old, 32))
     }
 
@@ -42,7 +42,7 @@ impl RVCore {
         let addr = self.amo_addr(rs1);
         let old = self.amo_load(addr, 8)?;
         self.amo_store(addr, 8, op(old, self.gpr[rs2]))?;
-        self.reservation = None;
+        self.bus.lock().unwrap().clear_reservation(self.id);
         self.set_gpr(rd, old)
     }
 }
@@ -54,14 +54,19 @@ impl RVCore {
         let addr = self.amo_addr(rs1);
         let paddr = self.translate(addr, 4, MemOp::Load)?;
         let val = self.load(addr, 4)? & 0xFFFF_FFFF;
-        self.reservation = Some(paddr);
+        self.bus.lock().unwrap().reserve(self.id, paddr);
         self.set_gpr(rd, sext_word(val, 32))
     }
 
     pub(super) fn sc_w(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let addr = self.amo_addr(rs1);
         let paddr = self.translate(addr, 4, MemOp::Store)?;
-        let success = self.reservation.take() == Some(paddr);
+        let success = {
+            let mut bus = self.bus.lock().unwrap();
+            let ok = bus.reservation(self.id) == Some(paddr);
+            bus.clear_reservation(self.id);
+            ok
+        };
         if success {
             self.store(addr, 4, self.gpr[rs2] & 0xFFFF_FFFF)?;
         }
@@ -73,7 +78,7 @@ impl RVCore {
             let addr = self.amo_addr(rs1);
             let paddr = self.translate(addr, 8, MemOp::Load)?;
             let val = self.load(addr, 8)?;
-            self.reservation = Some(paddr);
+            self.bus.lock().unwrap().reserve(self.id, paddr);
             self.set_gpr(rd, val)
         }; rd, rs1)
     }
@@ -82,7 +87,12 @@ impl RVCore {
         rv64_only!({
             let addr = self.amo_addr(rs1);
             let paddr = self.translate(addr, 8, MemOp::Store)?;
-            let success = self.reservation.take() == Some(paddr);
+            let success = {
+                let mut bus = self.bus.lock().unwrap();
+                let ok = bus.reservation(self.id) == Some(paddr);
+                bus.clear_reservation(self.id);
+                ok
+            };
             if success {
                 self.store(addr, 8, self.gpr[rs2])?;
             }
@@ -182,12 +192,24 @@ mod tests {
         let a = addr(slot);
         let mut core = RVCore::new();
         core.gpr[RVReg::t0] = a as Word;
-        core.bus.write(a, size, mem_val).unwrap();
+        core.bus.lock().unwrap().write(a, size, mem_val).unwrap();
         (core, a)
     }
 
     fn read_mem(core: &mut RVCore, addr: usize, size: usize) -> Word {
-        core.bus.read(addr, size).unwrap()
+        core.bus.lock().unwrap().read(addr, size).unwrap()
+    }
+
+    fn set_reservation(core: &RVCore, addr: Option<usize>) {
+        let mut bus = core.bus.lock().unwrap();
+        match addr {
+            Some(a) => bus.reserve(core.id, a),
+            None => bus.clear_reservation(core.id),
+        }
+    }
+
+    fn get_reservation(core: &RVCore) -> Option<usize> {
+        core.bus.lock().unwrap().reservation(core.id)
     }
 
     // --- AMO .w ---
@@ -277,10 +299,10 @@ mod tests {
     #[test]
     fn amo_clears_reservation() {
         let (mut core, a) = setup_core(9, 0, 4);
-        core.reservation = Some(a);
+        set_reservation(&core, Some(a));
         core.gpr[RVReg::t1] = 1;
         core.amoadd_w(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
-        assert!(core.reservation.is_none());
+        assert!(get_reservation(&core).is_none());
     }
 
     #[test]
@@ -299,20 +321,20 @@ mod tests {
         let (mut core, a) = setup_core(10, 42, 4);
         core.lr_w(RVReg::t1, RVReg::t0, RVReg::zero).unwrap();
         assert_eq!(core.gpr[RVReg::t1], 42);
-        assert_eq!(core.reservation, Some(a));
+        assert_eq!(get_reservation(&core), Some(a));
 
         core.gpr[RVReg::t2] = 99;
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 0); // success
         assert_eq!(read_mem(&mut core, a, 4), 99);
-        assert!(core.reservation.is_none());
+        assert!(get_reservation(&core).is_none());
     }
 
     #[test]
     fn lr_sc_w_failure_path() {
         let (mut core, a) = setup_core(11, 42, 4);
         core.lr_w(RVReg::t1, RVReg::t0, RVReg::zero).unwrap();
-        core.reservation = None;
+        set_reservation(&core, None);
 
         core.gpr[RVReg::t2] = 99;
         core.sc_w(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();
@@ -333,7 +355,7 @@ mod tests {
     fn regular_store_invalidates_reservation() {
         let (mut core, a) = setup_core(18, 42, 4);
         core.lr_w(RVReg::t1, RVReg::t0, RVReg::zero).unwrap();
-        assert!(core.reservation.is_some());
+        assert!(get_reservation(&core).is_some());
 
         core.gpr[RVReg::t2] = 77;
         core.sw(RVReg::t0, RVReg::t2, 0).unwrap();
@@ -391,7 +413,7 @@ mod tests {
             let (mut core, a) = setup_core(15, 0xDEAD_BEEF_CAFE_BABE, 8);
             core.lr_d(RVReg::t1, RVReg::t0, RVReg::zero).unwrap();
             assert_eq!(core.gpr[RVReg::t1], 0xDEAD_BEEF_CAFE_BABE);
-            assert_eq!(core.reservation, Some(a));
+            assert_eq!(get_reservation(&core), Some(a));
 
             core.gpr[RVReg::t2] = 0x1234_5678_9ABC_DEF0;
             core.sc_d(RVReg::t3, RVReg::t0, RVReg::t2).unwrap();

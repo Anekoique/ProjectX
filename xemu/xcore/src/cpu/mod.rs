@@ -1,21 +1,26 @@
 //! CPU lifecycle: boot configuration, step/run loop, and termination handling.
 //!
-//! The generic [`CPU`] wrapper dispatches to an arch-specific core (e.g.
-//! `RVCore` under `arch/riscv/cpu`) via the [`CoreOps`] trait. Concrete arch
-//! types cross the seam as cfg-gated `pub type` aliases below.
+//! The generic [`CPU`] wrapper owns one or more arch-specific cores
+//! (`Vec<Core>`) sharing a single [`crate::device::bus::Bus`] via
+//! `Arc<Mutex<Bus>>`. Concrete arch types cross the seam as cfg-gated
+//! `pub type` aliases below.
 
 pub(crate) mod core;
 pub mod debug;
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use inherit_methods_macro::inherit_methods;
 use memory_addr::VirtAddr;
 use xlogger::ColorCode;
 
-use self::{core::CoreOps, debug::DebugOps};
+use self::{
+    core::{CoreOps, HartId},
+    debug::DebugOps,
+};
 use crate::{
     config::{BootLayout, Word},
+    device::bus::Bus,
     error::{XError, XResult},
 };
 
@@ -71,11 +76,13 @@ impl State {
     }
 }
 
-/// Generic CPU wrapper: owns an arch-specific core and manages boot/run
-/// lifecycle.
+/// Generic CPU wrapper: owns one or more arch-specific cores plus a shared
+/// bus, and manages boot/run lifecycle.
 #[allow(clippy::upper_case_acronyms)]
 pub struct CPU<Core: CoreOps> {
-    core: Core,
+    cores: Vec<Core>,
+    bus: Arc<Mutex<Bus>>,
+    current: usize,
     state: State,
     halt_pc: VirtAddr,
     halt_ret: Word,
@@ -84,16 +91,28 @@ pub struct CPU<Core: CoreOps> {
 }
 
 impl<Core: CoreOps + DebugOps> CPU<Core> {
-    /// Create a CPU wrapper around an arch-specific core.
-    pub fn new(core: Core, layout: BootLayout) -> Self {
+    /// Create a CPU wrapper around `cores` sharing `bus`.
+    pub fn new(cores: Vec<Core>, bus: Arc<Mutex<Bus>>, layout: BootLayout) -> Self {
+        debug_assert_eq!(
+            bus.lock().unwrap().num_harts(),
+            cores.len(),
+            "Bus::num_harts must match cores.len()"
+        );
         Self {
-            core,
+            cores,
+            bus,
+            current: 0,
             state: State::Idle,
             halt_pc: VirtAddr::from(0),
             halt_ret: 0,
             boot_config: BootConfig::Direct { file: None },
             boot_layout: layout,
         }
+    }
+
+    /// Lock the shared bus for the duration of the returned guard.
+    pub fn bus(&self) -> MutexGuard<'_, Bus> {
+        self.bus.lock().unwrap()
     }
 
     /// Boot from a configuration. Stores the config for subsequent resets.
@@ -104,10 +123,18 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
     }
 
     /// Reset the CPU and reapply the stored boot configuration.
+    /// Order: bus first (clear devices + reservations), then cores.
     pub fn reset(&mut self) -> XResult {
         info!("cpu: reset");
         self.state = State::Idle;
-        self.core.reset()?;
+        {
+            let mut bus = self.bus.lock().unwrap();
+            bus.reset_devices();
+            bus.clear_reservations();
+        }
+        for core in &mut self.cores {
+            core.reset()?;
+        }
 
         match &self.boot_config {
             BootConfig::Direct { file } => self.load_direct(file.clone()),
@@ -121,11 +148,13 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
     }
 
     fn load_direct(&mut self, file: Option<String>) -> XResult {
-        self.core.setup_boot(core::BootMode::Direct);
+        for core in &mut self.cores {
+            core.setup_boot(core::BootMode::Direct);
+        }
         match file {
             None => {
                 let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-                self.core.bus_mut().load_ram(RESET_VECTOR, image_bytes)
+                self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
             }
             Some(path) => self.load_file_at(&path, RESET_VECTOR),
         }
@@ -147,14 +176,16 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
             self.load_file_at(rd, INITRD_LOAD_ADDR)?;
         }
         self.load_file_at(&fdt, fdt_addr)?;
-        self.core.setup_boot(core::BootMode::Firmware { fdt_addr });
+        for core in &mut self.cores {
+            core.setup_boot(core::BootMode::Firmware { fdt_addr });
+        }
         info!("firmware boot: fw={fw}, kernel={kernel:?}, initrd={initrd:?}, fdt={fdt}");
         Ok(())
     }
 
     fn load_file_at(&mut self, path: &str, addr: usize) -> XResult {
         let bytes = std::fs::read(path).map_err(|_| XError::FailedToRead)?;
-        self.core.bus_mut().load_ram(addr, &bytes)?;
+        self.bus.lock().unwrap().load_ram(addr, &bytes)?;
         info!("Loaded {} ({} bytes @ {:#x})", path, bytes.len(), addr);
         Ok(())
     }
@@ -165,9 +196,14 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         Ok(self)
     }
 
-    /// Execute one instruction, handling program exit and halt conditions.
+    /// Execute one instruction on the current hart and advance the
+    /// round-robin scheduler. The bus is ticked once per `CPU::step`
+    /// before the hart steps (matches HW hart-cycle clocking at N>1).
     pub fn step(&mut self) -> XResult {
-        match self.core.step() {
+        self.bus.lock().unwrap().tick();
+        let result = self.cores[self.current].step();
+        let halted = self.cores[self.current].halted();
+        match result {
             Err(XError::ProgramExit(code)) => {
                 info!("cpu: program exit with code {}", code);
                 let state = if code == 0 {
@@ -178,15 +214,27 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
                 self.set_terminated(state);
                 self.halt_ret = code as Word; // override after set_terminated
                 self.log_termination();
+                self.advance_current();
                 Ok(())
             }
-            result => {
-                result?;
-                if self.core.halted() {
+            Ok(()) => {
+                if halted {
                     self.set_terminated(State::Halted).log_termination();
                 }
+                self.advance_current();
                 Ok(())
             }
+            Err(e) => {
+                self.advance_current();
+                Err(e)
+            }
+        }
+    }
+
+    #[inline]
+    fn advance_current(&mut self) {
+        if !self.cores.is_empty() {
+            self.current = (self.current + 1) % self.cores.len();
         }
     }
 
@@ -205,17 +253,18 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         Ok(())
     }
 
-    /// Record termination state and capture PC/return value.
+    /// Record termination state and capture PC/return value (for the
+    /// current hart).
     pub fn set_terminated(&mut self, state: State) -> &mut Self {
         self.state = state;
-        self.halt_pc = self.core.pc();
-        self.halt_ret = self.core.halt_ret();
+        self.halt_pc = self.cores[self.current].pc();
+        self.halt_ret = self.cores[self.current].halt_ret();
         self
     }
 
-    /// Current program counter as a raw address.
+    /// Current hart's program counter as a raw address.
     pub fn pc(&self) -> usize {
-        self.core.pc().as_usize()
+        self.cores[self.current].pc().as_usize()
     }
 
     /// True if the CPU has halted or aborted.
@@ -230,7 +279,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
     /// Replace a named MMIO device on the bus (e.g. swap in a PTY-backed UART).
     pub fn replace_device(&mut self, name: &str, dev: Box<dyn crate::device::Device>) {
-        self.core.bus_mut().replace_device(name, dev);
+        self.bus.lock().unwrap().replace_device(name, dev);
     }
 
     /// Print colored termination message to stdout.
@@ -252,20 +301,20 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         }
     }
 
-    /// Access the core's debug inspection interface.
+    /// Access the current hart's debug inspection interface.
     pub fn debug_ops(&self) -> &dyn DebugOps {
-        &self.core
+        &self.cores[self.current]
     }
 
     /// Consume and return the MMIO-accessed flag (for difftest skip).
     #[cfg(feature = "difftest")]
     pub fn bus_take_mmio_flag(&self) -> bool {
-        self.core.bus().take_mmio_flag()
+        self.bus.lock().unwrap().take_mmio_flag()
     }
 }
 
-/// Delegated debug operations (passed through to the arch-specific core).
-#[inherit_methods(from = "self.core")]
+/// Delegated debug operations (passed through to the current hart).
+#[inherit_methods(from = "self.cores[self.current]")]
 impl<Core: CoreOps + DebugOps> CPU<Core> {
     /// Insert a breakpoint, returning its stable ID.
     pub fn add_breakpoint(&mut self, addr: usize) -> u32;
@@ -277,6 +326,67 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
     pub fn set_skip_bp(&mut self);
     /// Capture a snapshot of the current architectural state.
     pub fn context(&self) -> CoreContext;
+}
+
+// --- RISC-V machine factory -------------------------------------------------
+
+#[cfg(riscv)]
+impl CPU<Core> {
+    /// Build a CPU + Bus + devices from a [`crate::config::MachineConfig`].
+    pub fn from_config(config: crate::config::MachineConfig, layout: BootLayout) -> Self {
+        use crate::{
+            arch::riscv::device::intc::{aclint::Aclint, plic::Plic},
+            config::CONFIG_MBASE,
+            device::{
+                IrqState, bus::Bus, test_finisher::TestFinisher, uart::Uart, virtio_blk::VirtioBlk,
+            },
+        };
+
+        // Range enforcement lives in `Bus::new` and `MachineConfig::with_harts`.
+        let num_harts = config.num_harts;
+        let irqs: Vec<IrqState> = (0..num_harts).map(|_| IrqState::new()).collect();
+
+        let mut bus = Bus::new(CONFIG_MBASE, config.ram_size, num_harts);
+        let ssips: Vec<_> = (0..num_harts)
+            .map(|h| bus.ssip_flag(HartId::from(h)))
+            .collect();
+
+        let mtimer_idx = Aclint::new(num_harts, irqs.clone(), ssips).install(&mut bus, 0x0200_0000);
+        bus.set_timer_source(mtimer_idx);
+
+        let plic_idx = bus.add_mmio(
+            "plic",
+            0x0C00_0000,
+            0x400_0000,
+            Box::new(Plic::new(num_harts, irqs.clone())),
+            0,
+        );
+        bus.set_irq_sink(plic_idx);
+        bus.add_mmio("uart0", 0x1000_0000, 0x100, Box::new(Uart::new()), 10);
+        bus.add_mmio(
+            "finisher",
+            0x10_0000,
+            0x1000,
+            Box::new(TestFinisher::new()),
+            0,
+        );
+        if let Some(disk) = config.disk {
+            bus.add_mmio(
+                "virtio-blk0",
+                0x1000_1000,
+                0x1000,
+                Box::new(VirtioBlk::new(disk)),
+                1,
+            );
+        }
+
+        let bus_arc = Arc::new(Mutex::new(bus));
+        let cores: Vec<Core> = (0..num_harts)
+            .map(|i| Core::with_id(HartId::from(i), bus_arc.clone(), irqs[i].clone()))
+            .collect();
+
+        Self::new(cores, bus_arc, layout)
+    }
 }
 
 /// Lock the global CPU and execute `f` with exclusive access.
@@ -316,7 +426,7 @@ mod tests {
         let layout = BootLayout {
             fdt_addr: crate::config::CONFIG_MBASE + crate::config::CONFIG_MSIZE - 0x10_0000,
         };
-        let mut cpu = CPU::new(Core::new(), layout);
+        let mut cpu = CPU::<Core>::from_config(crate::config::MachineConfig::default(), layout);
         cpu.reset().unwrap();
         cpu
     }
@@ -331,20 +441,20 @@ mod tests {
     #[test]
     fn cpu_reset_sets_pc_to_reset_vector() {
         let mut cpu = new_cpu();
-        assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
+        assert_eq!(cpu.cores[cpu.current].pc(), VirtAddr::from(RESET_VECTOR));
         assert_eq!(cpu.state, State::Idle);
 
         cpu.state = State::Halted;
         cpu.reset().unwrap();
         assert_eq!(cpu.state, State::Idle);
-        assert_eq!(cpu.core.pc(), VirtAddr::from(RESET_VECTOR));
+        assert_eq!(cpu.cores[cpu.current].pc(), VirtAddr::from(RESET_VECTOR));
     }
 
     #[test]
     fn cpu_load_default_image() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        let word = cpu.core.bus_mut().read(RESET_VECTOR, 4).unwrap();
+        let word = cpu.bus().read(RESET_VECTOR, 4).unwrap();
         assert_eq!(word as u32, crate::isa::IMG[0]);
     }
 
@@ -362,7 +472,7 @@ mod tests {
         cpu.set_terminated(State::Halted);
         assert_eq!(cpu.state, State::Halted);
         assert_eq!(cpu.halt_ret, 0);
-        assert_eq!(cpu.halt_pc, cpu.core.pc());
+        assert_eq!(cpu.halt_pc, cpu.cores[cpu.current].pc());
     }
 
     #[test]
@@ -384,9 +494,9 @@ mod tests {
     fn cpu_step_advances_pc() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        let pc_before = cpu.core.pc();
+        let pc_before = cpu.cores[cpu.current].pc();
         cpu.step().unwrap();
-        assert_eq!(cpu.core.pc(), pc_before.wrapping_add(4));
+        assert_eq!(cpu.cores[cpu.current].pc(), pc_before.wrapping_add(4));
     }
 
     #[test]
@@ -395,5 +505,69 @@ mod tests {
         cpu.load(None).unwrap();
         cpu.run(100).unwrap();
         assert_eq!(cpu.state, State::Halted);
+    }
+
+    // ---- PR1 multi-hart shape tests ----
+
+    #[test]
+    fn cpu_step_advances_current_single_hart() {
+        let mut cpu = new_cpu();
+        cpu.load(None).unwrap();
+        assert_eq!(cpu.current, 0);
+        cpu.step().unwrap();
+        // With one hart, current modulo cores.len() stays at 0.
+        assert_eq!(cpu.current, 0);
+    }
+
+    #[test]
+    fn hart_ids_match_index() {
+        let cpu = new_cpu();
+        for (i, core) in cpu.cores.iter().enumerate() {
+            assert_eq!(core.id(), HartId::from(i));
+        }
+    }
+
+    // ---- PR2b activation tests ----
+
+    fn new_cpu_harts(n: usize) -> CPU<Core> {
+        let config = crate::config::MachineConfig::default().with_harts(n);
+        let layout = BootLayout {
+            fdt_addr: crate::config::CONFIG_MBASE + crate::config::CONFIG_MSIZE - 0x10_0000,
+        };
+        let mut cpu = CPU::<Core>::from_config(config, layout);
+        cpu.reset().unwrap();
+        cpu
+    }
+
+    /// V-IT-1: PLIC is wired for 2*num_harts contexts when num_harts > 1.
+    #[test]
+    fn cpu_2hart_plic_two_contexts_per_hart() {
+        let cpu = new_cpu_harts(2);
+        assert_eq!(cpu.cores.len(), 2);
+        assert_eq!(cpu.bus().num_harts(), 2);
+    }
+
+    /// V-IT-2: round-robin scheduler alternates between harts at num_harts=2.
+    #[test]
+    fn cpu_2hart_round_robin_alternates() {
+        let mut cpu = new_cpu_harts(2);
+        cpu.load(None).unwrap();
+        assert_eq!(cpu.current, 0);
+        cpu.step().unwrap();
+        assert_eq!(
+            cpu.current, 1,
+            "after hart 0 step, current must advance to 1"
+        );
+        cpu.step().unwrap();
+        assert_eq!(cpu.current, 0, "after hart 1 step, current must wrap to 0");
+    }
+
+    /// V-E-4: per-hart HartId reflects declaration order; drives `mhartid`
+    /// seeding in `RVCore::reset` and `a0` in `setup_boot(Firmware)`.
+    #[test]
+    fn cpu_2hart_per_hart_hartid_matches_index() {
+        let cpu = new_cpu_harts(2);
+        assert_eq!(cpu.cores[0].id(), HartId(0));
+        assert_eq!(cpu.cores[1].id(), HartId(1));
     }
 }

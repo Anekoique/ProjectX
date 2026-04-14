@@ -69,8 +69,10 @@ impl RVCore {
             (1 as Word).wrapping_shl(size as u32 * 8) - 1
         };
         self.store(addr, size, self.gpr[rs2] & mask)?;
-        // Any store invalidates a pending LR/SC reservation (RISC-V spec §8.2).
-        self.reservation = None;
+        // Any store invalidates a pending LR/SC reservation (RISC-V spec §8.2);
+        // peer reservations are invalidated by Bus::store, but same-hart store
+        // must explicitly clear this hart's own reservation here.
+        self.bus.lock().unwrap().clear_reservation(self.id);
         Ok(())
     }
 
@@ -340,12 +342,16 @@ mod tests {
 
     fn write_bytes(core: &mut RVCore, offset: usize, bytes: &[u8]) {
         core.bus
+            .lock()
+            .unwrap()
             .load_ram(TEST_BASE + offset, bytes)
             .expect("write_bytes failed");
     }
 
     fn read_word(core: &mut RVCore, offset: usize, size: usize) -> Word {
         core.bus
+            .lock()
+            .unwrap()
             .read(TEST_BASE + offset, size)
             .expect("read_word failed")
     }

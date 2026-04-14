@@ -13,18 +13,20 @@ use crate::{
 
 mmio_regs! {
     enum Reg {
-        Setssip = 0x0000,
+        Setssip[4, 0x4000],
     }
 }
 
-/// SSWI: edge-triggered SETSSIP raising the shared SSIP pending flag.
+/// SSWI: edge-triggered per-hart SETSSIP raising the shared SSIP pending
+/// flag for the addressed hart.
 pub(super) struct Sswi {
-    ssip: Arc<AtomicBool>,
+    ssip: Vec<Arc<AtomicBool>>,
 }
 
 impl Sswi {
-    pub(super) fn new(ssip: Arc<AtomicBool>) -> Self {
-        Self { ssip }
+    pub(super) fn new(num_harts: usize, ssips: Vec<Arc<AtomicBool>>) -> Self {
+        debug_assert_eq!(ssips.len(), num_harts);
+        Self { ssip: ssips }
     }
 }
 
@@ -36,17 +38,20 @@ impl Device for Sswi {
     }
 
     fn write(&mut self, offset: usize, _size: usize, val: Word) -> XResult {
-        if let Some(Reg::Setssip) = Reg::decode(offset)
+        if let Some(Reg::Setssip { index, sub: 0 }) = Reg::decode(offset)
+            && index < self.ssip.len()
             && val as u32 & 1 != 0
         {
-            debug!("sswi: setssip");
-            self.ssip.store(true, Relaxed);
+            debug!("sswi: hart={} setssip", index);
+            self.ssip[index].store(true, Relaxed);
         }
         Ok(())
     }
 
     fn reset(&mut self) {
-        self.ssip.store(false, Relaxed);
+        for flag in &self.ssip {
+            flag.store(false, Relaxed);
+        }
     }
 }
 
@@ -54,52 +59,61 @@ impl Device for Sswi {
 mod tests {
     use super::*;
 
-    fn setup() -> (Sswi, Arc<AtomicBool>) {
-        let ssip = Arc::new(AtomicBool::new(false));
-        (Sswi::new(ssip.clone()), ssip)
+    fn setup(num_harts: usize) -> (Sswi, Vec<Arc<AtomicBool>>) {
+        let ssips = super::super::test_utils::make_ssips(num_harts);
+        (Sswi::new(num_harts, ssips.clone()), ssips)
     }
 
     #[test]
     fn setssip_is_edge_triggered() {
-        let (mut dev, ssip) = setup();
+        let (mut dev, ssips) = setup(1);
         dev.write(0x0000, 4, 1).unwrap();
-        assert!(ssip.swap(false, Relaxed), "ssip should be set");
-        assert!(!ssip.load(Relaxed), "ssip should be consumed");
+        assert!(ssips[0].swap(false, Relaxed), "ssip should be set");
+        assert!(!ssips[0].load(Relaxed), "ssip should be consumed");
     }
 
     #[test]
     fn setssip_read_returns_zero() {
-        let (mut dev, _) = setup();
+        let (mut dev, _) = setup(1);
         assert_eq!(dev.read(0x0000, 4).unwrap(), 0);
     }
 
     #[test]
     fn setssip_write_zero_no_effect() {
-        let (mut dev, ssip) = setup();
+        let (mut dev, ssips) = setup(1);
         dev.write(0x0000, 4, 0).unwrap();
-        assert!(!ssip.load(Relaxed));
+        assert!(!ssips[0].load(Relaxed));
     }
 
     #[test]
     fn unmapped_offset_returns_zero() {
-        let (mut dev, _) = setup();
+        let (mut dev, _) = setup(1);
         assert_eq!(dev.read(0x0100, 4).unwrap(), 0);
     }
 
     #[test]
     fn reset_clears_state() {
-        let (mut dev, ssip) = setup();
+        let (mut dev, ssips) = setup(1);
         dev.write(0x0000, 4, 1).unwrap();
-        assert!(ssip.load(Relaxed));
+        assert!(ssips[0].load(Relaxed));
         dev.reset();
-        assert!(!ssip.load(Relaxed));
+        assert!(!ssips[0].load(Relaxed));
     }
 
     #[test]
     fn sswi_independent_of_mswi() {
         // Drive edge with a fresh Arc — no IrqState required.
-        let (mut dev, ssip) = setup();
+        let (mut dev, ssips) = setup(1);
         dev.write(0x0000, 4, 1).unwrap();
-        assert!(ssip.load(Relaxed));
+        assert!(ssips[0].load(Relaxed));
+    }
+
+    #[test]
+    fn sswi_two_harts_setssip1_raises_only_ssip1() {
+        let (mut dev, ssips) = setup(2);
+        // SETSSIP for hart 1 (offset = 1 * stride = 4).
+        dev.write(0x0004, 4, 1).unwrap();
+        assert!(!ssips[0].load(Relaxed), "hart 0 unaffected");
+        assert!(ssips[1].load(Relaxed), "hart 1 raised");
     }
 }

@@ -78,15 +78,75 @@ impl IrqState {
     }
 }
 
-/// Fixed-offset MMIO register helper for simple devices.
+/// MMIO register-map helper. Two variant forms — fixed offsets and strided
+/// array regions — may appear alone or together:
+///
+/// - `Name = offset`       — fixed single-offset register; matches `offset ==
+///   N`.
+/// - `Name[stride, end]`   — strided array region, matches `offset < end` and
+///   yields `{ index = offset / stride, sub = offset % stride }`. Callers must
+///   bound-check `index` against runtime element count and handle sub-word
+///   offsets (`sub != 0`).
+///
+/// When mixing both kinds, separate the two sections with `;` (fixed first,
+/// then arrays). Fixed variants are matched before array regions; array ranges
+/// must be disjoint.
 macro_rules! mmio_regs {
-    ( $vis:vis enum $Reg:ident { $( $name:ident = $offset:expr ),* $(,)? } ) => {
+    // Array-only form.
+    (
+        $vis:vis enum $Reg:ident {
+            $( $aname:ident [ $astride:expr , $aend:expr ] ),+ $(,)?
+        }
+    ) => {
+        $crate::device::mmio_regs!(@emit $vis $Reg { } { $( $aname [$astride, $aend] ),+ });
+    };
+
+    // Fixed-only form (original syntax).
+    (
+        $vis:vis enum $Reg:ident {
+            $( $fname:ident = $foff:expr ),+ $(,)?
+        }
+    ) => {
+        $crate::device::mmio_regs!(@emit $vis $Reg { $( $fname = $foff ),+ } { });
+    };
+
+    // Fixed + array regions (two sections separated by `;`).
+    (
+        $vis:vis enum $Reg:ident {
+            $( $fname:ident = $foff:expr ),+ $(,)?
+            ;
+            $( $aname:ident [ $astride:expr , $aend:expr ] ),+ $(,)?
+        }
+    ) => {
+        $crate::device::mmio_regs!(
+            @emit $vis $Reg
+            { $( $fname = $foff ),+ }
+            { $( $aname [$astride, $aend] ),+ }
+        );
+    };
+
+    // Internal emitter — not part of the public macro surface.
+    (@emit $vis:vis $Reg:ident
+        { $( $fname:ident = $foff:expr ),* }
+        { $( $aname:ident [ $astride:expr , $aend:expr ] ),* }
+    ) => {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        $vis enum $Reg { $( $name ),* }
+        $vis enum $Reg {
+            $( $fname, )*
+            $( $aname { index: usize, sub: usize }, )*
+        }
 
         impl $Reg {
+            #[allow(dead_code)]
             fn decode(offset: usize) -> Option<Self> {
-                match offset { $( $offset => Some(Self::$name), )* _ => None }
+                $( if offset == $foff { return Some(Self::$fname); } )*
+                $( if offset < $aend {
+                    return Some(Self::$aname {
+                        index: offset / $astride,
+                        sub:   offset % $astride,
+                    });
+                } )*
+                None
             }
         }
     };

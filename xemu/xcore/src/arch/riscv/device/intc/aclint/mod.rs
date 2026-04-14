@@ -7,6 +7,23 @@ mod mswi;
 mod mtimer;
 mod sswi;
 
+#[cfg(test)]
+pub(super) mod test_utils {
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    use crate::device::IrqState;
+
+    /// Construct `n` independent per-hart IRQ states.
+    pub fn make_irqs(n: usize) -> Vec<IrqState> {
+        (0..n).map(|_| IrqState::new()).collect()
+    }
+
+    /// Construct `n` independent per-hart SSIP edge flags.
+    pub fn make_ssips(n: usize) -> Vec<Arc<AtomicBool>> {
+        (0..n).map(|_| Arc::new(AtomicBool::new(false))).collect()
+    }
+}
+
 use std::sync::{Arc, atomic::AtomicBool};
 
 use self::{mswi::Mswi, mtimer::Mtimer, sswi::Sswi};
@@ -20,12 +37,14 @@ pub struct Aclint {
 }
 
 impl Aclint {
-    /// Build all three sub-devices sharing the given IRQ state and SSIP flag.
-    pub fn new(irq: IrqState, ssip: Arc<AtomicBool>) -> Self {
+    /// Build all three sub-devices with per-hart IRQ state and SSIP flags.
+    pub fn new(num_harts: usize, irqs: Vec<IrqState>, ssips: Vec<Arc<AtomicBool>>) -> Self {
+        debug_assert_eq!(irqs.len(), num_harts);
+        debug_assert_eq!(ssips.len(), num_harts);
         Self {
-            mswi: Mswi::new(irq.clone()),
-            mtimer: Mtimer::new(irq),
-            sswi: Sswi::new(ssip),
+            mswi: Mswi::new(num_harts, irqs.clone()),
+            mtimer: Mtimer::new(num_harts, irqs),
+            sswi: Sswi::new(num_harts, ssips),
         }
     }
 
@@ -37,8 +56,7 @@ impl Aclint {
     /// `Bus::set_timer_source`).
     pub fn install(self, bus: &mut Bus, base: usize) -> usize {
         bus.add_mmio("mswi", base, 0x4000, Box::new(self.mswi), 0);
-        let mtimer_idx = bus.mmio.len();
-        bus.add_mmio("mtimer", base + 0x4000, 0x8000, Box::new(self.mtimer), 0);
+        let mtimer_idx = bus.add_mmio("mtimer", base + 0x4000, 0x8000, Box::new(self.mtimer), 0);
         bus.add_mmio("sswi", base + 0xC000, 0x4000, Box::new(self.sswi), 0);
         mtimer_idx
     }
@@ -52,18 +70,20 @@ mod tests {
     use crate::{
         arch::riscv::cpu::trap::interrupt::{MSIP, MTIP},
         config::{CONFIG_MBASE, CONFIG_MSIZE, Word},
+        cpu::core::HartId,
         device::bus::Bus,
     };
 
     const ACLINT_BASE: usize = 0x0200_0000;
 
     fn new_bus() -> Bus {
-        Bus::new(CONFIG_MBASE, CONFIG_MSIZE)
+        Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1)
     }
 
     fn new_aclint(bus: &Bus) -> (Aclint, IrqState) {
         let irq = IrqState::new();
-        (Aclint::new(irq.clone(), bus.ssip_flag()), irq)
+        let ssip = bus.ssip_flag(HartId(0));
+        (Aclint::new(1, vec![irq.clone()], vec![ssip]), irq)
     }
 
     #[test]
@@ -89,7 +109,7 @@ mod tests {
 
         // SSWI — edge-triggered pending flag at global +0xC000.
         bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
-        assert!(bus.take_ssip());
+        assert!(bus.take_ssip(HartId(0)));
     }
 
     #[test]
@@ -126,7 +146,7 @@ mod tests {
         bus.tick();
         assert_eq!(irq.load() & MTIP, 0);
         assert_eq!(bus.read(ACLINT_BASE + 0x0000, 4).unwrap() as u32, 0);
-        assert!(!bus.ssip_flag().load(Relaxed));
+        assert!(!bus.ssip_flag(HartId(0)).load(Relaxed));
     }
 
     #[test]
@@ -159,6 +179,6 @@ mod tests {
         assert_eq!(irq.load() & MTIP, 0);
 
         bus.write(ACLINT_BASE + 0xC000, 4, 1).unwrap();
-        assert!(bus.take_ssip());
+        assert!(bus.take_ssip(HartId(0)));
     }
 }

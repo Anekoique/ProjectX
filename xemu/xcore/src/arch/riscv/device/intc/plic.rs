@@ -9,7 +9,6 @@ use crate::{
 };
 
 const NUM_SRC: usize = 32;
-const NUM_CTX: usize = 2; // 0 = M-mode, 1 = S-mode
 
 const PRIORITY_END: usize = NUM_SRC * 4;
 const PENDING_OFF: usize = 0x1000;
@@ -19,34 +18,37 @@ const THRESHOLD_BASE: usize = 0x200000;
 const CLAIM_BASE: usize = 0x200004;
 const CTX_STRIDE: usize = 0x1000;
 
-const CTX_IP: [u64; NUM_CTX] = [MEIP, SEIP];
-
 /// Platform-Level Interrupt Controller.
 pub struct Plic {
     priority: Vec<u8>,
     pending: u32,
+    num_ctx: usize,
     enable: Vec<u32>,
     threshold: Vec<u8>,
     claimed: Vec<u32>,
-    irq: IrqState,
+    irqs: Vec<IrqState>,
 }
 
 impl Plic {
-    /// Create PLIC with shared IRQ state.
-    pub fn new(irq: IrqState) -> Self {
+    /// Create PLIC with per-hart IRQ states. `num_ctx = 2 * num_harts`
+    /// (M-mode + S-mode per hart).
+    pub fn new(num_harts: usize, irqs: Vec<IrqState>) -> Self {
+        debug_assert_eq!(irqs.len(), num_harts);
+        let num_ctx = 2 * num_harts;
         Self {
             priority: vec![0; NUM_SRC],
             pending: 0,
-            enable: vec![0; NUM_CTX],
-            threshold: vec![0; NUM_CTX],
-            claimed: vec![0; NUM_CTX],
-            irq,
+            num_ctx,
+            enable: vec![0; num_ctx],
+            threshold: vec![0; num_ctx],
+            claimed: vec![0; num_ctx],
+            irqs,
         }
     }
 
-    fn ctx_at(offset: usize, base: usize, stride: usize) -> Option<usize> {
+    fn ctx_at(&self, offset: usize, base: usize, stride: usize) -> Option<usize> {
         let rel = offset.checked_sub(base)?;
-        (rel / stride < NUM_CTX && rel.is_multiple_of(stride)).then_some(rel / stride)
+        (rel / stride < self.num_ctx && rel.is_multiple_of(stride)).then_some(rel / stride)
     }
 
     /// Merge level-triggered device lines into pending.
@@ -91,7 +93,7 @@ impl Plic {
     }
 
     fn complete(&mut self, ctx: usize, src: u32) {
-        if ctx < NUM_CTX && self.claimed[ctx] == src {
+        if ctx < self.num_ctx && self.claimed[ctx] == src {
             debug!("plic: complete src={} for ctx={}", src, ctx);
             self.claimed[ctx] = 0;
         }
@@ -103,20 +105,26 @@ impl Plic {
     }
 
     fn evaluate(&mut self) {
-        for (ctx, &ip) in CTX_IP.iter().enumerate() {
-            let was_active = self.irq.load() & ip != 0;
+        // Context layout: even = hart h M-mode (MEIP), odd = hart h S-mode (SEIP).
+        for ctx in 0..self.num_ctx {
+            let ip_bit = if ctx & 1 == 0 { MEIP } else { SEIP };
+            let hart = ctx >> 1;
+            let was_active = self.irqs[hart].load() & ip_bit != 0;
             let active = (1..NUM_SRC).any(|s| {
                 self.pending & (1 << s) != 0
                     && self.enable[ctx] & (1 << s) != 0
                     && self.priority[s] > self.threshold[ctx]
             });
             if active {
-                self.irq.set(ip);
+                self.irqs[hart].set(ip_bit);
             } else {
-                self.irq.clear(ip);
+                self.irqs[hart].clear(ip_bit);
             }
             if active != was_active {
-                debug!("plic: ctx={} EIP {} -> {}", ctx, was_active, active);
+                debug!(
+                    "plic: ctx={} hart={} ip_bit={:#x} {} -> {}",
+                    ctx, hart, ip_bit, was_active, active
+                );
             }
         }
     }
@@ -128,11 +136,11 @@ impl Device for Plic {
         Ok(match offset {
             o @ 0..PRIORITY_END if o.is_multiple_of(4) => self.priority[o / 4] as Word,
             PENDING_OFF => self.pending as Word,
-            o => match Self::ctx_at(o, ENABLE_BASE, ENABLE_STRIDE) {
+            o => match self.ctx_at(o, ENABLE_BASE, ENABLE_STRIDE) {
                 Some(c) => self.enable[c] as Word,
-                None => match Self::ctx_at(o, THRESHOLD_BASE, CTX_STRIDE) {
+                None => match self.ctx_at(o, THRESHOLD_BASE, CTX_STRIDE) {
                     Some(c) => self.threshold[c] as Word,
-                    None => match Self::ctx_at(o, CLAIM_BASE, CTX_STRIDE) {
+                    None => match self.ctx_at(o, CLAIM_BASE, CTX_STRIDE) {
                         Some(c) => self.claim(c) as Word,
                         None => 0,
                     },
@@ -145,12 +153,12 @@ impl Device for Plic {
         match offset {
             o @ 0..PRIORITY_END if o.is_multiple_of(4) => self.priority[o / 4] = val as u8,
             o => {
-                if let Some(c) = Self::ctx_at(o, ENABLE_BASE, ENABLE_STRIDE) {
+                if let Some(c) = self.ctx_at(o, ENABLE_BASE, ENABLE_STRIDE) {
                     self.enable[c] = val as u32;
-                } else if let Some(c) = Self::ctx_at(o, THRESHOLD_BASE, CTX_STRIDE) {
+                } else if let Some(c) = self.ctx_at(o, THRESHOLD_BASE, CTX_STRIDE) {
                     self.threshold[c] = val as u8;
                     self.evaluate();
-                } else if let Some(c) = Self::ctx_at(o, CLAIM_BASE, CTX_STRIDE) {
+                } else if let Some(c) = self.ctx_at(o, CLAIM_BASE, CTX_STRIDE) {
                     self.complete(c, val as u32);
                 }
             }
@@ -178,7 +186,7 @@ mod tests {
 
     fn setup() -> (Plic, IrqState) {
         let irq = IrqState::new();
-        (Plic::new(irq.clone()), irq)
+        (Plic::new(1, vec![irq.clone()]), irq)
     }
 
     #[test]
@@ -328,5 +336,24 @@ mod tests {
         assert_eq!(p.pending, 0);
         assert_eq!(p.priority[1], 0);
         assert_eq!(p.enable[0], 0);
+    }
+
+    #[test]
+    fn plic_new_num_harts_two_ctx2_routes_to_irq1() {
+        // At num_harts=2, context 2 (M-mode for hart 1) must target irqs[1] MEIP.
+        let irq0 = IrqState::new();
+        let irq1 = IrqState::new();
+        let mut p = Plic::new(2, vec![irq0.clone(), irq1.clone()]);
+
+        // Source 1: priority=1, enable on context 2 (= hart 1 M-mode)
+        p.write(0x04, 4, 1).unwrap(); // priority[1] = 1
+        p.write(0x2000 + 2 * 0x80, 4, 0x02).unwrap(); // enable[ctx=2], bit 1
+
+        // Raise source 1
+        p.notify(0x02);
+
+        // hart 0 should NOT see MEIP; hart 1 should.
+        assert_eq!(irq0.load() & MEIP, 0, "hart 0 MEIP must stay clear");
+        assert_ne!(irq1.load() & MEIP, 0, "hart 1 MEIP must be asserted");
     }
 }

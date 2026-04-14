@@ -8,7 +8,7 @@ LINUX_RD   := $(LINUX_DIR)/initramfs.cpio.gz
 ROOTFS_DIR := $(LINUX_DIR)/rootfs
 ROOTFS_TAR := $(LINUX_DIR)/rootfs.tar
 
-.PHONY: fetch-linux build-linux run-linux clean-linux
+.PHONY: fetch-linux build-linux run-linux run-linux-2hart clean-linux
 
 fetch-linux:
 	@mkdir -p $(LINUX_DIR)
@@ -40,6 +40,14 @@ run-linux: $(DTB) build-opensbi build-linux
 		INITRD=$(abspath $(LINUX_RD)) \
 		FDT=$(abspath $(DTB)) \
 		DEBUG=n LOG=warn
+
+run-linux-2hart: $(DTB_2HART) build-opensbi build-linux
+	$(MAKE) -C $(XEMU_HOME) run \
+		FW=$(abspath $(OPENSBI_FW)) \
+		KERNEL=$(abspath $(LINUX_IMG)) \
+		INITRD=$(abspath $(LINUX_RD)) \
+		FDT=$(abspath $(DTB_2HART)) \
+		HARTS=2 DEBUG=n LOG=warn
 
 clean-linux:
 	rm -rf $(LINUX_DIR)

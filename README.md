@@ -27,6 +27,13 @@ cd resource && make xv6
 
 # Boot Linux (OpenSBI + kernel + initramfs → shell)
 cd resource && make linux
+
+# Boot Linux SMP (2 harts)
+cd resource && make linux-2hart
+
+# Boot Debian via VirtIO-blk (single-hart or SMP)
+cd resource && make debian         # single-hart
+cd resource && make debian-2hart   # 2 harts
 ```
 
 ## Benchmark 
@@ -45,7 +52,8 @@ Platform: MacBook Air M4
 |----|-----------|--------|
 | OpenSBI v1.3.1 | ~0.1s | M-mode firmware |
 | xv6-riscv | ~0.3s | Interactive shell (ramdisk) |
-| Linux 6.1.44 | ~3s to shell | OpenSBI + kernel + initramfs |
+| Linux 6.1.44 | ~3s to shell | OpenSBI + kernel + initramfs (single-hart or SMP via `X_HARTS`) |
+| Debian 13 Trixie | ~20s to shell | VirtIO-blk rootfs (single-hart or SMP) |
 
 ## Architecture
 
