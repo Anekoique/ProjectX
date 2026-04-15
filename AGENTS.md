@@ -9,8 +9,34 @@
 
 ## Development Workflow
 
-The project evolves through numbered iterations.  
-All iteration artifacts reside in `docs/<feature>/`.
+The project evolves through numbered iterations.
+
+**Layout.** A feature passes through three locations:
+
+1. `docs/tasks/<feature>/` — in-flight. `NN_PLAN.md` / `NN_REVIEW.md` /
+   `NN_MASTER.md` rounds accumulate here during the loop.
+2. `docs/spec/<feature>/SPEC.md` — landed canonical spec, authored at
+   the end of the loop by extracting the final PLAN's `## Spec` section
+   (Goals / Architecture / Invariants / Data Structure / API Surface /
+   Constraints). Updated when the feature next iterates.
+3. `docs/archived/<category>/<feature>/` — iteration history, moved out
+   of `tasks/` once the feature lands. Categories:
+   - **`feat/`** — new capability
+   - **`fix/`** — bug or MANUAL_REVIEW finding that isn't a reorg
+   - **`refactor/`** — reshape without new capability
+   - **`perf/`** — measurable speedup under an exit gate
+   - **`review/`** — audits / retrospectives not tied to one feature
+
+Baselines for measurement-heavy features (perf) live at
+`docs/perf/baselines/<date>/` alongside the roadmap in `docs/PROGRESS.md`.
+Pre-workflow feature docs (`docs/archived/feat/csr/`, `klib/`, `mm/`,
+`refactor/err2trap/`) are preserved verbatim with a banner in their
+`spec/<feature>/SPEC.md`; rewrite to the template shape when the
+feature next sees meaningful iteration. The `inst` spec has no archive
+(the source was a running-notes file, not iteration artifacts).
+
+See [`docs/tasks/README.md`](./docs/tasks/README.md) for the active-to-landed
+lifecycle and archive-category heuristics.
 
 ### Roles
 
@@ -62,6 +88,27 @@ Repeat until:
 
 The main session does not self-chain PLAN → REVIEW → next PLAN. The
 review step is out-of-session; each round therefore pauses after PLAN.
+
+**Loop cap.** The PLAN ↔ REVIEW loop runs **at most 5 rounds** (`00` – `04`)
+per feature. If the reviewer returns APPROVED earlier (no CRITICAL / HIGH
+findings) or the cap is reached, proceed to implementation regardless of
+any remaining MEDIUM / LOW findings. MEDIUM / LOW findings that survive
+the cap are addressed inline during implementation, not used to extend
+the loop indefinitely.
+
+### Implementation
+
+After the final approved PLAN:
+
+1. Implementation (code changes **and** `NN_IMPL.md`) is authored by the
+   **main session directly**, not by a sub-agent.
+2. There is **no** post-implementation review artifact. `NN_IMPL_REVIEW.md`
+   and `NN_IMPL_MASTER.md` have been retired. Any review-style findings
+   on the implementation are applied inline as follow-up code edits in
+   the same session; do not dispatch a reviewer sub-agent after IMPL.
+3. If the user asks for an audit of IMPL, perform it in the main session
+   (read diff + run gates + surface findings as a plain message), then
+   apply fixes inline with Edit / Write.
 
 ### Response Rules
 

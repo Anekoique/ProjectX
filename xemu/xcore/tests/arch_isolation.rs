@@ -1,5 +1,5 @@
 //! Structural isolation test — locks in invariants I-1 and I-2 from
-//! `docs/fix/archModule/03_PLAN.md`.
+//! `docs/archived/refactor/archModule/03_PLAN.md`.
 //!
 //! Verifies that no source file outside `src/arch/` imports from
 //! `crate::arch::riscv::` or `crate::arch::loongarch::` directly, except

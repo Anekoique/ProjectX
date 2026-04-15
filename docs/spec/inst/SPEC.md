@@ -1,3 +1,13 @@
+# `inst` SPEC
+
+> Instruction-set coverage / implementation notes.
+>
+> Originally a running-notes file (pre-workflow, no iteration history).
+> The layout does not match `docs/template/SPEC.template`; rewrite to
+> the template shape when the feature next sees meaningful iteration.
+
+---
+
 # Instruction Set Reference
 
 Supported extensions: **RV32I/RV64I** base, **M** (multiply/divide), **A** (atomic), **Zicsr**, **C** (compressed), **Privileged**.

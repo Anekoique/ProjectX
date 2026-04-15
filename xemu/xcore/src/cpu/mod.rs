@@ -2,7 +2,7 @@
 //!
 //! The generic [`CPU`] wrapper owns one or more arch-specific cores
 //! (`Vec<Core>`) and an inline [`crate::device::bus::Bus`]. Per M-001
-//! (`docs/perf/busFastPath/01_MASTER.md`) the bus is NOT wrapped in a
+//! (`docs/archived/perf/perfBusFastPath/01_MASTER.md`) the bus is NOT wrapped in a
 //! synchronization primitive — cooperative round-robin hands each step
 //! exactly one `&mut Bus` borrow, which is the exclusion invariant the
 //! borrow checker enforces (see invariant I-10 in `03_PLAN.md`).
@@ -62,7 +62,7 @@ pub type Core = crate::arch::loongarch::cpu::LACore;
 /// M-001 forbade: the bus is owned inline inside `CPU` (see
 /// [`CPU`] docs) and is reached only through the `&mut CPU` obtained
 /// from this mutex, so no per-memory-access locking exists on the
-/// hot path. See `docs/perf/busFastPath/01_MASTER.md` for the
+/// hot path. See `docs/archived/perf/perfBusFastPath/01_MASTER.md` for the
 /// distinction.
 pub static XCPU: OnceLock<Mutex<CPU<Core>>> = OnceLock::new();
 

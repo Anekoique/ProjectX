@@ -20,7 +20,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Tests**: 336 unit tests passing, 31 cpu-tests-rs, 8 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts, float), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
 - **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1.44 (initramfs, boots to interactive shell in ~3s), **Debian 13 Trixie** (4 GB ext4 root via VirtIO-blk, 288 dpkg packages, Python3 verified)
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
-- **Performance**: Lock-free bus restored (owned inline by `CPU`; see [`docs/perf/busFastPath/`](./perf/busFastPath/) and the 2026-04-14 → 2026-04-15 deltas under `docs/perf/`), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
+- **Performance**: Lock-free bus restored (owned inline by `CPU`; see [`docs/archived/perf/perfBusFastPath/`](./archived/perf/perfBusFastPath/) and the 2026-04-14 → 2026-04-15 deltas under `docs/perf/baselines/`), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
 - **xam HAL**: `_putch` (UART console), `mtime`/`set_mtimecmp` (ACLINT timer), `uptime()` (microseconds), `init_trap`/`TrapFrame` (trap entry), `mainargs` (compile-time argument passing), `_heap_start`/`_heap_end` (linker symbols)
 - **xlib**: printf/sprintf, string ops, `assert.h` (C/C++-safe), `extern "C"` guards for C++ compatibility
@@ -187,7 +187,7 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 
 **Goal**: Run each guest hart on its own host OS thread for actual parallel execution. Today (post-`5e66d51`) multi-hart is single-threaded cooperative round-robin in `CPU::step` (`xemu/xcore/src/cpu/mod.rs:213-249`); N harts are no faster than 1.
 
-**Why this is its own phase, not part of P1.** P1 ([`docs/perf/busFastPath/`](./perf/busFastPath/)) drops `Arc<Mutex<Bus>>` because the cooperative scheduler makes it dead weight today. Going to real SMP requires a separate, larger redesign: shared RAM under atomics or `unsafe` typed access with explicit fences; per-hart `AtomicUsize` LR/SC reservations; per-device fine-grained sync (or a "BQL on MMIO only" model); and a runtime that joins/cancels hart threads cleanly. None of that fits in a perf-roadmap iteration.
+**Why this is its own phase, not part of P1.** P1 ([`docs/archived/perf/perfBusFastPath/`](./archived/perf/perfBusFastPath/)) drops `Arc<Mutex<Bus>>` because the cooperative scheduler makes it dead weight today. Going to real SMP requires a separate, larger redesign: shared RAM under atomics or `unsafe` typed access with explicit fences; per-hart `AtomicUsize` LR/SC reservations; per-device fine-grained sync (or a "BQL on MMIO only" model); and a runtime that joins/cancels hart threads cleanly. None of that fits in a perf-roadmap iteration.
 
 **Reference designs to evaluate before opening this phase:**
 
@@ -223,17 +223,86 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 - [x] **Build system** — `make debian` downloads pre-built image, compiles DTB, boots with bootlin kernel
 - [x] **Device tree** — `xemu-debian.dts` with 1 GB RAM, `virtio,mmio` node, `root=/dev/vda rw`
 
-### Phase 9: Performance Optimization — PARTIAL
+### Phase 9: Performance Optimization
 
 **Goal**: Optimize emulation speed after correctness is established.
 
-- [x] **Lock-free bus** — `Arc<Mutex<Bus>>` → owned `Bus`, zero per-instruction lock overhead
-- [x] **Amortized timer** — ACLINT wall-clock sync every 512 ticks (not every step)
-- [x] **Split bus tick** — ACLINT every step (fast path), UART/PLIC every 64 steps (slow path)
-- [x] **Direct mtime accessor** — `Bus::mtime()` via `Device` trait, bypasses MMIO dispatch
-- [x] **PMP fast-path** — skip 16-entry linear scan in M-mode when no locked entries
-- [ ] **Instruction cache** — decoded instruction buffer to skip re-decoding hot paths
-- [ ] **Performance counters** — per-instruction statistics, IPC tracking
+**Active baseline:** 2026-04-16 (post-hotPath), see
+[`perf/baselines/2026-04-16/data/`](./perf/baselines/2026-04-16/data/).
+Prior baselines: [`perf/baselines/2026-04-15/REPORT.md`](./perf/baselines/2026-04-15/REPORT.md)
+(post-P1), [`perf/baselines/2026-04-14/REPORT.md`](./perf/baselines/2026-04-14/REPORT.md)
+(pre-P1).
+
+#### Phase status
+
+| Phase | Title | Status | Measured Δ (user-time mean) |
+|------:|-------|--------|-----------------------|
+| P1    | Single-hart bus fast path            | ✅ **Landed** 2026-04-15 | −45.5 / −44.9 / −52.4 % wall-clock |
+| P2    | Bus-access API refactor              | ❌ **Retired** (subsumed by P1) | n/a |
+| P3    | `Mtimer::*` deadline gate            | ✅ **Landed** 2026-04-16 | Mtimer bucket −55 to −65 % absolute |
+| P4    | Decoded-instruction cache            | ✅ **Landed** 2026-04-16 | See hotPath bundle row below |
+| P5    | MMU fast-path `#[inline]` audit      | ✅ **Landed** 2026-04-16 | (trap-slim dropped per round-02 R-003 Option A) |
+| P6    | `memmove` / typed-read bypass        | ✅ **Landed** 2026-04-16 | See hotPath bundle row below |
+| —     | hotPath bundle (P3+P4+P5+P6)         | ✅ **Landed** 2026-04-16 | **−16.9 / −21.1 / −18.2 %** user-time (dhry / cm / mb) |
+| P7    | Multi-hart scaling re-profile        | pending (measurement only, Phase 11 RFC) | n/a |
+
+Cumulative user-time vs pre-P1 2026-04-14 baseline:
+dhrystone 8.09 s → 3.48 s (**−57 %**),
+coremark 14.02 s → 5.82 s (**−58 %**),
+microbench 85.82 s → 32.91 s (**−62 %**).
+
+P7 (multi-hart re-profile) is pending and feeds into Phase 11.
+
+#### Landed optimisations
+
+- [x] **Lock-free bus** (P1) — `Arc<Mutex<Bus>>` → owned `Bus`, zero
+  per-instruction lock overhead. Spec and trade-offs:
+  [`spec/perfBusFastPath/SPEC.md`](./spec/perfBusFastPath/SPEC.md).
+- [x] **Amortized timer** — ACLINT wall-clock sync every 512 ticks.
+- [x] **Mtimer deadline gate** (P3) — cached `next_fire_mtime` short-circuit.
+- [x] **Decoded-instruction cache** (P4) — per-hart direct-mapped, PC +
+  ctx_tag keyed, 4 K entries.
+- [x] **MMU fast-path inlining** (P5) — `#[inline]` pressure through
+  `checked_read` / `checked_write` / `access_bus`.
+- [x] **Typed RAM access** (P6) — 1/2/4/8-byte aligned accesses bypass
+  `_platform_memmove`. Spec and trade-offs:
+  [`spec/perfHotPath/SPEC.md`](./spec/perfHotPath/SPEC.md).
+- [x] **Split bus tick** — ACLINT every step, UART/PLIC every 64.
+- [x] **Direct mtime accessor** — `Bus::mtime()` via `Device` trait.
+- [x] **PMP fast-path** — skip 16-entry scan in M-mode with no locked entries.
+
+#### Pending
+
+- [ ] **P7 multi-hart re-profile** — `make linux-2hart`, `make debian-2hart`.
+  Shapes the SMP work gated by Phase 11 RFC.
+- [ ] **Performance counters** — per-instruction statistics, IPC tracking.
+
+#### Evaluation infrastructure
+
+Phase exits require re-running the measurement pipeline against the
+committed baseline:
+
+```bash
+bash scripts/perf/bench.sh       # → docs/perf/baselines/<today>/data/bench.csv
+bash scripts/perf/sample.sh      # → <today>/data/<workload>.sample.txt
+python3 scripts/perf/render.py   # → <today>/graphics/*.svg
+```
+
+Commit the new `data/` and `graphics/` with the phase's MASTER doc.
+A phase is not done until:
+
+1. `cargo test --workspace`, `make linux`, `make debian` (and `-2hart`
+   variants where applicable) all pass.
+2. `bench.sh` rerun (3 iters per workload).
+3. `sample.sh` rerun for each of the three benches.
+4. The per-phase exit gate is met with margin ≥ 1 pp on the self-time
+   bucket it targets.
+5. REPORT.md deltas committed to the phase's archived MASTER.
+
+Out of scope for this roadmap: VGA / framebuffer, heap-allocator
+tuning (RSS flat at 40 MiB), threaded-code dispatch (land icache first
+and revisit only if `xdb::main` stays > 30 %), difftest-mode
+performance (feature-gated off by default).
 
 ---
 
@@ -248,7 +317,7 @@ The critical path to OS boot is:
 5. ~~**Keyboard**~~ — COMPLETE (PTY-based UART serial console)
 6. ~~**Phase 7 (OS boot)**~~ — COMPLETE (OpenSBI + xv6 + Linux to interactive shell)
 7. ~~**Phase 8 (F/D extension)**~~ — COMPLETE (F/D float + buildroot/busybox Linux boot)
-8. ~~**Phase 9 (Performance)**~~ — PARTIAL (lock-free bus, amortized timer, PMP fast-path, split tick)
+8. **Phase 9 (Performance)** — see §Phase 9 above (P1/P3/P4/P5/P6 landed; cumulative −57/−58/−62 % user-time)
 9. ~~**Phase 10 (VirtIO/Debian)**~~ — COMPLETE (VirtIO-blk + Debian 13 Trixie boot)
 10. **Instruction cache** — hot-path decode caching for further speedup
 
@@ -256,29 +325,25 @@ The critical path to OS boot is:
 
 ## Manual Review TODOs
 
-Architectural issues captured in [MANUAL_REVIEW.md](./MANUAL_REVIEW.md) are split into
-independent fix tasks under [`docs/fix/`](./fix/). Tackle them one at a time, in order.
+Architectural issues captured in [MANUAL_REVIEW.md](./archived/review/MANUAL_REVIEW.md) were split
+into independent feature tasks. Each task's landed spec lives under
+[`docs/spec/<feature>/SPEC.md`](./spec/); iteration history lives under
+[`docs/archived/<feature>/`](./archived/).
 
-| # | Task | Dir | MANUAL_REVIEW items | Status |
-|---|------|-----|---------------------|--------|
-| 1 | Consolidate arch into `arch/` module | [`docs/fix/archModule/`](./fix/archModule/) | #3, #4 | Implemented (rounds 00–03, 5 PRs) |
-| 1b | Reorganise `arch/<name>/` internal layout | [`docs/fix/archLayout/`](./fix/archLayout/) | follow-up to #1 | Implemented (rounds 00–04, 2 PRs + cleanup — commit `a6d4009`) |
-| 2 | Split ACLINT into MSWI / MTIMER / SSWI | [`docs/fix/aclintSplit/`](./fix/aclintSplit/) | #2 | Implemented (rounds 00–01, 1 PR) |
-| 3 | Hart abstraction for multi-hart support | [`docs/fix/multiHart/`](./fix/multiHart/) | #1 | Implemented (rounds 00–07, 1 PR) |
-| 4 | PLIC redesign: Gateway + Core split (level-triggered) | [`docs/fix/plicGateway/`](./fix/plicGateway/) | #7 | Implemented (rounds 00–02, 1 PR) |
-| 5 | Direct device → PLIC async signaling; event-driven interrupt delivery to CPU | [`docs/fix/directIrq/`](./fix/directIrq/) | #5, #6 | Implemented (rounds 00–02, 1 PR) |
+| # | Task | Spec | Archive | MANUAL_REVIEW items | Status |
+|---|------|------|---------|---------------------|--------|
+| 1 | Consolidate arch into `arch/` module | [`spec/archModule/SPEC.md`](./spec/archModule/SPEC.md) | [`archived/refactor/archModule/`](./archived/refactor/archModule/) | #3, #4 | Implemented (rounds 00–03, 5 PRs) |
+| 1b | Reorganise `arch/<name>/` internal layout | [`spec/archLayout/SPEC.md`](./spec/archLayout/SPEC.md) | [`archived/refactor/archLayout/`](./archived/refactor/archLayout/) | follow-up to #1 | Implemented (rounds 00–04, 2 PRs + cleanup — commit `a6d4009`) |
+| 2 | Split ACLINT into MSWI / MTIMER / SSWI | [`spec/aclintSplit/SPEC.md`](./spec/aclintSplit/SPEC.md) | [`archived/refactor/aclintSplit/`](./archived/refactor/aclintSplit/) | #2 | Implemented (rounds 00–01, 1 PR) |
+| 3 | Hart abstraction for multi-hart support | [`spec/multiHart/SPEC.md`](./spec/multiHart/SPEC.md) | [`archived/feat/multiHart/`](./archived/feat/multiHart/) | #1 | Implemented (rounds 00–07, 1 PR) |
+| 4 | PLIC redesign: Gateway + Core split (level-triggered) | [`spec/plicGateway/SPEC.md`](./spec/plicGateway/SPEC.md) | [`archived/fix/plicGateway/`](./archived/fix/plicGateway/) | #7 | Implemented (rounds 00–02, 1 PR) |
+| 5 | Direct device → PLIC async signaling; event-driven interrupt delivery to CPU | [`spec/directIrq/SPEC.md`](./spec/directIrq/SPEC.md) | [`archived/fix/directIrq/`](./archived/fix/directIrq/) | #5, #6 | Implemented (rounds 00–02, 1 PR) |
 
-All seven MANUAL_REVIEW items are now addressed. Subsequent work should open new tasks
-under `docs/fix/<feature>/` as they arise.
-
-Rules:
-
-- Each task ships its own `00_PLAN.md` → `00_REVIEW.md` → `00_MASTER.md` (and further
-  iterations if needed) using the templates under [`docs/template/`](./template/).
-- Do not open a later task's plan until the previous task is landed and its invariants
-  hold under `cargo test --workspace`, `make linux`, and `make debian`.
-- The Plan/Review/Master iteration scheme is numbered (00_PLAN, 01_REVIEW, 01_PLAN, ...)
-  per feedback in `MEMORY.md`.
+All seven MANUAL_REVIEW items are now addressed. Subsequent work opens new
+features under [`docs/tasks/<feature>/`](./tasks/), lands the final spec under
+`docs/spec/<feature>/SPEC.md`, and archives iteration history under
+`docs/archived/<category>/<feature>/` per the categories in
+[`/AGENTS.md`](../AGENTS.md) and [`docs/tasks/README.md`](./tasks/README.md).
 
 ---
 

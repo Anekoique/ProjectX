@@ -40,14 +40,14 @@ for k in coremark dhrystone microbench; do
 done
 
 # Wall-clock + RSS, 3 iterations per workload.
-bash scripts/perf/bench.sh --out docs/perf/2026-04-14
+bash scripts/perf/bench.sh --out docs/perf/baselines/2026-04-14
 
 # CPU sampling profile — one capture per workload, PID-scoped to the
 # correct make_pid descendant.
-bash scripts/perf/sample.sh --out docs/perf/2026-04-14
+bash scripts/perf/sample.sh --out docs/perf/baselines/2026-04-14
 
 # All SVGs (bench bars, hotspot pies, self-time bars).
-python3 scripts/perf/render.py --dir docs/perf/2026-04-14
+python3 scripts/perf/render.py --dir docs/perf/baselines/2026-04-14
 ```
 
 ---
@@ -216,7 +216,7 @@ directly into the mutex or into the bus/MMU dispatch path that wraps
 it.
 
 This is the single largest optimisation opportunity. See
-[`docs/PERF_DEV.md`](../../PERF_DEV.md) phase **P1 — Single-hart bus
+[`docs/PROGRESS.md#phase-9-performance-optimization`](../../PROGRESS.md#phase-9-performance-optimization) phase **P1 — Single-hart bus
 fast path**.
 
 ### 4.2 `xdb::main` dominates after LTO
@@ -225,7 +225,7 @@ The interpreter's dispatch + decode + execute collapse into one
 monolithic function under `lto = true`. That function is 25–31 % of
 self-time, which is roughly what we would expect from a tight RISC-V
 interpreter. Splitting this into an instruction-cache hit path
-(see PERF_DEV.md P4) is the follow-up win once the mutex and MMU
+(see DEV.md#phase-9-performance-optimization P4) is the follow-up win once the mutex and MMU
 dispatch are cheaper.
 
 ### 4.3 MMU entry ≈ 15 % even without a TLB miss
@@ -249,7 +249,7 @@ Earlier runs mistakenly reported `check_timer` at 15–20 % because
 three workloads ended up sharing a single `xdb` PID (see sampling-bug
 fix in `scripts/perf/sample.sh`). With distinct captures, the
 deadline-gate opportunity exists but the expected win is much smaller
-than first claimed. We should still land PERF_DEV.md P3 because it's
+than first claimed. We should still land DEV.md#phase-9-performance-optimization P3 because it's
 cheap and trivially correct, but the roadmap's headline savings come
 from P1.
 
@@ -260,10 +260,10 @@ profiling is warranted at this stage.
 
 ---
 
-## 5. Optimisation targets (cross-ref PERF_DEV.md)
+## 5. Optimisation targets (cross-ref DEV.md#phase-9-performance-optimization)
 
 The performance-development roadmap is at
-[`docs/PERF_DEV.md`](../../PERF_DEV.md). For the single-hart baseline
+[`docs/PROGRESS.md#phase-9-performance-optimization`](../../PROGRESS.md#phase-9-performance-optimization). For the single-hart baseline
 captured here, the phase priorities line up as:
 
 | Rank | Phase | Evidence in this report | Claimed win |
@@ -294,7 +294,7 @@ them — the gates still belong in the roadmap, just at lower urgency.
 Raw data and rendered graphics for this run live in this directory:
 
 ```
-docs/perf/2026-04-14/
+docs/perf/baselines/2026-04-14/
 ├── REPORT.md                         (this file)
 ├── data/
 │   ├── bench.csv                     (workload,run,real_s,user_s,sys_s,max_rss_kb)

@@ -3,7 +3,7 @@
 //! A device holds an [`IrqLine`] for its source and calls `raise` / `lower`
 //! the moment an event occurs. The signal plane is a lock-free atomic
 //! bitmap inside the PLIC; the CPU thread drains it at the next bus tick via
-//! `Plic::tick`. See `docs/fix/directIrq/02_PLAN.md` §Async Posture.
+//! `Plic::tick`. See `docs/archived/fix/directIrq/02_PLAN.md` §Async Posture.
 //!
 //! Memory ordering (directIrq 01_PLAN I-D14):
 //! - Producers publish with `Release`; the drain acquires with `Acquire`. This

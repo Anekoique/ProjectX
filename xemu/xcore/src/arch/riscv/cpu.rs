@@ -286,7 +286,7 @@ pub(in crate::arch::riscv) mod tests {
 
     /// Shared test-harness constructor: a fresh single-hart core + bus.
     /// Used by other `arch/riscv/cpu/inst/*` tests (see migration table in
-    /// `docs/perf/busFastPath/03_PLAN.md`).
+    /// `docs/archived/perf/perfBusFastPath/03_PLAN.md`).
     pub(in crate::arch::riscv) fn new_core_with_bus() -> (RVCore, Bus) {
         (RVCore::new(), Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1))
     }

@@ -55,9 +55,11 @@ Platform: MacBook Air M4
 | Linux 6.1.44 | ~3s to shell | OpenSBI + kernel + initramfs (single-hart or SMP via `X_HARTS`) |
 | Debian 13 Trixie | ~20s to shell | VirtIO-blk rootfs (single-hart or SMP) |
 
-## Architecture
+## Documentation
 
-See [docs/DEV.md](docs/DEV.md) for the full development plan and status.
+- **[User manual + internals reference](docs/book/introduction.md)** — start here for usage, architecture, and contribution guide.
+- [docs/PROGRESS.md](docs/PROGRESS.md) — development roadmap, phase status, perf baselines.
+- [docs/spec/](docs/spec/) — per-feature landed specifications.
 
 ## License
 

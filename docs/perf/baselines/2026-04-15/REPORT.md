@@ -11,7 +11,7 @@ through each benchmark Makefile; no ad-hoc binary invocations.
 - **Logging:** `X_LOG=off`, `DEBUG=n` via each benchmark Makefile
 - **Guest ISA:** `riscv64gc` (rv64imafdc + Sstc)
 - **Tooling revision:** stamped into `data/bench.summary` header (`rev=8281225`, pre-commit working-tree state)
-- **Phase P1 artefacts:** [`docs/perf/busFastPath/`](../busFastPath/) (iterations 00 → 03 + IMPL)
+- **Phase P1 artefacts:** [`docs/archived/perf/perfBusFastPath/`](../busFastPath/) (iterations 00 → 03 + IMPL)
 
 ---
 
@@ -33,9 +33,9 @@ Identical to the 2026-04-14 baseline:
 for k in coremark dhrystone microbench; do
   make -C xkernels/benchmarks/$k kernel
 done
-bash scripts/perf/bench.sh  --out docs/perf/2026-04-15
-bash scripts/perf/sample.sh --out docs/perf/2026-04-15
-python3 scripts/perf/render.py --dir docs/perf/2026-04-15
+bash scripts/perf/bench.sh  --out docs/perf/baselines/2026-04-15
+bash scripts/perf/sample.sh --out docs/perf/baselines/2026-04-15
+python3 scripts/perf/render.py --dir docs/perf/baselines/2026-04-15
 ```
 
 ---
@@ -191,7 +191,7 @@ time. Specifically:
   will land a proportional win on this bucket)
 
 Every remaining PERF_DEV phase now acts on a *larger* fractional share
-than the 2026-04-14 analysis estimated. The bands in PERF_DEV.md §3
+than the 2026-04-14 analysis estimated. The bands in DEV.md#phase-9-performance-optimization §3
 were derived from the pre-P1 shares and are therefore conservative for
 P3 and P6.
 
@@ -200,7 +200,7 @@ P3 and P6.
 `xdb::main` (which holds dispatch + decode + execute after LTO folds
 them into one symbol) is now the single largest self-time slice at
 40–47 % across all three workloads. This is exactly where Phase P4
-(decoded-instruction cache) targets — per PERF_DEV.md §3 the expected
+(decoded-instruction cache) targets — per DEV.md#phase-9-performance-optimization §3 the expected
 removal is 15–30 %. On top of the P1 baseline that would move dhrystone
 4.73 s → ~3.3 s and coremark 8.20 s → ~5.7 s.
 
@@ -241,9 +241,9 @@ Phase P5's expected gain (5–10 %) stands unchanged on the new baseline.
 
 ---
 
-## 5. Optimisation targets (cross-ref PERF_DEV.md)
+## 5. Optimisation targets (cross-ref DEV.md#phase-9-performance-optimization)
 
-The phase priorities shift after P1. See the refreshed PERF_DEV.md
+The phase priorities shift after P1. See the refreshed DEV.md#phase-9-performance-optimization
 for the authoritative roadmap; summary here:
 
 | Rank | Phase | Evidence in this report | Expected wall-clock win |
@@ -272,7 +272,7 @@ Cumulative against the 2026-04-14 baseline: dhrystone 8.69 → 3.1 s
 ## 6. What this report does **not** cover
 
 - **SMP scaling.** Single-hart only. Multi-hart requires Phase 11 (RFC
-  in `docs/DEV.md`).
+  in `docs/PROGRESS.md`).
 - **OS boot profiles** (Linux / Debian). 2-hart Linux smoke only; see
   `data/linux_2hart.run{1,2,3}.time`.
 - **Hardware counters.** Instruments.app / `perf stat` not attempted.
@@ -283,7 +283,7 @@ Cumulative against the 2026-04-14 baseline: dhrystone 8.69 → 3.1 s
 ## 7. Artifacts
 
 ```
-docs/perf/2026-04-15/
+docs/perf/baselines/2026-04-15/
 ├── REPORT.md                          (this file)
 ├── data/
 │   ├── bench.csv                      (workload,run,real_s,user_s,sys_s,max_rss_kb)
@@ -307,6 +307,6 @@ docs/perf/2026-04-15/
 - `flamegraph-rs/flamegraph`, <https://github.com/flamegraph-rs/flamegraph>
 - `mstange/samply`, <https://github.com/mstange/samply>
 - ntietz, *Profiling Rust programs the easy way*, <https://www.ntietz.com/blog/profiling-rust-programs-the-easy-way/>
-- 2026-04-14 baseline: [`docs/perf/2026-04-14/REPORT.md`](../2026-04-14/REPORT.md)
-- P1 iteration artefacts: [`docs/perf/busFastPath/`](../busFastPath/)
-- Roadmap: [`docs/PERF_DEV.md`](../../PERF_DEV.md)
+- 2026-04-14 baseline: [`docs/perf/baselines/2026-04-14/REPORT.md`](../2026-04-14/REPORT.md)
+- P1 iteration artefacts: [`docs/archived/perf/perfBusFastPath/`](../busFastPath/)
+- Roadmap: [`docs/PROGRESS.md#phase-9-performance-optimization`](../../PROGRESS.md#phase-9-performance-optimization)
