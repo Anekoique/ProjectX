@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" width="720" height="360" font-family="ui-sans-serif,Helvetica" font-size="12">
+<rect width="720" height="360" fill="#ffffff"/>
+<text x="360.0" y="22" text-anchor="middle" font-weight="bold">Wall-clock time per benchmark (lower is better)</text>
+<line x1="100" y1="40" x2="100" y2="300" stroke="#333"/>
+<line x1="100" y1="300" x2="680" y2="300" stroke="#333"/>
+<line x1="100" y1="300.0" x2="680" y2="300.0" stroke="#e5e7eb"/>
+<text x="92" y="304.0" text-anchor="end" fill="#444">0.0s</text>
+<line x1="100" y1="248.0" x2="680" y2="248.0" stroke="#e5e7eb"/>
+<text x="92" y="252.0" text-anchor="end" fill="#444">19.0s</text>
+<line x1="100" y1="196.0" x2="680" y2="196.0" stroke="#e5e7eb"/>
+<text x="92" y="200.0" text-anchor="end" fill="#444">38.1s</text>
+<line x1="100" y1="144.0" x2="680" y2="144.0" stroke="#e5e7eb"/>
+<text x="92" y="148.0" text-anchor="end" fill="#444">57.1s</text>
+<line x1="100" y1="92.0" x2="680" y2="92.0" stroke="#e5e7eb"/>
+<text x="92" y="96.0" text-anchor="end" fill="#444">76.2s</text>
+<line x1="100" y1="40.0" x2="680" y2="40.0" stroke="#e5e7eb"/>
+<text x="92" y="44.0" text-anchor="end" fill="#444">95.2s</text>
+<rect x="124.16666666666667" y="276.65970202534567" width="43.5" height="23.340297974654312" fill="#2563eb" />
+<text x="145.91666666666669" y="272.65970202534567" text-anchor="middle">8.55</text>
+<rect x="317.50000000000006" y="260.7446216519849" width="43.5" height="39.25537834801509" fill="#2563eb" />
+<text x="339.25000000000006" y="256.7446216519849" text-anchor="middle">14.38</text>
+<rect x="510.83333333333337" y="73.91304347826085" width="43.5" height="226.08695652173915" fill="#2563eb" />
+<text x="532.5833333333334" y="69.91304347826085" text-anchor="middle">82.82</text>
+<rect x="172.5" y="277.7516457902418" width="43.5" height="22.248354209758205" fill="#059669" />
+<text x="194.25" y="273.7516457902418" text-anchor="middle">8.15</text>
+<rect x="365.83333333333337" y="261.78196822863623" width="43.5" height="38.21803177136378" fill="#059669" />
+<text x="387.58333333333337" y="257.78196822863623" text-anchor="middle">14.00</text>
+<rect x="559.1666666666667" y="83.8770303329378" width="43.5" height="216.1229696670622" fill="#059669" />
+<text x="580.9166666666667" y="79.8770303329378" text-anchor="middle">79.17</text>
+<rect x="220.83333333333334" y="299.8089098411432" width="43.5" height="0.19109015885681893" fill="#dc2626" />
+<text x="242.58333333333334" y="295.8089098411432" text-anchor="middle">0.07</text>
+<rect x="414.16666666666674" y="299.8089098411432" width="43.5" height="0.19109015885681893" fill="#dc2626" />
+<text x="435.91666666666674" y="295.8089098411432" text-anchor="middle">0.07</text>
+<rect x="607.5" y="299.1537435822055" width="43.5" height="0.8462564177944838" fill="#dc2626" />
+<text x="629.25" y="295.1537435822055" text-anchor="middle">0.31</text>
+<text x="196.66666666666669" y="318" text-anchor="middle">dhrystone</text>
+<text x="390.0" y="318" text-anchor="middle">coremark</text>
+<text x="583.3333333333334" y="318" text-anchor="middle">microbench</text>
+<rect x="100" y="326" width="12" height="12" fill="#2563eb" />
+<text x="118" y="336" >real_s</text>
+<rect x="210" y="326" width="12" height="12" fill="#059669" />
+<text x="228" y="336" >user_s</text>
+<rect x="320" y="326" width="12" height="12" fill="#dc2626" />
+<text x="338" y="336" >sys_s</text>
+</svg>

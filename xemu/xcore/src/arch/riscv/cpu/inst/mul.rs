@@ -3,36 +3,37 @@
 use super::{RVCore, rv64_op};
 use crate::{
     config::{SWord, Word},
+    device::bus::Bus,
     error::XResult,
     isa::RVReg,
 };
 
 impl RVCore {
-    pub(super) fn mul(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn mul(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         self.set_gpr(rd, self.gpr[rs1].wrapping_mul(self.gpr[rs2]))
     }
 
-    pub(super) fn mulw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn mulw(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         rv64_op!(self, rd, |rs1, rs2| (self.gpr[rs1] as i32)
             .wrapping_mul(self.gpr[rs2] as i32))
     }
 
-    pub(super) fn mulh(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn mulh(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let result = (self.gpr[rs1] as SWord as i128) * (self.gpr[rs2] as SWord as i128);
         self.set_gpr(rd, (result >> Word::BITS) as SWord as Word)
     }
 
-    pub(super) fn mulhsu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn mulhsu(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let result = (self.gpr[rs1] as SWord as i128) * (self.gpr[rs2] as u128) as i128;
         self.set_gpr(rd, (result >> Word::BITS) as SWord as Word)
     }
 
-    pub(super) fn mulhu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn mulhu(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let result = (self.gpr[rs1] as u128) * (self.gpr[rs2] as u128);
         self.set_gpr(rd, (result >> Word::BITS) as Word)
     }
 
-    pub(super) fn div(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn div(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let (a, b) = (self.gpr[rs1] as SWord, self.gpr[rs2] as SWord);
         let value = match b {
             0 => Word::MAX,
@@ -42,7 +43,7 @@ impl RVCore {
         self.set_gpr(rd, value)
     }
 
-    pub(super) fn divw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn divw(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         rv64_op!(self, rd, |rs1, rs2| {
             let (a, b) = (self.gpr[rs1] as i32, self.gpr[rs2] as i32);
             match b {
@@ -53,7 +54,7 @@ impl RVCore {
         })
     }
 
-    pub(super) fn divu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn divu(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         self.set_gpr(
             rd,
             self.gpr[rs1]
@@ -62,7 +63,7 @@ impl RVCore {
         )
     }
 
-    pub(super) fn divuw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn divuw(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         rv64_op!(self, rd, |rs1, rs2| {
             (self.gpr[rs1] as u32)
                 .checked_div(self.gpr[rs2] as u32)
@@ -70,7 +71,7 @@ impl RVCore {
         })
     }
 
-    pub(super) fn rem(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn rem(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let (a, b) = (self.gpr[rs1] as SWord, self.gpr[rs2] as SWord);
         let value = match b {
             0 => a as Word,
@@ -80,7 +81,7 @@ impl RVCore {
         self.set_gpr(rd, value)
     }
 
-    pub(super) fn remw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn remw(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         rv64_op!(self, rd, |rs1, rs2| {
             let (a, b) = (self.gpr[rs1] as i32, self.gpr[rs2] as i32);
             match b {
@@ -91,12 +92,12 @@ impl RVCore {
         })
     }
 
-    pub(super) fn remu(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn remu(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         let (a, b) = (self.gpr[rs1], self.gpr[rs2]);
         self.set_gpr(rd, if b == 0 { a } else { a % b })
     }
 
-    pub(super) fn remuw(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn remuw(&mut self, _bus: &mut Bus, rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
         rv64_op!(self, rd, |rs1, rs2| {
             let (a, b) = (self.gpr[rs1] as u32, self.gpr[rs2] as u32);
             (if b == 0 { a } else { a % b }) as i32
@@ -107,22 +108,25 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
     #[cfg(isa32)]
     use crate::error::XError;
 
     #[test]
     fn mul_variants_produce_expected_results() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
         core.gpr[RVReg::t0] = 6;
         core.gpr[RVReg::t1] = 7;
-        core.mul(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.mul(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 42);
 
         let lhs: SWord = -12345;
         let rhs: SWord = 6789;
         core.gpr[RVReg::t0] = lhs as Word;
         core.gpr[RVReg::t1] = rhs as Word;
-        core.mulh(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.mulh(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1)
+            .unwrap();
         let expected_h = (((lhs as i128) * (rhs as i128)) >> Word::BITS) as SWord as Word;
         assert_eq!(core.gpr[RVReg::t3], expected_h);
 
@@ -130,7 +134,8 @@ mod tests {
         let rhs_su: Word = 9;
         core.gpr[RVReg::t0] = lhs_su as Word;
         core.gpr[RVReg::t1] = rhs_su;
-        core.mulhsu(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.mulhsu(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1)
+            .unwrap();
         let expected_hsu =
             (((lhs_su as i128) * (rhs_su as u128) as i128) >> Word::BITS) as SWord as Word;
         assert_eq!(core.gpr[RVReg::t3], expected_hsu);
@@ -139,7 +144,8 @@ mod tests {
         let rhs_u: Word = 0x12345;
         core.gpr[RVReg::t0] = lhs_u;
         core.gpr[RVReg::t1] = rhs_u;
-        core.mulhu(RVReg::t4, RVReg::t0, RVReg::t1).unwrap();
+        core.mulhu(&mut bus, RVReg::t4, RVReg::t0, RVReg::t1)
+            .unwrap();
         let expected_hu = (((lhs_u as u128) * (rhs_u as u128)) >> Word::BITS) as Word;
         assert_eq!(core.gpr[RVReg::t4], expected_hu);
     }
@@ -147,41 +153,47 @@ mod tests {
     #[test]
     fn div_and_rem_cover_edge_cases() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
         core.gpr[RVReg::t0] = 20;
         core.gpr[RVReg::t1] = 6;
-        core.div(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.div(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2] as SWord, 3);
-        core.rem(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.rem(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t3] as SWord, 2);
 
         core.gpr[RVReg::t1] = 0;
-        core.div(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.div(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], Word::MAX);
-        core.rem(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.rem(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t3], core.gpr[RVReg::t0]);
 
         core.gpr[RVReg::t0] = SWord::MIN as Word;
         core.gpr[RVReg::t1] = (-1 as SWord) as Word;
-        core.div(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.div(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t2], SWord::MIN as Word);
-        core.rem(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.rem(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
         assert_eq!(core.gpr[RVReg::t3], 0);
     }
 
     #[test]
     fn divu_and_remu_handle_zero_and_regular_paths() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
         core.gpr[RVReg::t0] = 25;
         core.gpr[RVReg::t1] = 4;
-        core.divu(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.divu(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2], 6);
-        core.remu(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.remu(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t3], 1);
 
         core.gpr[RVReg::t1] = 0;
-        core.divu(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.divu(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2], Word::MAX);
-        core.remu(RVReg::t3, RVReg::t0, RVReg::t1).unwrap();
+        core.remu(&mut bus, RVReg::t3, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t3], core.gpr[RVReg::t0]);
     }
 
@@ -189,6 +201,7 @@ mod tests {
     #[cfg(isa32)]
     fn rv64_only_muldiv_variants_are_rejected_on_rv32() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
 
         for op in [
             RVCore::mulw,
@@ -198,7 +211,7 @@ mod tests {
             RVCore::remuw,
         ] {
             assert!(matches!(
-                op(&mut core, RVReg::t0, RVReg::t1, RVReg::t2),
+                op(&mut core, &mut bus, RVReg::t0, RVReg::t1, RVReg::t2),
                 Err(XError::InvalidInst)
             ));
         }
@@ -208,30 +221,36 @@ mod tests {
     #[cfg(isa64)]
     fn rv64_word_muldiv_variants_sign_extend_results() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
 
         core.gpr[RVReg::t0] = 0xFFFF_FFFF;
         core.gpr[RVReg::t1] = 2;
-        core.mulw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.mulw(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2] as SWord, -2);
 
         core.gpr[RVReg::t0] = 0xFFFF_FFFF_8000_0000;
         core.gpr[RVReg::t1] = 2;
-        core.divw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.divw(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2] as SWord, -1073741824);
 
         core.gpr[RVReg::t0] = 0xFFFF_FFFF;
         core.gpr[RVReg::t1] = 2;
-        core.divuw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.divuw(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2], 0x7FFF_FFFF);
 
         core.gpr[RVReg::t0] = 0xFFFF_FFFF_8000_0003;
         core.gpr[RVReg::t1] = 2;
-        core.remw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.remw(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2] as SWord, -1);
 
         core.gpr[RVReg::t0] = 0x1_0000_0003;
         core.gpr[RVReg::t1] = 2;
-        core.remuw(RVReg::t2, RVReg::t0, RVReg::t1).unwrap();
+        core.remuw(&mut bus, RVReg::t2, RVReg::t0, RVReg::t1)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t2], 1);
     }
 }

@@ -8,3 +8,5 @@
 /.trellis
 .DS_Store
 .result
+__pycache__/
+rustc-ice-*.txt

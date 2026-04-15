@@ -2,7 +2,7 @@
 
 use memory_addr::VirtAddr;
 
-use crate::{config::Word, error::XResult};
+use crate::{config::Word, device::bus::Bus, error::XResult};
 
 /// Stable, arch-agnostic hart identifier.
 ///
@@ -50,7 +50,12 @@ pub trait CoreOps {
     /// Configure arch-specific state for the given boot mode.
     fn setup_boot(&mut self, mode: BootMode);
     /// Execute one instruction: fetch → decode → execute → retire.
-    fn step(&mut self) -> XResult;
+    ///
+    /// The `bus` parameter is an exclusive borrow threaded in from
+    /// [`crate::cpu::CPU::step`]'s disjoint-field destructure (invariant
+    /// I-10); the core uses it for fetches, loads, stores, and AMO/LR/SC
+    /// operations without any locking.
+    fn step(&mut self, bus: &mut Bus) -> XResult;
     /// True if the CPU has halted (e.g. `ebreak` in direct mode).
     fn halted(&self) -> bool;
     /// Return value on halt (typically `a0` for exit code).

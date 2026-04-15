@@ -1,0 +1,21 @@
+    Finished `release` profile [optimized] target(s) in 0.08s
+    Finished `release` profile [optimized] target(s) in 0.07s
+     Running `target/release/xdb`
+       42.91 real        40.45 user         0.33 sys
+            42172416  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               15494  page reclaims
+                1266  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  13  signals received
+                 261  voluntary context switches
+               37560  involuntary context switches
+            95591326  instructions retired
+            42918091  cycles elapsed
+             1638616  peak memory footprint

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" font-family="ui-sans-serif,Helvetica" font-size="12">
+<rect width="640" height="400" fill="#ffffff"/>
+<text x="320.0" y="22" text-anchor="middle" font-weight="bold">CPU self-time — microbench (bucketed)</text>
+<path d="M 180 200.0 L 180.00 50.00 A 150 150 0 0 1 292.04 299.73 Z" fill="#2563eb" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="48" width="14" height="14" fill="#2563eb" />
+<text x="382" y="60" >Bus Mutex lock/unlock — 36.6%</text>
+<path d="M 180 200.0 L 292.04 299.73 A 150 150 0 0 1 47.29 269.91 Z" fill="#059669" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="74" width="14" height="14" fill="#059669" />
+<text x="382" y="86" >CPU main loop — 30.7%</text>
+<path d="M 180 200.0 L 47.29 269.91 A 150 150 0 0 1 35.21 160.80 Z" fill="#dc2626" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="100" width="14" height="14" fill="#dc2626" />
+<text x="382" y="112" >Other — 11.9%</text>
+<path d="M 180 200.0 L 35.21 160.80 A 150 150 0 0 1 70.28 97.72 Z" fill="#d97706" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="126" width="14" height="14" fill="#d97706" />
+<text x="382" y="138" >MMU::access_bus — 7.7%</text>
+<path d="M 180 200.0 L 70.28 97.72 A 150 150 0 0 1 130.12 58.54 Z" fill="#7c3aed" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="152" width="14" height="14" fill="#7c3aed" />
+<text x="382" y="164" >MMU::checked_read — 7.7%</text>
+<path d="M 180 200.0 L 130.12 58.54 A 150 150 0 0 1 153.93 52.28 Z" fill="#0891b2" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="178" width="14" height="14" fill="#0891b2" />
+<text x="382" y="190" >Mtimer::check_timer — 2.6%</text>
+<path d="M 180 200.0 L 153.93 52.28 A 150 150 0 0 1 166.95 50.57 Z" fill="#db2777" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="204" width="14" height="14" fill="#db2777" />
+<text x="382" y="216" >PLIC evaluate+tick — 1.4%</text>
+<path d="M 180 200.0 L 166.95 50.57 A 150 150 0 0 1 180.00 50.00 Z" fill="#4b5563" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="230" width="14" height="14" fill="#4b5563" />
+<text x="382" y="242" >Mtimer::tick — 1.4%</text>
+</svg>

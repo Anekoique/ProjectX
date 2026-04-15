@@ -1,0 +1,14 @@
+# perf run  rev=8281225  mode=release  date=2026-04-14T13:32:22Z
+# host: Darwin 25.3.0 arm64
+>> dhrystone × 3
+  run1  real=8.81s  user=8.02s  sys=0.07s  rss=41264KiB
+  run2  real=8.70s  user=8.10s  sys=0.07s  rss=41360KiB
+  run3  real=8.55s  user=8.15s  sys=0.07s  rss=41232KiB
+>> coremark × 3
+  run1  real=14.49s  user=14.09s  sys=0.07s  rss=41248KiB
+  run2  real=14.38s  user=14.00s  sys=0.07s  rss=41296KiB
+  run3  real=15.76s  user=13.97s  sys=0.07s  rss=41344KiB
+>> microbench × 3
+  run1  real=92.00s  user=89.98s  sys=0.39s  rss=41232KiB
+  run2  real=89.75s  user=88.31s  sys=0.33s  rss=41312KiB
+  run3  real=82.82s  user=79.17s  sys=0.31s  rss=41264KiB

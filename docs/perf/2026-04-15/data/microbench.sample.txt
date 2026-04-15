@@ -1,0 +1,326 @@
+Analysis of sampling xdb (pid 9902) every 1 millisecond
+Process:         xdb [9902]
+Path:            /Users/USER/*/xdb
+Load Address:    0x1044cc000
+Identifier:      xdb
+Version:         ???
+Code Type:       ARM64
+Parent Process:  make [9878]
+Target Type:     live task
+
+Date/Time:       2026-04-15 12:51:37.023 +0800
+Launch Time:     2026-04-15 12:51:36.878 +0800
+OS Version:      macOS 26.3.1 (25D2128)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         2576K
+Physical footprint (peak):  2576K
+Idle exit:                  untracked
+----
+
+Call graph:
+    326 Thread_2885158: Main Thread
+    + 304 _dyld_start  (in dyld) + 0  [0x1049589c0]
+    + 16 start  (in dyld) + 6060  [0x10495c8f0]
+    + ! 16 dyld4::ExternallyViewableState::createMinimalInfo(lsl::Allocator&, unsigned long long, char const*, unsigned long long, char const*, DyldSharedCache const*)  (in dyld) + 1660  [0x1049a4498]
+    + !   16 dyld4::ExternallyViewableState::triggerNotifications(dyld_image_mode, unsigned int, dyld_image_info const*)  (in dyld) + 264  [0x1049a4c6c]
+    + !     16 dyld4::RemoteNotificationResponder::blockOnSynchronousEvent(unsigned int)  (in dyld) + 48  [0x10498da30]
+    + !       16 dyld4::RemoteNotificationResponder::sendMessage(int, unsigned int, mach_msg_header_t*)  (in dyld) + 220  [0x10498d6a4]
+    + !         16 mach_msg_overwrite  (in dyld) + 244  [0x1049dcb64]
+    + !           16 mach_msg2_internal  (in dyld) + 76  [0x1049dc9b8]
+    + !             16 mach_msg2_trap  (in dyld) + 8  [0x10495572c]
+    + 4 start  (in dyld) + 7104  [0x188eadd04]
+    + ! 4 dyld4::prepare(dyld4::APIs&, mach_o::Header const*)  (in dyld) + 2996  [0x188eaf0e4]
+    + !   4 dyld4::RuntimeState::notifyDebuggerLoad(std::span<dyld4::Loader const*, 18446744073709551615ul> const&)  (in dyld) + 432  [0x188ebe184]
+    + !     4 dyld4::ExternallyViewableState::addImages(lsl::Allocator&, lsl::Allocator&, std::span<dyld4::ExternallyViewableState::ImageInfo, 18446744073709551615ul> const&)  (in dyld) + 544  [0x188ef607c]
+    + !       3 dyld4::ExternallyViewableState::triggerNotifications(dyld_image_mode, unsigned int, dyld_image_info const*)  (in dyld) + 264  [0x188ef5c6c]
+    + !       : 3 dyld4::RemoteNotificationResponder::blockOnSynchronousEvent(unsigned int)  (in dyld) + 48  [0x188edea30]
+    + !       :   3 dyld4::RemoteNotificationResponder::sendMessage(int, unsigned int, mach_msg_header_t*)  (in dyld) + 220  [0x188ede6a4]
+    + !       :     3 mach_msg_overwrite  (in dyld) + 244  [0x188f2db64]
+    + !       :       3 mach_msg2_internal  (in dyld) + 76  [0x188f2d9b8]
+    + !       :         3 mach_msg2_trap  (in dyld) + 8  [0x188ea672c]
+    + !       1 dyld4::ExternallyViewableState::triggerNotifications(dyld_image_mode, unsigned int, dyld_image_info const*)  (in dyld) + 580  [0x188ef5da8]
+    + !         1 dyld4::RemoteNotificationResponder::notifyMonitorOfImageListChanges(bool, unsigned int, mach_header const**, char const**, unsigned long long)  (in dyld) + 484  [0x188ede944]
+    + !           1 dyld4::RemoteNotificationResponder::sendMessage(int, unsigned int, mach_msg_header_t*)  (in dyld) + 220  [0x188ede6a4]
+    + !             1 mach_msg_overwrite  (in dyld) + 244  [0x188f2db64]
+    + !               1 mach_msg2_internal  (in dyld) + 76  [0x188f2d9b8]
+    + !                 1 mach_msg2_trap  (in dyld) + 8  [0x188ea672c]
+    + 1 start  (in dyld) + 4752  [0x10495c3d4]
+    + ! 1 dyld4::ExternallyViewableState::createMinimalInfo(lsl::Allocator&, unsigned long long, char const*, unsigned long long, char const*, DyldSharedCache const*)  (in dyld) + 1660  [0x1049a4498]
+    + !   1 dyld4::ExternallyViewableState::triggerNotifications(dyld_image_mode, unsigned int, dyld_image_info const*)  (in dyld) + 264  [0x1049a4c6c]
+    + !     1 dyld4::RemoteNotificationResponder::blockOnSynchronousEvent(unsigned int)  (in dyld) + 48  [0x10498da30]
+    + !       1 dyld4::RemoteNotificationResponder::sendMessage(int, unsigned int, mach_msg_header_t*)  (in dyld) + 220  [0x10498d6a4]
+    + !         1 mach_msg_overwrite  (in dyld) + 244  [0x1049dcb64]
+    + !           1 mach_msg2_internal  (in dyld) + 76  [0x1049dc9b8]
+    + !             1 mach_msg2_trap  (in dyld) + 8  [0x10495572c]
+    + 1 start  (in dyld) + 4076  [0x188ead130]
+    +   1 dyld4::ExternallyViewableState::createMinimalInfo(lsl::Allocator&, unsigned long long, char const*, unsigned long long, char const*, DyldSharedCache const*)  (in dyld) + 1660  [0x188ef5498]
+    +     1 dyld4::ExternallyViewableState::triggerNotifications(dyld_image_mode, unsigned int, dyld_image_info const*)  (in dyld) + 264  [0x188ef5c6c]
+    +       1 dyld4::RemoteNotificationResponder::blockOnSynchronousEvent(unsigned int)  (in dyld) + 48  [0x188edea30]
+    +         1 dyld4::RemoteNotificationResponder::sendMessage(int, unsigned int, mach_msg_header_t*)  (in dyld) + 220  [0x188ede6a4]
+    +           1 mach_msg_overwrite  (in dyld) + 244  [0x188f2db64]
+    +             1 mach_msg2_internal  (in dyld) + 76  [0x188f2d9b8]
+    +               1 mach_msg2_trap  (in dyld) + 8  [0x188ea672c]
+    12515 Thread_2885158   DispatchQueue_1: com.apple.main-thread  (serial)
+      12515 start  (in dyld) + 7184  [0x188eadd54]
+        12515 main  (in xdb) + 876  [0x1044d3f0c]
+          12515 _RINvNtNtCs7rctSkCLAbB_3std3sys9backtrace28___rust_begin_short_backtraceFEINtNtCsdpYB6zbYNO6_4core6result6ResultuNtCsdra5oIjR4G_6anyhow5ErrorEB19_ECsMlSxlODYU3_3xdb  (in xdb) + 12  [0x1044cce28]
+            5726 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 17172,16304,...  [0x1044d1144,0x1044d0de0,...]
+            1289 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 15756  [0x1044d0bbc]
+            ! 774 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : 609 _platform_memmove  (in libsystem_platform.dylib) + 452,436,...  [0x189281544,0x189281534,...]
+            ! : 165 DYLD-STUB$$memcpy  (in xdb) + 4,0  [0x10452df68,0x10452df64]
+            ! 515 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156,16,...  [0x104510830,0x1045107a4,...]
+            1118 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 14624  [0x1044d0750]
+            ! 744 _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device4tick  (in xdb) + 200  [0x10450eed4]
+            ! : 744 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB2_6Mtimer11check_timer  (in xdb) + 76,412,...  [0x10450f04c,0x10450f19c,...]
+            ! 347 _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device4tick  (in xdb) + 200,36,...  [0x10450eed4,0x10450ee30,...]
+            ! 27 _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device4tick  (in xdb) + 60  [0x10450ee48]
+            !   27 _RNvMNtNtNtNtCs7rctSkCLAbB_3std3sys3pal4unix4timeNtB2_8Timespec3now  (in xdb) + 28  [0x104504d74]
+            !     25 clock_gettime  (in libsystem_c.dylib) + 60  [0x189111e08]
+            !     | 19 clock_gettime_nsec_np  (in libsystem_c.dylib) + 384  [0x189104168]
+            !     | + 19 mach_absolute_time  (in libsystem_kernel.dylib) + 108,112,...  [0x1892350fc,0x189235100,...]
+            !     | 4 clock_gettime_nsec_np  (in libsystem_c.dylib) + 240  [0x1891040d8]
+            !     | + 3 mach_timebase_info  (in libsystem_kernel.dylib) + 28,0  [0x189234fdc,0x189234fc0]
+            !     | + 1 DYLD-STUB$$mach_timebase_info  (in libsystem_c.dylib) + 12  [0x18917db34]
+            !     | 2 clock_gettime_nsec_np  (in libsystem_c.dylib) + 40,316  [0x189104010,0x189104124]
+            !     1 DYLD-STUB$$clock_gettime  (in xdb) + 0  [0x10452de98]
+            !     1 clock_gettime  (in libsystem_c.dylib) + 32  [0x189111dec]
+            912 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 18864  [0x1044d17e0]
+            ! 340 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_lw  (in xdb) + 96  [0x104510b04]
+            ! : 137 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 124  [0x10450fff8]
+            ! : | 86 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : | + 74 _platform_memmove  (in libsystem_platform.dylib) + 452,428,...  [0x189281544,0x18928152c,...]
+            ! : | + 12 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 51 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 16,28,...  [0x1045107a4,0x1045107b0,...]
+            ! : 75 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 28,128,...  [0x10450ff98,0x10450fffc,...]
+            ! : 67 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 88  [0x10450ffd4]
+            ! : | 67 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 104,24,...  [0x1045101f8,0x1045101a8,...]
+            ! : 43 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460,1456  [0x104510744,0x104510740]
+            ! : 18 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 176  [0x104510844]
+            ! 139 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_lw  (in xdb) + 0,96,...  [0x104510aa4,0x104510b04,...]
+            ! 120 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_jr  (in xdb) + 0,12  [0x10450fea8,0x10450feb4]
+            ! 58 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore3c_j  (in xdb) + 0,84,...  [0x104528158,0x1045281ac,...]
+            ! 46 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore7c_addiw  (in xdb) + 0,44  [0x104511bec,0x104511c18]
+            ! 42 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore5c_add  (in xdb) + 0,40,...  [0x104511120,0x104511148,...]
+            ! 35 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 520  [0x104510184]
+            ! 20 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_ldsp  (in xdb) + 92  [0x104511674]
+            ! : 10 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 124  [0x10450fff8]
+            ! : | 8 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : | + 7 _platform_memmove  (in libsystem_platform.dylib) + 428,460,...  [0x18928152c,0x18928154c,...]
+            ! : | + 1 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 2 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 16,156  [0x1045107a4,0x104510830]
+            ! : 5 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 88  [0x10450ffd4]
+            ! : | 5 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 48,64,...  [0x1045101c0,0x1045101d0,...]
+            ! : 2 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 28  [0x10450ff98]
+            ! : 2 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 176  [0x104510844]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460  [0x104510744]
+            ! 18 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_sdsp  (in xdb) + 128  [0x104511800]
+            ! : 7 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 68  [0x104510ddc]
+            ! : | 7 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 24,48,...  [0x1045101a8,0x1045101c0,...]
+            ! : 4 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 48,116,...  [0x104510dc8,0x104510e0c,...]
+            ! : 3 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 288  [0x104510a6c]
+            ! : 2 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1456,1460  [0x104510740,0x104510744]
+            ! : 2 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! :   1 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 160  [0x1045109ec]
+            ! :   + 1 _platform_memmove  (in libsystem_platform.dylib) + 428  [0x18928152c]
+            ! :   1 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 44  [0x104510978]
+            ! 13 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_beqz  (in xdb) + 0,16  [0x104511514,0x104511524]
+            ! 13 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_bnez  (in xdb) + 0,28,...  [0x104511578,0x104511594,...]
+            ! 13 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_sdsp  (in xdb) + 0,68,...  [0x104511780,0x1045117c4,...]
+            ! 12 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_addi  (in xdb) + 44,0,...  [0x1045114a8,0x10451147c,...]
+            ! 10 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_addw  (in xdb) + 44  [0x1045114dc]
+            ! 8 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_slli  (in xdb) + 0,40  [0x104511958,0x104511980]
+            ! 7 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_sw  (in xdb) + 148  [0x104510fc8]
+            ! : 5 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! : | 4 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 160  [0x1045109ec]
+            ! : | + 4 _platform_memmove  (in libsystem_platform.dylib) + 452,12,...  [0x189281544,0x18928138c,...]
+            ! : | 1 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 24  [0x104510964]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460  [0x104510744]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! 5 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_ldsp  (in xdb) + 0,12  [0x104511618,0x104511624]
+            ! 4 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore10c_addi16sp  (in xdb) + 0,60  [0x10450fdd0,0x10450fe0c]
+            ! 4 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_li  (in xdb) + 0  [0x104510a78]
+            ! 2 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_mv  (in xdb) + 32  [0x104510b74]
+            ! 1 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_sw  (in xdb) + 164  [0x104510fd8]
+            ! 1 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_subw  (in xdb) + 36  [0x104511a04]
+            ! 1 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_swsp  (in xdb) + 0  [0x104511a14]
+            816 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 18992  [0x1044d1860]
+            ! 251 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sw  (in xdb) + 116  [0x104515d30]
+            ! : 97 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! : | 67 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 160  [0x1045109ec]
+            ! : | + 62 _platform_memmove  (in libsystem_platform.dylib) + 452,436,...  [0x189281544,0x189281534,...]
+            ! : | + 5 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 30 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 24,44,...  [0x104510964,0x104510978,...]
+            ! : 70 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 68  [0x104510ddc]
+            ! : | 70 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 24,48,...  [0x1045101a8,0x1045101c0,...]
+            ! : 35 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116,20,...  [0x104510e0c,0x104510dac,...]
+            ! : 29 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1456,1460  [0x104510740,0x104510744]
+            ! : 20 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 288  [0x104510a6c]
+            ! 239 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2lw  (in xdb) + 64  [0x104515738]
+            ! : 97 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 124  [0x10450fff8]
+            ! : | 75 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : | + 61 _platform_memmove  (in libsystem_platform.dylib) + 452,428,...  [0x189281544,0x18928152c,...]
+            ! : | + 14 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 22 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 28,16,...  [0x1045107b0,0x1045107a4,...]
+            ! : 63 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 88  [0x10450ffd4]
+            ! : | 63 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 48,24,...  [0x1045101c0,0x1045101a8,...]
+            ! : 42 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 132,28,...  [0x104510000,0x10450ff98,...]
+            ! : 25 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460,1456  [0x104510744,0x104510740]
+            ! : 12 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 176  [0x104510844]
+            ! 98 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3lhu  (in xdb) + 64  [0x104515f60]
+            ! : 30 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 88  [0x10450ffd4]
+            ! : | 30 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 24,48,...  [0x1045101a8,0x1045101c0,...]
+            ! : 30 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 124  [0x10450fff8]
+            ! : | 20 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : | + 15 _platform_memmove  (in libsystem_platform.dylib) + 428,452,...  [0x18928152c,0x189281544,...]
+            ! : | + 5 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 10 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 16,156,...  [0x1045107a4,0x104510830,...]
+            ! : 18 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 128,28,...  [0x10450fffc,0x10450ff98,...]
+            ! : 13 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460,1456  [0x104510744,0x104510740]
+            ! : 7 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 176  [0x104510844]
+            ! 37 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sw  (in xdb) + 132,56,...  [0x104515d40,0x104515cf4,...]
+            ! 34 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 520  [0x104510184]
+            ! 29 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2ld  (in xdb) + 64  [0x10451560c]
+            ! : 11 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 124  [0x10450fff8]
+            ! : | 10 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : | + 9 _platform_memmove  (in libsystem_platform.dylib) + 428,460,...  [0x18928152c,0x18928154c,...]
+            ! : | + 1 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 1 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 16  [0x1045107a4]
+            ! : 6 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 28,0,...  [0x10450ff98,0x10450ff7c,...]
+            ! : 5 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 88  [0x10450ffd4]
+            ! : | 5 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 24,48,...  [0x1045101a8,0x1045101c0,...]
+            ! : 4 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460,1456  [0x104510744,0x104510740]
+            ! : 3 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 176  [0x104510844]
+            ! 26 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 400  [0x104510f28]
+            ! 25 _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3bne  (in xdb) + 16,44,...  [0x1045171e8,0x104517204,...]
+            ! 13 _RNvMs0_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore4slli  (in xdb) + 36,0  [0x104514334,0x104514310]
+            ! 12 _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore4bltu  (in xdb) + 16,40,...  [0x104517250,0x104517268,...]
+            ! 10 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2lw  (in xdb) + 68,44  [0x10451573c,0x104515724]
+            ! 8 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sh  (in xdb) + 100  [0x104515b58]
+            ! : 5 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! : | 3 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 160  [0x1045109ec]
+            ! : | + 2 _platform_memmove  (in libsystem_platform.dylib) + 428,460  [0x18928152c,0x18928154c]
+            ! : | + 1 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! : | 2 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 24,44  [0x104510964,0x104510978]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1456  [0x104510740]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 68  [0x104510ddc]
+            ! : | 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 48  [0x1045101c0]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 172  [0x104510e44]
+            ! 6 _RNvMs0_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore4srli  (in xdb) + 0,36  [0x104514398,0x1045143bc]
+            ! 6 _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3beq  (in xdb) + 28,44,...  [0x104517158,0x104517168,...]
+            ! 5 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3lhu  (in xdb) + 68,44  [0x104515f64,0x104515f4c]
+            ! 5 _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3bge  (in xdb) + 28,16,...  [0x10451718c,0x104517180,...]
+            ! 3 _RNvMs0_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore5addiw  (in xdb) + 0  [0x104527fb4]
+            ! 3 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sh  (in xdb) + 0,56  [0x104515af4,0x104515b2c]
+            ! 3 _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3blt  (in xdb) + 0,16  [0x1045171a4,0x1045171b4]
+            ! 2 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sd  (in xdb) + 112  [0x10451599c]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! : | 1 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 160  [0x1045109ec]
+            ! : |   1 _platform_memmove  (in libsystem_platform.dylib) + 460  [0x18928154c]
+            ! : 1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+            ! 1 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3lbu  (in xdb) + 64  [0x104515ec8]
+            !   1 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1456  [0x104510740]
+            577 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 15860  [0x1044d0c24]
+            ! 366 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+            ! : 281 _platform_memmove  (in libsystem_platform.dylib) + 452,460,...  [0x189281544,0x18928154c,...]
+            ! : 85 DYLD-STUB$$memcpy  (in xdb) + 4  [0x10452df68]
+            ! 211 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 16,36,...  [0x1045107a4,0x1045107b8,...]
+            445 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 15720  [0x1044d0b98]
+            ! 445 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 24,20,...  [0x1045101a8,0x1045101a4,...]
+            443 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 1460,1456,...  [0x104510744,0x104510740,...]
+            378 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 14948  [0x1044d0894]
+            ! 204 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device4plic4coreNtB2_4Core8evaluate  (in xdb) + 220,232,...  [0x10450e714,0x10450e720,...]
+            ! 174 _RNvXs_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device4plicNtB4_4PlicNtNtBc_6device6Device4tick  (in xdb) + 108,72,...  [0x10450e544,0x10450e520,...]
+            253 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 15820  [0x1044d0bfc]
+            ! 253 _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 24,132,...  [0x1045101a8,0x104510214,...]
+            224 _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 176  [0x104510844]
+            156 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 15044  [0x1044d08f4]
+            ! 156 _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device5mtime  (in xdb) + 0  [0x10450eff4]
+            74 _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device4tick  (in xdb) + 220  [0x10450eee8]
+            32 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 14736  [0x1044d07c0]
+            ! 11 _RNvXs_NtNtCsiM5R4lXDPGW_5xcore6device4uartNtB4_4UartNtB6_6Device4tick  (in xdb) + 136,760,...  [0x10450d884,0x10450daf4,...]
+            ! 10 _RNvXs_NtNtCsiM5R4lXDPGW_5xcore6device4uartNtB4_4UartNtB6_6Device4tick  (in xdb) + 60  [0x10450d838]
+            ! : 8 pthread_mutex_trylock  (in libsystem_pthread.dylib) + 20,100,...  [0x1892750fc,0x18927514c,...]
+            ! : 2 DYLD-STUB$$pthread_mutex_trylock  (in xdb) + 4  [0x10452e064]
+            ! 5 _RNvXs_NtNtCsiM5R4lXDPGW_5xcore6device4uartNtB4_4UartNtB6_6Device4tick  (in xdb) + 760  [0x10450daf4]
+            ! : 5 pthread_mutex_unlock  (in libsystem_pthread.dylib) + 12,48,...  [0x1892728d8,0x1892728fc,...]
+            ! 3 _RNvYNtNtNtCsiM5R4lXDPGW_5xcore6device10virtio_blk9VirtioBlkNtB6_6Device4tickB8_  (in xdb) + 0  [0x10450cca0]
+            ! 2 _RNvYNtNtNtCsiM5R4lXDPGW_5xcore6device13test_finisher12TestFinisherNtB6_6Device10hard_resetB8_  (in xdb) + 0  [0x10450d398]
+            ! 1 pthread_mutex_unlock  (in libsystem_pthread.dylib) + 124  [0x189272948]
+            15 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_lw  (in xdb) + 164  [0x104510b48]
+            15 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2lw  (in xdb) + 140  [0x104515784]
+            13 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sw  (in xdb) + 432  [0x104515e6c]
+            12 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 18632  [0x1044d16f8]
+            ! 9 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst3mulNtB6_6RVCore4mulw  (in xdb) + 48,0  [0x104527900,0x1045278d0]
+            ! 1 _RNvMs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB8_6RVCore2or  (in xdb) + 0  [0x1045172c8]
+            ! 1 _RNvMs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB8_6RVCore3add  (in xdb) + 0  [0x1045172fc]
+            ! 1 _RNvMs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB8_6RVCore4srlw  (in xdb) + 48  [0x10452785c]
+            6 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3lhu  (in xdb) + 140  [0x104515fac]
+            5 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device4plic4coreNtB2_4Core8evaluate  (in xdb) + 696  [0x10450e8f0]
+            2 _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_ldsp  (in xdb) + 168  [0x1045116c0]
+            2 _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2ld  (in xdb) + 136  [0x104515654]
+            1 _RNvCsMlSxlODYU3_3xdb4main  (in xdb) + 19144  [0x1044d18f8]
+            ! 1 _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore5auipc  (in xdb) + 0  [0x1045280f8]
+            1 _RNvXs_NtNtCsiM5R4lXDPGW_5xcore6device4uartNtB4_4UartNtB6_6Device4tick  (in xdb) + 848  [0x10450db4c]
+
+Total number in stack (recursive counted multiple, when >=5):
+        21       _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb) + 0  [0x104510190]
+        13       _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 0  [0x104510794]
+        12       _platform_memmove  (in libsystem_platform.dylib) + 0  [0x189281380]
+        9       DYLD-STUB$$memcpy  (in xdb) + 0  [0x10452df64]
+        7       _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 0  [0x10450ff7c]
+        7       _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb) + 156  [0x104510830]
+        6       _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 0  [0x104510d98]
+        6       _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 0  [0x10451094c]
+        5       _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb) + 116  [0x104510e0c]
+        5       _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 124  [0x10450fff8]
+        5       _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb) + 88  [0x10450ffd4]
+        5       _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb) + 160  [0x1045109ec]
+
+Sort by top of stack, same collapsed (when >= 5):
+        _RNvCsMlSxlODYU3_3xdb4main  (in xdb)        5726
+        _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore10access_bus  (in xdb)        1509
+        _platform_memmove  (in libsystem_platform.dylib)        1126
+        _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus4read  (in xdb)        1078
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB2_6Mtimer11check_timer  (in xdb)        744
+        _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device4tick  (in xdb)        421
+        _dyld_start  (in dyld)        304
+        DYLD-STUB$$memcpy  (in xdb)        289
+        _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore4load  (in xdb)        212
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device4plic4coreNtB2_4Core8evaluate  (in xdb)        209
+        _RNvXs_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device4plicNtB4_4PlicNtNtBc_6device6Device4tick  (in xdb)        174
+        _RNvXs_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv6device6aclint6mtimerNtB4_6MtimerNtNtBe_6device6Device5mtime  (in xdb)        156
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_lw  (in xdb)        154
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore4c_jr  (in xdb)        120
+        _RNvMs2_NtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu2mmNtB7_6RVCore13checked_write  (in xdb)        68
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore3c_j  (in xdb)        58
+        _RNvMs_NtNtCsiM5R4lXDPGW_5xcore6device3busNtB4_3Bus5write  (in xdb)        57
+        _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2sw  (in xdb)        50
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore7c_addiw  (in xdb)        46
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore5c_add  (in xdb)        42
+        _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore2lw  (in xdb)        25
+        _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3bne  (in xdb)        25
+        mach_msg2_trap  (in dyld)        22
+        mach_absolute_time  (in libsystem_kernel.dylib)        19
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_beqz  (in xdb)        13
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_bnez  (in xdb)        13
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_sdsp  (in xdb)        13
+        _RNvMs0_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore4slli  (in xdb)        13
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_addi  (in xdb)        12
+        _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore4bltu  (in xdb)        12
+        _RNvXs_NtNtCsiM5R4lXDPGW_5xcore6device4uartNtB4_4UartNtB6_6Device4tick  (in xdb)        12
+        _RNvMs1_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3lhu  (in xdb)        11
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_addw  (in xdb)        10
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst3mulNtB6_6RVCore4mulw  (in xdb)        9
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_slli  (in xdb)        8
+        pthread_mutex_trylock  (in libsystem_pthread.dylib)        8
+        _RNvMNtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst10compressedNtB6_6RVCore6c_ldsp  (in xdb)        7
+        _RNvMs0_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore4srli  (in xdb)        6
+        _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3beq  (in xdb)        6
+        pthread_mutex_unlock  (in libsystem_pthread.dylib)        6
+        _RNvMs2_NtNtNtNtNtCsiM5R4lXDPGW_5xcore4arch5riscv3cpu4inst4baseNtB9_6RVCore3bge  (in xdb)        5
+
+Binary images description not available
+

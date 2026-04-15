@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     config::Word,
+    device::bus::Bus,
     error::{XError, XResult},
 };
 
@@ -250,55 +251,72 @@ impl RVCore {
         })
     }
 
-    fn access_bus(&mut self, addr: VirtAddr, op: MemOp, size: usize) -> XResult<usize> {
+    fn access_bus(
+        &mut self,
+        bus: &mut Bus,
+        addr: VirtAddr,
+        op: MemOp,
+        size: usize,
+    ) -> XResult<usize> {
         let priv_mode = match op {
             MemOp::Fetch => self.privilege,
             _ => self.effective_priv(),
         };
-        let mut bus = self.bus.lock().unwrap();
         self.mmu
-            .translate(self.id, addr, op, priv_mode, &self.pmp, &mut bus)
+            .translate(self.id, addr, op, priv_mode, &self.pmp, bus)
             .and_then(|pa| self.pmp.check(pa, size, op, priv_mode).map(|_| pa))
             .map_err(|e| Self::to_trap(e, addr, op))
     }
 
-    fn checked_read(&mut self, addr: VirtAddr, size: usize, op: MemOp) -> XResult<Word> {
-        let pa = self.access_bus(addr, op, size)?;
-        self.bus
-            .lock()
-            .unwrap()
-            .read(pa, size)
+    fn checked_read(
+        &mut self,
+        bus: &mut Bus,
+        addr: VirtAddr,
+        size: usize,
+        op: MemOp,
+    ) -> XResult<Word> {
+        let pa = self.access_bus(bus, addr, op, size)?;
+        bus.read(pa, size).map_err(|e| Self::to_trap(e, addr, op))
+    }
+
+    fn checked_write(
+        &mut self,
+        bus: &mut Bus,
+        addr: VirtAddr,
+        size: usize,
+        value: Word,
+        op: MemOp,
+    ) -> XResult {
+        let pa = self.access_bus(bus, addr, op, size)?;
+        bus.store(self.id, pa, size, value)
             .map_err(|e| Self::to_trap(e, addr, op))
     }
 
-    fn checked_write(&mut self, addr: VirtAddr, size: usize, value: Word, op: MemOp) -> XResult {
-        let pa = self.access_bus(addr, op, size)?;
-        self.bus
-            .lock()
-            .unwrap()
-            .store(self.id, pa, size, value)
-            .map_err(|e| Self::to_trap(e, addr, op))
-    }
-
-    pub(super) fn translate(&mut self, addr: VirtAddr, size: usize, op: MemOp) -> XResult<usize> {
-        self.access_bus(addr, op, size)
+    pub(super) fn translate(
+        &mut self,
+        bus: &mut Bus,
+        addr: VirtAddr,
+        size: usize,
+        op: MemOp,
+    ) -> XResult<usize> {
+        self.access_bus(bus, addr, op, size)
     }
 
     #[allow(clippy::unnecessary_cast)]
-    pub(super) fn fetch(&mut self) -> XResult<u32> {
+    pub(super) fn fetch(&mut self, bus: &mut Bus) -> XResult<u32> {
         self.validate_alignment(self.pc, 2, Exception::InstructionMisaligned)?;
-        let lo = self.checked_read(self.pc, 2, MemOp::Fetch)? as u32;
+        let lo = self.checked_read(bus, self.pc, 2, MemOp::Fetch)? as u32;
         if lo & 0b11 != 0b11 {
             return Ok(lo & 0xFFFF);
         }
         let pc2 = VirtAddr::from(self.pc.as_usize() + 2);
-        let hi = self.checked_read(pc2, 2, MemOp::Fetch)? as u32;
+        let hi = self.checked_read(bus, pc2, 2, MemOp::Fetch)? as u32;
         Ok((lo & 0xFFFF) | ((hi & 0xFFFF) << 16))
     }
 
-    pub(super) fn load(&mut self, addr: VirtAddr, size: usize) -> XResult<Word> {
+    pub(super) fn load(&mut self, bus: &mut Bus, addr: VirtAddr, size: usize) -> XResult<Word> {
         self.validate_alignment(addr, size, Exception::LoadMisaligned)?;
-        let val = self.checked_read(addr, size, MemOp::Load)?;
+        let val = self.checked_read(bus, addr, size, MemOp::Load)?;
         trace!(
             "load: addr={:#x} size={} val={:#x}",
             addr.as_usize(),
@@ -308,9 +326,15 @@ impl RVCore {
         Ok(val)
     }
 
-    pub(super) fn store(&mut self, addr: VirtAddr, size: usize, value: Word) -> XResult {
+    pub(super) fn store(
+        &mut self,
+        bus: &mut Bus,
+        addr: VirtAddr,
+        size: usize,
+        value: Word,
+    ) -> XResult {
         self.validate_alignment(addr, size, Exception::StoreMisaligned)?;
-        self.checked_write(addr, size, value, MemOp::Store)?;
+        self.checked_write(bus, addr, size, value, MemOp::Store)?;
         trace!(
             "store: addr={:#x} size={} val={:#x}",
             addr.as_usize(),
@@ -320,14 +344,20 @@ impl RVCore {
         Ok(())
     }
 
-    pub(super) fn amo_load(&mut self, addr: VirtAddr, size: usize) -> XResult<Word> {
+    pub(super) fn amo_load(&mut self, bus: &mut Bus, addr: VirtAddr, size: usize) -> XResult<Word> {
         self.validate_alignment(addr, size, Exception::StoreMisaligned)?;
-        self.checked_read(addr, size, MemOp::Amo)
+        self.checked_read(bus, addr, size, MemOp::Amo)
     }
 
-    pub(super) fn amo_store(&mut self, addr: VirtAddr, size: usize, value: Word) -> XResult {
+    pub(super) fn amo_store(
+        &mut self,
+        bus: &mut Bus,
+        addr: VirtAddr,
+        size: usize,
+        value: Word,
+    ) -> XResult {
         self.validate_alignment(addr, size, Exception::StoreMisaligned)?;
-        self.checked_write(addr, size, value, MemOp::Amo)
+        self.checked_write(bus, addr, size, value, MemOp::Amo)
     }
 
     #[inline]
@@ -342,14 +372,21 @@ mod tests {
     use memory_addr::VirtAddr;
 
     use super::*;
-    use crate::{arch::riscv::cpu::trap::test_helpers::assert_trap, config::CONFIG_MBASE};
+    use crate::{
+        arch::riscv::cpu::trap::test_helpers::assert_trap,
+        config::{CONFIG_MBASE, CONFIG_MSIZE},
+    };
+
+    fn new_core_with_bus() -> (RVCore, Bus) {
+        (RVCore::new(), Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1))
+    }
 
     #[test]
     fn fetch_access_fault() {
-        let mut core = RVCore::new();
+        let (mut core, mut bus) = new_core_with_bus();
         core.pc = VirtAddr::from(CONFIG_MBASE - 4);
         assert_trap(
-            core.fetch(),
+            core.fetch(&mut bus),
             TrapCause::Exception(Exception::InstructionAccessFault),
             (CONFIG_MBASE - 4) as Word,
         );
@@ -357,9 +394,9 @@ mod tests {
 
     #[test]
     fn load_misaligned() {
-        let mut core = RVCore::new();
+        let (mut core, mut bus) = new_core_with_bus();
         assert_trap(
-            core.load(VirtAddr::from(CONFIG_MBASE + 2), 4),
+            core.load(&mut bus, VirtAddr::from(CONFIG_MBASE + 2), 4),
             TrapCause::Exception(Exception::LoadMisaligned),
             (CONFIG_MBASE + 2) as Word,
         );
@@ -367,9 +404,9 @@ mod tests {
 
     #[test]
     fn load_unmapped() {
-        let mut core = RVCore::new();
+        let (mut core, mut bus) = new_core_with_bus();
         assert_trap(
-            core.load(VirtAddr::from(0x1000_usize), 4),
+            core.load(&mut bus, VirtAddr::from(0x1000_usize), 4),
             TrapCause::Exception(Exception::LoadAccessFault),
             0x1000,
         );

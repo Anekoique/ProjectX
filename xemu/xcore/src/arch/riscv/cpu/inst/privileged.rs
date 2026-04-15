@@ -5,12 +5,19 @@ use super::RVCore;
 use crate::{
     arch::riscv::cpu::csr::{CsrAddr, Exception, MStatus, PrivilegeMode},
     config::{SWord, Word},
+    device::bus::Bus,
     error::XResult,
     isa::RVReg,
 };
 
 impl RVCore {
-    pub(super) fn ecall(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+    pub(super) fn ecall(
+        &mut self,
+        _bus: &mut Bus,
+        _rd: RVReg,
+        _rs1: RVReg,
+        _imm: SWord,
+    ) -> XResult {
         let exc = match self.privilege {
             PrivilegeMode::User => Exception::EcallFromU,
             PrivilegeMode::Supervisor => Exception::EcallFromS,
@@ -19,11 +26,17 @@ impl RVCore {
         Err(self.trap_exception(exc, 0))
     }
 
-    pub(super) fn ebreak(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+    pub(super) fn ebreak(
+        &mut self,
+        _bus: &mut Bus,
+        _rd: RVReg,
+        _rs1: RVReg,
+        _imm: SWord,
+    ) -> XResult {
         Err(self.trap_exception(Exception::Breakpoint, self.pc.as_usize() as Word))
     }
 
-    pub(super) fn mret(&mut self, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
+    pub(super) fn mret(&mut self, _bus: &mut Bus, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
         if self.privilege < PrivilegeMode::Machine {
             return Err(self.illegal_inst());
         }
@@ -31,7 +44,7 @@ impl RVCore {
         Ok(())
     }
 
-    pub(super) fn sret(&mut self, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
+    pub(super) fn sret(&mut self, _bus: &mut Bus, _rd: RVReg, _rs1: RVReg, _rs2: RVReg) -> XResult {
         if self.privilege < PrivilegeMode::Supervisor {
             return Err(self.illegal_inst());
         }
@@ -44,18 +57,30 @@ impl RVCore {
     }
 
     /// Memory ordering fence — NOP on single-hart emulator.
-    pub(super) fn fence(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+    pub(super) fn fence(
+        &mut self,
+        _bus: &mut Bus,
+        _rd: RVReg,
+        _rs1: RVReg,
+        _imm: SWord,
+    ) -> XResult {
         Ok(())
     }
 
     /// Instruction fence — NOP on single-hart emulator (no icache).
-    pub(super) fn fence_i(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+    pub(super) fn fence_i(
+        &mut self,
+        _bus: &mut Bus,
+        _rd: RVReg,
+        _rs1: RVReg,
+        _imm: SWord,
+    ) -> XResult {
         Ok(())
     }
 
     /// Wait for interrupt — NOP (interrupt check happens in step loop).
     /// Traps in U-mode unconditionally, and in S-mode when mstatus.TW=1.
-    pub(super) fn wfi(&mut self, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
+    pub(super) fn wfi(&mut self, _bus: &mut Bus, _rd: RVReg, _rs1: RVReg, _imm: SWord) -> XResult {
         match self.privilege {
             PrivilegeMode::User => Err(self.illegal_inst()),
             PrivilegeMode::Supervisor => {
@@ -69,7 +94,13 @@ impl RVCore {
         }
     }
 
-    pub(super) fn sfence_vma(&mut self, _rd: RVReg, rs1: RVReg, rs2: RVReg) -> XResult {
+    pub(super) fn sfence_vma(
+        &mut self,
+        _bus: &mut Bus,
+        _rd: RVReg,
+        rs1: RVReg,
+        rs2: RVReg,
+    ) -> XResult {
         if self.privilege == PrivilegeMode::User {
             return Err(self.illegal_inst());
         }
@@ -99,13 +130,18 @@ mod tests {
     use memory_addr::VirtAddr;
 
     use super::*;
-    use crate::arch::riscv::cpu::trap::{TrapCause, test_helpers::assert_trap};
+    use crate::{
+        arch::riscv::cpu::trap::{TrapCause, test_helpers::assert_trap},
+        config::{CONFIG_MBASE, CONFIG_MSIZE},
+        device::bus::Bus,
+    };
 
-    fn setup_core() -> RVCore {
+    fn setup_core() -> (RVCore, Bus) {
         let mut core = RVCore::new();
+        let bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
         core.csr.set(CsrAddr::mtvec, 0x8000_0000);
         core.csr.set(CsrAddr::stvec, 0x4000_0000);
-        core
+        (core, bus)
     }
 
     #[test]
@@ -115,10 +151,10 @@ mod tests {
             (PrivilegeMode::Supervisor, Exception::EcallFromS),
             (PrivilegeMode::Machine, Exception::EcallFromM),
         ] {
-            let mut core = setup_core();
+            let (mut core, mut bus) = setup_core();
             core.privilege = mode;
             assert_trap(
-                core.ecall(RVReg::zero, RVReg::zero, 0),
+                core.ecall(&mut bus, RVReg::zero, RVReg::zero, 0),
                 TrapCause::Exception(expected),
                 0,
             );
@@ -127,10 +163,10 @@ mod tests {
 
     #[test]
     fn ebreak_sets_breakpoint_with_pc_as_tval() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.pc = VirtAddr::from(0x1234_usize);
         assert_trap(
-            core.ebreak(RVReg::zero, RVReg::zero, 0),
+            core.ebreak(&mut bus, RVReg::zero, RVReg::zero, 0),
             TrapCause::Exception(Exception::Breakpoint),
             0x1234,
         );
@@ -138,10 +174,10 @@ mod tests {
 
     #[test]
     fn mret_from_lower_privilege_traps() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.privilege = PrivilegeMode::Supervisor;
         assert_trap(
-            core.mret(RVReg::zero, RVReg::zero, RVReg::zero),
+            core.mret(&mut bus, RVReg::zero, RVReg::zero, RVReg::zero),
             TrapCause::Exception(Exception::IllegalInstruction),
             0,
         );
@@ -149,13 +185,14 @@ mod tests {
 
     #[test]
     fn mret_from_m_mode_succeeds() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.privilege = PrivilegeMode::Machine;
         let ms = MStatus::empty().with_mpp(PrivilegeMode::User);
         core.csr.set(CsrAddr::mstatus, ms.bits());
         core.csr.set(CsrAddr::mepc, 0x2000);
 
-        core.mret(RVReg::zero, RVReg::zero, RVReg::zero).unwrap();
+        core.mret(&mut bus, RVReg::zero, RVReg::zero, RVReg::zero)
+            .unwrap();
 
         assert!(core.pending_trap.is_none());
         assert_eq!(core.privilege, PrivilegeMode::User);
@@ -163,10 +200,10 @@ mod tests {
 
     #[test]
     fn sret_from_u_mode_traps() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.privilege = PrivilegeMode::User;
         assert_trap(
-            core.sret(RVReg::zero, RVReg::zero, RVReg::zero),
+            core.sret(&mut bus, RVReg::zero, RVReg::zero, RVReg::zero),
             TrapCause::Exception(Exception::IllegalInstruction),
             0,
         );
@@ -174,11 +211,11 @@ mod tests {
 
     #[test]
     fn sret_with_tsr_traps_in_s_mode() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.privilege = PrivilegeMode::Supervisor;
         core.csr.set(CsrAddr::mstatus, MStatus::TSR.bits());
         assert_trap(
-            core.sret(RVReg::zero, RVReg::zero, RVReg::zero),
+            core.sret(&mut bus, RVReg::zero, RVReg::zero, RVReg::zero),
             TrapCause::Exception(Exception::IllegalInstruction),
             0,
         );
@@ -186,13 +223,14 @@ mod tests {
 
     #[test]
     fn sret_without_tsr_succeeds() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.privilege = PrivilegeMode::Supervisor;
         let ms = MStatus::empty().with_spp(PrivilegeMode::User);
         core.csr.set(CsrAddr::mstatus, ms.bits());
         core.csr.set(CsrAddr::sepc, 0x3000);
 
-        core.sret(RVReg::zero, RVReg::zero, RVReg::zero).unwrap();
+        core.sret(&mut bus, RVReg::zero, RVReg::zero, RVReg::zero)
+            .unwrap();
 
         assert!(core.pending_trap.is_none());
         assert_eq!(core.privilege, PrivilegeMode::User);
@@ -200,13 +238,14 @@ mod tests {
 
     #[test]
     fn sret_with_tsr_from_m_mode_succeeds() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.privilege = PrivilegeMode::Machine;
         let ms = MStatus::TSR | MStatus::empty().with_spp(PrivilegeMode::User);
         core.csr.set(CsrAddr::mstatus, ms.bits());
         core.csr.set(CsrAddr::sepc, 0x3000);
 
-        core.sret(RVReg::zero, RVReg::zero, RVReg::zero).unwrap();
+        core.sret(&mut bus, RVReg::zero, RVReg::zero, RVReg::zero)
+            .unwrap();
 
         // TSR only blocks S-mode, not M-mode
         assert!(core.pending_trap.is_none());

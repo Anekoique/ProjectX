@@ -19,9 +19,6 @@ All iteration artifacts reside in `docs/<feature>/`.
 | Executor | `NN_PLAN.md`         | Proposes the implementation plan, including summary, spec alignment, architecture, invariants, API surface, implementation steps, validation strategy, and trade-off analysis. |
 | Reviewer | `NN_REVIEW.md`       | Audits the plan for correctness, completeness, spec compliance, edge cases, maintainability, risk, and provides trade-off advice when needed. Findings are classified by severity: CRITICAL / HIGH / MEDIUM / LOW. |
 | Master   | `NN_MASTER.md`       | Issues final directives when conflicts, ambiguity, or strategic trade-offs require a decisive override. Executor must unconditionally comply with all `MUST` directives in the next iteration. |
-| Executor | `NN_IMPL.md`         | Records the actual implementation result, including completed scope, deviations from the approved PLAN, verification results, and acceptance mapping. This document supplements the code; it does not replace code review. |
-| Reviewer | `NN_IMPL_REVIEW.md`  | Audits the implementation result with the **code as the primary artifact** and `NN_IMPL.md` as supporting context. The review focuses on correctness, plan compliance, validation adequacy, regressions, and unresolved gaps. Findings use IDs in the form `IR-XXX`. |
-| Master   | `NN_IMPL_MASTER.md`  | Issues concise final directives for the implementation result. `MUST` directives are binding before merge / release. |
 
 ### Iteration Rules
 
@@ -43,7 +40,7 @@ All iteration artifacts reside in `docs/<feature>/`.
    | `NN_REVIEW.md` | **`plan-reviewer`** |
    | `NN_IMPL_REVIEW.md` | **`code-reviewer`** (or a language-specific reviewer) |
 
-   MASTER documents (`NN_MASTER.md`, `NN_IMPL_MASTER.md`) are authored by the human user
+   MASTER documents (`NN_MASTER.md) are authored by the human user
    and are the only artifacts the main session may write by hand. Do not invoke
    `codex`, the `ask-codex` skill, or any other external reviewer for these artifacts;
    do not write PLAN or REVIEW files from the main session. Each sub-agent runs in
@@ -62,28 +59,6 @@ Repeat until:
 - HIGH issues are resolved or waived,
 - and the plan is approved for implementation.
 
-### Implementation Lifecycle
-
-After an approved PLAN:
-- Executor implements the code and records the result → `NN_IMPL.md`
-- Executor dispatches the implementation-reviewer sub-agent (`code-reviewer` or a
-  language-specific reviewer such as `rust-reviewer`) → `NN_IMPL_REVIEW.md`
-- Master directs if needed → `NN_IMPL_MASTER.md` (optional)
-
-Implementation review must use the **actual code changes as the primary review target**.  
-`NN_IMPL.md` is only a supplement for:
-- summarizing completed scope,
-- recording deviations from the approved PLAN,
-- reporting verification results,
-- and mapping acceptance status.
-
-Implementation is accepted only when:
-- no unresolved implementation CRITICAL issues remain,
-- the code is correct and reviewable,
-- implementation matches the approved PLAN or explicitly records deviations,
-- validation is adequate,
-- and merge / release is approved.
-
 ### Response Rules
 
 - Every prior CRITICAL / HIGH finding must appear in the next PLAN Response Matrix.
@@ -91,5 +66,4 @@ Implementation is accepted only when:
 - Rejections of REVIEW advice or trade-off suggestions must include explicit reasoning.
 - `MUST` directives are binding.
 - `SHOULD` directives require explicit response if rejected.
-- Every meaningful deviation in `NN_IMPL.md` must be explicitly recorded.
 - If an implementation deviation changes architecture, API semantics, invariants, or constraints, a new PLAN iteration must be opened.

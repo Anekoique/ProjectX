@@ -1,7 +1,7 @@
 //! Arch-agnostic debug inspection trait: breakpoints, register/memory reads,
 //! and instruction disassembly.
 
-use crate::error::XResult;
+use crate::{device::bus::Bus, error::XResult};
 
 /// Breakpoint with stable user-visible ID.
 #[derive(Debug, Clone)]
@@ -33,11 +33,12 @@ pub trait DebugOps: super::CoreOps {
     /// Read named register (descriptor-aware for shadow CSRs).
     fn read_register(&self, name: &str) -> Option<u64>;
 
-    /// Read physical memory (RAM only, side-effect-free).
-    fn read_memory(&self, paddr: usize, size: usize) -> XResult<u64>;
+    /// Read physical memory (RAM only, side-effect-free). Takes `bus: &Bus`
+    /// so `DebugOps` can inspect guest memory without owning the bus.
+    fn read_memory(&self, bus: &Bus, paddr: usize, size: usize) -> XResult<u64>;
 
     /// Fetch raw instruction at physical address.
-    fn fetch_inst(&self, paddr: usize) -> XResult<u32>;
+    fn fetch_inst(&self, bus: &Bus, paddr: usize) -> XResult<u32>;
 
     /// Decode raw instruction to mnemonic string.
     fn disasm_raw(&self, raw: u32) -> String;

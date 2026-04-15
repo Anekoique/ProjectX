@@ -1,0 +1,138 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 340" width="980" height="340" font-family="ui-sans-serif,Helvetica" font-size="12">
+<rect width="980" height="340" fill="#ffffff"/>
+<text x="490.0" y="22" text-anchor="middle" font-weight="bold">Ranked self-time — coremark (Apple sample @ 1 kHz; NOT a flamegraph)</text>
+<text x="490.0" y="36" text-anchor="middle" fill="#666">each block width ∝ self-time samples; total 6324</text>
+<rect x="10" y="50" width="449.1840607210626" height="80" fill="#2563eb" stroke="white" stroke-width="1"/>
+<text x="16" y="92" fill="white" font-weight="bold">main (46.8%)</text>
+<rect x="459.1840607210626" y="50" width="103.52941176470588" height="80" fill="#059669" stroke="white" stroke-width="1"/>
+<rect x="562.7134724857685" y="50" width="80.30360531309297" height="80" fill="#dc2626" stroke="white" stroke-width="1"/>
+<rect x="643.0170777988615" y="50" width="74.53510436432637" height="80" fill="#d97706" stroke="white" stroke-width="1"/>
+<rect x="717.5521821631878" y="50" width="53.13092979127135" height="80" fill="#7c3aed" stroke="white" stroke-width="1"/>
+<rect x="770.6831119544592" y="50" width="35.06641366223909" height="80" fill="#0891b2" stroke="white" stroke-width="1"/>
+<rect x="805.7495256166983" y="50" width="22.466793168880457" height="80" fill="#db2777" stroke="white" stroke-width="1"/>
+<rect x="828.2163187855788" y="50" width="19.886148007590133" height="80" fill="#4b5563" stroke="white" stroke-width="1"/>
+<rect x="848.1024667931689" y="50" width="14.876660341555977" height="80" fill="#115e59" stroke="white" stroke-width="1"/>
+<rect x="862.9791271347249" y="50" width="14.117647058823529" height="80" fill="#b45309" stroke="white" stroke-width="1"/>
+<rect x="877.0967741935484" y="50" width="11.233396584440229" height="80" fill="#2563eb" stroke="white" stroke-width="1"/>
+<rect x="888.3301707779887" y="50" width="9.411764705882353" height="80" fill="#059669" stroke="white" stroke-width="1"/>
+<rect x="897.741935483871" y="50" width="9.259962049335863" height="80" fill="#dc2626" stroke="white" stroke-width="1"/>
+<rect x="907.0018975332068" y="50" width="8.500948766603416" height="80" fill="#d97706" stroke="white" stroke-width="1"/>
+<rect x="915.5028462998102" y="50" width="4.857685009487666" height="80" fill="#7c3aed" stroke="white" stroke-width="1"/>
+<rect x="920.3605313092979" y="50" width="4.098671726755218" height="80" fill="#0891b2" stroke="white" stroke-width="1"/>
+<rect x="924.4592030360532" y="50" width="4.098671726755218" height="80" fill="#db2777" stroke="white" stroke-width="1"/>
+<rect x="928.5578747628084" y="50" width="3.3396584440227706" height="80" fill="#4b5563" stroke="white" stroke-width="1"/>
+<rect x="931.8975332068312" y="50" width="3.187855787476281" height="80" fill="#115e59" stroke="white" stroke-width="1"/>
+<rect x="935.0853889943076" y="50" width="2.732447817836812" height="80" fill="#b45309" stroke="white" stroke-width="1"/>
+<rect x="937.8178368121444" y="50" width="2.428842504743833" height="80" fill="#2563eb" stroke="white" stroke-width="1"/>
+<rect x="940.2466793168882" y="50" width="2.428842504743833" height="80" fill="#059669" stroke="white" stroke-width="1"/>
+<rect x="942.675521821632" y="50" width="2.2770398481973433" height="80" fill="#dc2626" stroke="white" stroke-width="1"/>
+<rect x="944.9525616698293" y="50" width="2.2770398481973433" height="80" fill="#d97706" stroke="white" stroke-width="1"/>
+<rect x="947.2296015180266" y="50" width="1.9734345351043643" height="80" fill="#7c3aed" stroke="white" stroke-width="1"/>
+<rect x="949.203036053131" y="50" width="1.5180265654648957" height="80" fill="#0891b2" stroke="white" stroke-width="1"/>
+<rect x="950.7210626185959" y="50" width="1.5180265654648957" height="80" fill="#db2777" stroke="white" stroke-width="1"/>
+<rect x="952.2390891840607" y="50" width="1.5180265654648957" height="80" fill="#4b5563" stroke="white" stroke-width="1"/>
+<rect x="953.7571157495256" y="50" width="1.5180265654648957" height="80" fill="#115e59" stroke="white" stroke-width="1"/>
+<rect x="955.2751423149905" y="50" width="1.366223908918406" height="80" fill="#b45309" stroke="white" stroke-width="1"/>
+<rect x="956.6413662239089" y="50" width="1.366223908918406" height="80" fill="#2563eb" stroke="white" stroke-width="1"/>
+<rect x="958.0075901328273" y="50" width="1.366223908918406" height="80" fill="#059669" stroke="white" stroke-width="1"/>
+<rect x="959.3738140417457" y="50" width="1.062618595825427" height="80" fill="#dc2626" stroke="white" stroke-width="1"/>
+<rect x="960.4364326375712" y="50" width="1.062618595825427" height="80" fill="#d97706" stroke="white" stroke-width="1"/>
+<rect x="961.4990512333967" y="50" width="1.062618595825427" height="80" fill="#7c3aed" stroke="white" stroke-width="1"/>
+<rect x="962.5616698292222" y="50" width="0.9108159392789374" height="80" fill="#0891b2" stroke="white" stroke-width="1"/>
+<rect x="963.4724857685011" y="50" width="0.9108159392789374" height="80" fill="#db2777" stroke="white" stroke-width="1"/>
+<rect x="964.38330170778" y="50" width="0.9108159392789374" height="80" fill="#4b5563" stroke="white" stroke-width="1"/>
+<rect x="965.2941176470589" y="50" width="0.9108159392789374" height="80" fill="#115e59" stroke="white" stroke-width="1"/>
+<rect x="966.2049335863378" y="50" width="0.7590132827324478" height="80" fill="#b45309" stroke="white" stroke-width="1"/>
+<rect x="966.9639468690702" y="50" width="0.7590132827324478" height="80" fill="#2563eb" stroke="white" stroke-width="1"/>
+<rect x="967.7229601518027" y="50" width="0.7590132827324478" height="80" fill="#059669" stroke="white" stroke-width="1"/>
+<rect x="968.4819734345351" y="50" width="0.7590132827324478" height="80" fill="#dc2626" stroke="white" stroke-width="1"/>
+<rect x="969.2409867172676" y="50" width="0.7590132827324478" height="80" fill="#d97706" stroke="white" stroke-width="1"/>
+<rect x="10.0" y="141" width="10" height="10" fill="#2563eb" />
+<text x="24.0" y="150" >main — 2959 samples (46.8%)</text>
+<rect x="490.0" y="141" width="10" height="10" fill="#059669" />
+<text x="504.0" y="150" >xcore::arch::riscv::cpu::mm::access_bus — 682 samples (10.8%)</text>
+<rect x="10.0" y="159" width="10" height="10" fill="#dc2626" />
+<text x="24.0" y="168" >xcore::device::bus::read — 529 samples (8.4%)</text>
+<rect x="490.0" y="159" width="10" height="10" fill="#d97706" />
+<text x="504.0" y="168" >_platform_memmove — 491 samples (7.8%)</text>
+<rect x="10.0" y="177" width="10" height="10" fill="#7c3aed" />
+<text x="24.0" y="186" >xcore::arch::riscv::device::aclint::mtimer::check_timer — 350 samples (5.5%)</text>
+<rect x="490.0" y="177" width="10" height="10" fill="#0891b2" />
+<text x="504.0" y="186" >xcore::arch::riscv::device::aclint::mtimer::device::Device::tick — 231 samples (3.7%)</text>
+<rect x="10.0" y="195" width="10" height="10" fill="#db2777" />
+<text x="24.0" y="204" >DYLD-STUB$$memcpy — 148 samples (2.3%)</text>
+<rect x="490.0" y="195" width="10" height="10" fill="#4b5563" />
+<text x="504.0" y="204" >_dyld_start — 131 samples (2.1%)</text>
+<rect x="10.0" y="213" width="10" height="10" fill="#115e59" />
+<text x="24.0" y="222" >xcore::arch::riscv::device::plic::core::evaluate — 98 samples (1.5%)</text>
+<rect x="490.0" y="213" width="10" height="10" fill="#b45309" />
+<text x="504.0" y="222" >xcore::arch::riscv::device::aclint::mtimer::device::Device::mtime — 93 samples (1.5%)</text>
+<rect x="10.0" y="231" width="10" height="10" fill="#2563eb" />
+<text x="24.0" y="240" >xcore::arch::riscv::cpu::inst::compressed::c_ld — 74 samples (1.2%)</text>
+<rect x="490.0" y="231" width="10" height="10" fill="#059669" />
+<text x="504.0" y="240" >xcore::arch::riscv::device::plic::device::Device::tick — 62 samples (1.0%)</text>
+<rect x="10.0" y="249" width="10" height="10" fill="#dc2626" />
+<text x="24.0" y="258" >xcore::arch::riscv::cpu::mm::load — 61 samples (1.0%)</text>
+<rect x="490.0" y="249" width="10" height="10" fill="#d97706" />
+<text x="504.0" y="258" >xcore::arch::riscv::cpu::inst::compressed::c_bnez — 56 samples (0.9%)</text>
+<rect x="10.0" y="267" width="10" height="10" fill="#7c3aed" />
+<text x="24.0" y="276" >xcore::arch::riscv::cpu::inst::base — 32 samples (0.5%)</text>
+<rect x="490.0" y="267" width="10" height="10" fill="#0891b2" />
+<text x="504.0" y="276" >xcore::arch::riscv::cpu::inst::compressed::c_addiw — 27 samples (0.4%)</text>
+<rect x="10.0" y="285" width="10" height="10" fill="#db2777" />
+<text x="24.0" y="294" >xcore::arch::riscv::cpu::inst::base — 27 samples (0.4%)</text>
+<rect x="490.0" y="285" width="10" height="10" fill="#4b5563" />
+<text x="504.0" y="294" >xcore::arch::riscv::cpu::mm::checked_write — 22 samples (0.3%)</text>
+<rect x="10.0" y="303" width="10" height="10" fill="#115e59" />
+<text x="24.0" y="312" >xcore::arch::riscv::cpu::inst::base — 21 samples (0.3%)</text>
+<rect x="490.0" y="303" width="10" height="10" fill="#b45309" />
+<text x="504.0" y="312" >xcore::arch::riscv::cpu::inst::compressed::c_li — 18 samples (0.3%)</text>
+<rect x="10.0" y="321" width="10" height="10" fill="#2563eb" />
+<text x="24.0" y="330" >xcore::arch::riscv::cpu::inst::compressed::c_beqz — 16 samples (0.3%)</text>
+<rect x="490.0" y="321" width="10" height="10" fill="#059669" />
+<text x="504.0" y="330" >mach_msg2_trap — 16 samples (0.3%)</text>
+<rect x="10.0" y="339" width="10" height="10" fill="#dc2626" />
+<text x="24.0" y="348" >xcore::arch::riscv::cpu::inst::compressed::c_mv — 15 samples (0.2%)</text>
+<rect x="490.0" y="339" width="10" height="10" fill="#d97706" />
+<text x="504.0" y="348" >xcore::device::bus::write — 15 samples (0.2%)</text>
+<rect x="10.0" y="357" width="10" height="10" fill="#7c3aed" />
+<text x="24.0" y="366" >mach_absolute_time — 13 samples (0.2%)</text>
+<rect x="490.0" y="357" width="10" height="10" fill="#0891b2" />
+<text x="504.0" y="366" >xcore::arch::riscv::cpu::inst::base — 10 samples (0.2%)</text>
+<rect x="10.0" y="375" width="10" height="10" fill="#db2777" />
+<text x="24.0" y="384" >xcore::arch::riscv::cpu::inst::base — 10 samples (0.2%)</text>
+<rect x="490.0" y="375" width="10" height="10" fill="#4b5563" />
+<text x="504.0" y="384" >xcore::arch::riscv::cpu::inst::base — 10 samples (0.2%)</text>
+<rect x="10.0" y="393" width="10" height="10" fill="#115e59" />
+<text x="24.0" y="402" >xcore::device::uart::tick — 10 samples (0.2%)</text>
+<rect x="490.0" y="393" width="10" height="10" fill="#b45309" />
+<text x="504.0" y="402" >xcore::arch::riscv::cpu::inst::compressed::c_j — 9 samples (0.1%)</text>
+<rect x="10.0" y="411" width="10" height="10" fill="#2563eb" />
+<text x="24.0" y="420" >xcore::arch::riscv::cpu::inst::compressed::c_sd — 9 samples (0.1%)</text>
+<rect x="490.0" y="411" width="10" height="10" fill="#059669" />
+<text x="504.0" y="420" >xcore::arch::riscv::cpu::inst::base — 9 samples (0.1%)</text>
+<rect x="10.0" y="429" width="10" height="10" fill="#dc2626" />
+<text x="24.0" y="438" >xcore::arch::riscv::cpu::inst::mul::mulw — 7 samples (0.1%)</text>
+<rect x="490.0" y="429" width="10" height="10" fill="#d97706" />
+<text x="504.0" y="438" >xcore::arch::riscv::cpu::inst::base — 7 samples (0.1%)</text>
+<rect x="10.0" y="447" width="10" height="10" fill="#7c3aed" />
+<text x="24.0" y="456" >xcore::arch::riscv::cpu::inst::base — 7 samples (0.1%)</text>
+<rect x="490.0" y="447" width="10" height="10" fill="#0891b2" />
+<text x="504.0" y="456" >xcore::arch::riscv::cpu::inst::compressed::c_sw — 6 samples (0.1%)</text>
+<rect x="10.0" y="465" width="10" height="10" fill="#db2777" />
+<text x="24.0" y="474" >xcore::arch::riscv::cpu::inst::compressed::c_add — 6 samples (0.1%)</text>
+<rect x="490.0" y="465" width="10" height="10" fill="#4b5563" />
+<text x="504.0" y="474" >xcore::arch::riscv::cpu::inst::compressed::c_addw — 6 samples (0.1%)</text>
+<rect x="10.0" y="483" width="10" height="10" fill="#115e59" />
+<text x="24.0" y="492" >xcore::arch::riscv::cpu::inst::base — 6 samples (0.1%)</text>
+<rect x="490.0" y="483" width="10" height="10" fill="#b45309" />
+<text x="504.0" y="492" >xcore::arch::riscv::cpu::inst::compressed::c_jr — 5 samples (0.1%)</text>
+<rect x="10.0" y="501" width="10" height="10" fill="#2563eb" />
+<text x="24.0" y="510" >xcore::arch::riscv::cpu::inst::compressed::c_srli — 5 samples (0.1%)</text>
+<rect x="490.0" y="501" width="10" height="10" fill="#059669" />
+<text x="504.0" y="510" >xcore::arch::riscv::cpu::inst::base — 5 samples (0.1%)</text>
+<rect x="10.0" y="519" width="10" height="10" fill="#dc2626" />
+<text x="24.0" y="528" >xcore::arch::riscv::cpu::inst::base — 5 samples (0.1%)</text>
+<rect x="490.0" y="519" width="10" height="10" fill="#d97706" />
+<text x="504.0" y="528" >pthread_mutex_trylock — 5 samples (0.1%)</text>
+</svg>

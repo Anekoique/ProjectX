@@ -1,0 +1,120 @@
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 709.257 ms [620]
+[queen] Queen placement: * Passed.
+  min time: 1214.864 ms [334]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 10104.151 ms [166]
+[fib] Fibonacci number: * Passed.
+  min time: 14610.090 ms [138]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 17446.912 ms [199]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 1439.212 ms [372]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 2435.553 ms [335]
+[lzip] Lzip compression: * Passed.
+  min time: 3192.738 ms [212]
+[ssort] Suffix sort: * Passed.
+  min time: 950.408 ms [421]
+[md5] MD5 digest: [37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 728.081 ms [604]
+[queen] Queen placement: * Passed.
+  min time: 1244.737 ms [326]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 10278.062 ms [163]
+[fib] Fibonacci number: * Passed.
+  min time: 16003.660 ms [126]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 22188.182 ms [68]
+==================================================
+MicroBench PASS        286 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 74291.367 ms
+Total  time: 85246.068 ms
+[32mHIT GOOD TRAP at pc=VA:0x800089dc[m
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 789.108 ms [558]
+[queen] Queen placement: * Passed.
+  min time: 1294.143 ms [314]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 10926.585 ms [153]
+[fib] Fibonacci number: * Passed.
+  min time: 19031.924 ms [182]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 1711.535 ms [313]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 2916.441 ms [280]
+[lzip] Lzip compression: * Passed.
+  min time: 3667.651 ms [185]
+[ssort] Suffix sort: * Passed.
+  min time: 977.101 ms [409]
+[md5] MD5 digest: * Passed.
+  min time: 16620.696 ms [121]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 18816.729 ms [185]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 1514.545 ms [353]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 2852.116 ms [286]
+[lzip] Lzip compression: * Passed.
+  min time: 3738.341 ms [181]
+[ssort] Suffix sort: * Passed.
+  min time: 1035.515 ms [386]
+[md5] MD5 digest: * Passed.
+  min time: 22032.614 ms [68]
+==================================================
+MicroBench PASS        265 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 78591.806 ms
+Total  time: 90850.078 ms
+[32mHIT GOOD TRAP at pc=VA:0x800089dc[m
+* Passed.
+  min time: 20161.626 ms [75]
+==================================================
+MicroBench PASS        261 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 77749.404 ms
+Total  time: 88904.512 ms
+[32mHIT GOOD TRAP at pc=VA:0x800089dc[m
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 709.174 ms [621]
+[queen] Queen placement: * Passed.
+  min time: 1249.761 ms [325]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 9554.166 ms [175]
+[fib] Fibonacci number: * Passed.
+  min time: 13762.546 ms [146]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 16396.819 ms [212]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 1407.987 ms [380]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 2350.606 ms [348]
+[lzip] Lzip compression: * Passed.
+  min time: 3083.013 ms [220]
+[ssort] Suffix sort: * Passed.
+  min time: 909.347 ms [440]
+[md5] MD5 digest: * Passed.
+  min time: 19567.899 ms [77]
+==================================================
+MicroBench PASS        294 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 68991.318 ms
+Total  time: 79540.014 ms
+[32mHIT GOOD TRAP at pc=VA:0x800089dc[m

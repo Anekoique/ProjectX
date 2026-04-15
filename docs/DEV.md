@@ -20,7 +20,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Tests**: 336 unit tests passing, 31 cpu-tests-rs, 8 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts, float), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
 - **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1.44 (initramfs, boots to interactive shell in ~3s), **Debian 13 Trixie** (4 GB ext4 root via VirtIO-blk, 288 dpkg packages, Python3 verified)
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
-- **Performance**: Lock-free bus (owned, no Mutex), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
+- **Performance**: Lock-free bus restored (owned inline by `CPU`; see [`docs/fix/perfBusFastPath/`](./fix/perfBusFastPath/) and the 2026-04-14 → 2026-04-15 deltas under `docs/perf/`), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
 - **xam HAL**: `_putch` (UART console), `mtime`/`set_mtimecmp` (ACLINT timer), `uptime()` (microseconds), `init_trap`/`TrapFrame` (trap entry), `mainargs` (compile-time argument passing), `_heap_start`/`_heap_end` (linker symbols)
 - **xlib**: printf/sprintf, string ops, `assert.h` (C/C++-safe), `extern "C"` guards for C++ compatibility
@@ -183,6 +183,32 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 - [x] **DTS update** — `riscv,isa = "rv64imafdcsu_sstc"`
 - [x] **Buildroot initramfs** — bootlin rootfs (busybox + glibc lp64d), auto-downloaded and packed into cpio.gz
 
+### Phase 11: True SMP (per-hart OS threads) — RFC / FUTURE
+
+**Goal**: Run each guest hart on its own host OS thread for actual parallel execution. Today (post-`5e66d51`) multi-hart is single-threaded cooperative round-robin in `CPU::step` (`xemu/xcore/src/cpu/mod.rs:213-249`); N harts are no faster than 1.
+
+**Why this is its own phase, not part of P1.** P1 ([`docs/fix/perfBusFastPath/`](./fix/perfBusFastPath/)) drops `Arc<Mutex<Bus>>` because the cooperative scheduler makes it dead weight today. Going to real SMP requires a separate, larger redesign: shared RAM under atomics or `unsafe` typed access with explicit fences; per-hart `AtomicUsize` LR/SC reservations; per-device fine-grained sync (or a "BQL on MMIO only" model); and a runtime that joins/cancels hart threads cleanly. None of that fits in a perf-roadmap iteration.
+
+**Reference designs to evaluate before opening this phase:**
+
+- **QEMU MTTCG** — per-vCPU TCG context, BQL on IO memory only, per-`tb` `jmp_lock`. <https://www.qemu.org/docs/master/devel/multi-thread-tcg.html>
+- **QEMU BQL split history** (Konrad GreenSocs 2014 → MTTCG 2017). <https://lwn.net/Articles/697265/>, <https://lwn.net/Articles/697031/>
+- **rv8** — per-hart softmmu TLB, JIT inline. <https://carrv.github.io/2017/papers/clark-rv8-carrv2017.pdf>
+- **Fast TLB Simulation for RISC-V** (Guo 2019) — `sfence.vma` semantics + per-hart TLB tagging. <https://arxiv.org/pdf/1905.06825>
+
+**Sketch of the design space (decide in the RFC, not now):**
+
+1. **Option B — Per-hart threads, lock-free RAM.** Guest RAM as `&[AtomicU8]` (or `unsafe` typed access with `fetch_add`/fences); reservations per-hart `AtomicUsize`; per-device fine locks for MMIO. Closest to actual hardware.
+2. **Option C — Per-hart threads, BQL on MMIO only.** Atomic RAM, `Mutex` only on MMIO regions. QEMU's MTTCG model. Middle ground; simpler than B, slower under heavy MMIO (PLIC claim/complete contention).
+
+**Pre-conditions before opening this phase:**
+
+- P1 (`perfBusFastPath`) shipped — owned-bus baseline on single-hart.
+- P2 (bus-access API) and P5 (MMU/trap inlining) shipped — keeps the per-access cost low so Amdahl doesn't flatten the SMP win.
+- A reproducible 2-hart Linux benchmark in `docs/perf/` showing how much time is *actually* available to parallelise.
+
+**Out of scope until then.** Do not pre-design for SMP in P1–P6.
+
 ### Phase 10: VirtIO Block Device & Debian Boot — COMPLETE
 
 **Goal**: Boot a real Linux distribution from a block device to validate emulator correctness.
@@ -263,4 +289,4 @@ Rules:
 - **Trait-based extensibility**: Device bus, MMU, and ISA all use trait abstraction for pluggability.
 - **Minimal dependencies**: Avoid heavy frameworks. The emulator core should remain lean.
 - **Immutability where possible**: Prefer returning new values over mutating shared state. Use functional chains (`.and_then().map_err()`) to scope mutation.
-- **Lock-free hot path**: CPU owns bus directly — zero locking overhead on the per-instruction path. Field-level borrow splitting enables simultaneous MMU + bus access.
+- **Lock-free hot path** (target restored by Phase P1): CPU owns bus directly — zero locking overhead on the per-instruction path. Field-level borrow splitting enables simultaneous MMU + bus access. The cooperative round-robin scheduler enforces the single-borrower invariant; true SMP is deferred to Phase 11 (RFC).

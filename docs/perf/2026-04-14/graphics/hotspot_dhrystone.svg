@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" font-family="ui-sans-serif,Helvetica" font-size="12">
+<rect width="640" height="400" fill="#ffffff"/>
+<text x="320.0" y="22" text-anchor="middle" font-weight="bold">CPU self-time — dhrystone (bucketed)</text>
+<path d="M 180 200.0 L 180.00 50.00 A 150 150 0 0 1 268.68 320.98 Z" fill="#2563eb" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="48" width="14" height="14" fill="#2563eb" />
+<text x="382" y="60" >Bus Mutex lock/unlock — 39.9%</text>
+<path d="M 180 200.0 L 268.68 320.98 A 150 150 0 0 1 56.75 285.49 Z" fill="#059669" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="74" width="14" height="14" fill="#059669" />
+<text x="382" y="86" >CPU main loop — 25.4%</text>
+<path d="M 180 200.0 L 56.75 285.49 A 150 150 0 0 1 32.70 171.65 Z" fill="#dc2626" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="100" width="14" height="14" fill="#dc2626" />
+<text x="382" y="112" >Other — 12.7%</text>
+<path d="M 180 200.0 L 32.70 171.65 A 150 150 0 0 1 69.05 99.06 Z" fill="#d97706" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="126" width="14" height="14" fill="#d97706" />
+<text x="382" y="138" >MMU::access_bus — 8.7%</text>
+<path d="M 180 200.0 L 69.05 99.06 A 150 150 0 0 1 128.68 59.05 Z" fill="#7c3aed" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="152" width="14" height="14" fill="#7c3aed" />
+<text x="382" y="164" >MMU::checked_read — 7.7%</text>
+<path d="M 180 200.0 L 128.68 59.05 A 150 150 0 0 1 152.57 52.53 Z" fill="#0891b2" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="178" width="14" height="14" fill="#0891b2" />
+<text x="382" y="190" >Mtimer::check_timer — 2.6%</text>
+<path d="M 180 200.0 L 152.57 52.53 A 150 150 0 0 1 167.15 50.55 Z" fill="#db2777" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="204" width="14" height="14" fill="#db2777" />
+<text x="382" y="216" >Mtimer::tick — 1.6%</text>
+<path d="M 180 200.0 L 167.15 50.55 A 150 150 0 0 1 180.00 50.00 Z" fill="#4b5563" stroke="white" stroke-width="1.5"/>
+<rect x="360" y="230" width="14" height="14" fill="#4b5563" />
+<text x="382" y="242" >PLIC evaluate+tick — 1.4%</text>
+</svg>

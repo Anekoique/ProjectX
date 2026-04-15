@@ -15,6 +15,7 @@ mod zicsr;
 use super::RVCore;
 use crate::{
     config::Word,
+    device::bus::Bus,
     error::{XError, XResult},
     isa::{DecodedInst, InstKind, RVReg},
 };
@@ -56,9 +57,11 @@ use rv64_only;
 
 macro_rules! build_dispatch {
     ( $( ($fmt:ident, ($($arg:ident),*), [$($name:ident),*]) ),* $(,)? ) => {
-        /// Route a decoded instruction to its handler method.
+        /// Route a decoded instruction to its handler method. The `bus`
+        /// borrow is threaded into every handler — ones that don't need
+        /// memory access ignore it with `_bus`.
         #[inline]
-        pub fn dispatch(&mut self, decoded: DecodedInst) -> XResult {
+        pub fn dispatch(&mut self, bus: &mut Bus, decoded: DecodedInst) -> XResult {
             match decoded {
                 $(
                     DecodedInst::$fmt { kind, $($arg),* } => {
@@ -66,7 +69,7 @@ macro_rules! build_dispatch {
                             $( InstKind::$name => Self::$name, )*
                             _ => return Err(XError::InvalidInst),
                         };
-                        handler(self, $($arg),*)
+                        handler(self, bus, $($arg),*)
                     }
                 )*
             }
@@ -90,10 +93,12 @@ impl RVCore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
 
     #[test]
     fn dispatch_executes_known_instruction() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
         core.gpr[RVReg::t0] = 3;
         core.gpr[RVReg::t1] = 4;
 
@@ -103,13 +108,14 @@ mod tests {
             rs1: RVReg::t0,
             rs2: RVReg::t1,
         };
-        core.dispatch(inst).unwrap();
+        core.dispatch(&mut bus, inst).unwrap();
         assert_eq!(core.gpr[RVReg::t2], 7);
     }
 
     #[test]
     fn dispatch_rejects_unknown_instruction() {
         let mut core = RVCore::new();
+        let mut bus = Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1);
         let inst = DecodedInst::R {
             kind: InstKind::addi,
             rd: RVReg::t0,
@@ -117,7 +123,7 @@ mod tests {
             rs2: RVReg::t2,
         };
 
-        let err = core.dispatch(inst).unwrap_err();
+        let err = core.dispatch(&mut bus, inst).unwrap_err();
         assert!(matches!(err, XError::InvalidInst));
     }
 }

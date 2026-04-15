@@ -6,6 +6,39 @@
 //! route through [`Bus::store`], which performs the write and invalidates
 //! peer reservations covering the same 8-byte granule (RISC-V A-extension
 //! §8.2 cross-hart invalidation rule).
+//!
+//! # M-001 Sentinel (no `Mutex<Bus>`)
+//!
+//! `Bus` is owned inline by the [`crate::cpu::CPU`] and shared with each
+//! core via a plain `&mut Bus` parameter. Wrapping `Bus` in any
+//! synchronization primitive (`Mutex`, `RwLock`, `parking_lot::Mutex`,
+//! `RefCell`, ...) is forbidden — the cooperative round-robin scheduler
+//! is the exclusion primitive; the borrow checker replaces the lock.
+//!
+//! The load-bearing guards are:
+//!
+//! - **Layer (a)** — the whole-tree sentinel script
+//!   `scripts/ci/verify_no_mutex.sh`, which greps a type-shape regex across
+//!   every file under `xemu/xcore/src/` (not a fixed allow-list), filters out
+//!   comment-only hits, and exits 1 on any match.
+//! - **Layer (b)** — `#![deny(unused_imports)]` on this module below. Any `use
+//!   std::sync::Mutex;` added to this file that is not actually used will fail
+//!   the build; any use that IS made will trip the sentinel script.
+//!
+//! The doc-test block below is documentation of the forbidden shape,
+//! not a load-bearing check. Doc-tests are compiled as separate crates,
+//! so the module-level `deny(unused_imports)` above does not reach
+//! them; the `compile_error!` in the body is what forces `compile_fail`
+//! to pass today. Treat the block as a *rendered example of what not
+//! to write*, with enforcement delegated to layers (a) and (b).
+//!
+//! ```compile_fail
+//! use xcore::device::bus::Bus;
+//! use std::sync::Mutex;
+//! fn takes_mutex_bus(_: &Mutex<Bus>) { compile_error!("M-001: Mutex<Bus> is forbidden"); }
+//! ```
+
+#![deny(unused_imports)]
 
 use std::ops::Range;
 #[cfg(feature = "difftest")]
@@ -53,6 +86,32 @@ impl MmioRegion {
 const SLOW_TICK_DIVISOR: u64 = 64;
 
 /// Memory bus: dispatches reads/writes to RAM or MMIO devices.
+///
+/// # Layout budget (R-003)
+///
+/// The struct is inlined into `CPU` (not boxed) to save a pointer hop on
+/// the hot path. Header-byte inventory on 64-bit platforms:
+///
+/// - `ram: Ram`              — `Vec<u8>` (24) + `usize` base (8)          = 32
+///   B
+/// - `mmio: Vec<MmioRegion>` — `Vec` header                                = 24
+///   B
+/// - `mtimer_idx: Option<usize>`                                           = 16
+///   B
+/// - `plic_idx: Option<usize>`                                             = 16
+///   B
+/// - `tick_count: u64`                                                     =  8
+///   B
+/// - `num_harts: usize`                                                    =  8
+///   B
+/// - `reservations: Vec<Option<usize>>` — `Vec` header                     = 24
+///   B
+/// - `mmio_accessed: AtomicBool` (`cfg(feature = "difftest")` only)        =  1
+///   B
+///
+/// Total ≈ 128 B without difftest, ≈ 136 B with difftest (plus padding).
+/// Both branches are well under the 256 B budget pinned by
+/// `bus_layout_under_budget` below.
 pub struct Bus {
     ram: Ram,
     pub(crate) mmio: Vec<MmioRegion>,
@@ -66,6 +125,20 @@ pub struct Bus {
     #[cfg(feature = "difftest")]
     mmio_accessed: AtomicBool,
 }
+
+// V-UT-3 (R-003): pin the inline `Bus` layout below the 256 B budget under
+// both feature configurations so a future field addition that blows the
+// budget fails to compile rather than silently inflating `CPU`.
+#[cfg(not(feature = "difftest"))]
+const _: () = assert!(
+    std::mem::size_of::<Bus>() < 256,
+    "Bus grew past the 256 B hot-path budget (cfg: no difftest)",
+);
+#[cfg(feature = "difftest")]
+const _: () = assert!(
+    std::mem::size_of::<Bus>() < 256,
+    "Bus grew past the 256 B hot-path budget (cfg: difftest)",
+);
 
 impl Bus {
     /// Create a bus with RAM at the given base address and size, sized for

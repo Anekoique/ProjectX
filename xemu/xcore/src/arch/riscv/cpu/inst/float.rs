@@ -14,6 +14,7 @@ use super::RVCore;
 use crate::{
     arch::riscv::cpu::csr::CsrAddr,
     config::{SWord, Word},
+    device::bus::Bus,
     error::{XError, XResult},
     isa::RVReg,
 };
@@ -255,6 +256,7 @@ impl RVCore {
 
     pub(super) fn fload_op(
         &mut self,
+        bus: &mut Bus,
         rd: RVReg,
         rs1: RVReg,
         imm: SWord,
@@ -263,13 +265,14 @@ impl RVCore {
     ) -> XResult {
         self.require_fp()?;
         let addr = self.eff_addr(rs1, imm);
-        self.fpr[rd as usize] = pack(self.load(addr, size)?);
+        self.fpr[rd as usize] = pack(self.load(bus, addr, size)?);
         self.dirty_fp();
         Ok(())
     }
 
     pub(super) fn fstore_op(
         &mut self,
+        bus: &mut Bus,
         rs1: RVReg,
         rs2: RVReg,
         imm: SWord,
@@ -278,7 +281,7 @@ impl RVCore {
     ) -> XResult {
         self.require_fp()?;
         let addr = self.eff_addr(rs1, imm);
-        self.store(addr, size, unpack(self.fpr[rs2 as usize]))
+        self.store(bus, addr, size, unpack(self.fpr[rs2 as usize]))
     }
 
     fn fcvt_f2i(&mut self, rd: RVReg, rm: u8, cvt: impl FnOnce(SfRm) -> (Word, u8)) -> XResult {
@@ -312,10 +315,24 @@ impl RVCore {
 /// Binary arithmetic: `fadd`, `fsub`, `fmul`, `fdiv`.
 macro_rules! fp_binop {
     ($s:ident, $d:ident, $op:ident) => {
-        pub(super) fn $s(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, rm: u8) -> XResult {
+        pub(super) fn $s(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            rm: u8,
+        ) -> XResult {
             self.f32_binop(rd, rs1, rs2, rm, |a, b, rm| a.$op(b, rm, TININESS))
         }
-        pub(super) fn $d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, rm: u8) -> XResult {
+        pub(super) fn $d(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            rm: u8,
+        ) -> XResult {
             self.f64_binop(rd, rs1, rs2, rm, |a, b, rm| a.$op(b, rm, TININESS))
         }
     };
@@ -324,10 +341,24 @@ macro_rules! fp_binop {
 /// Comparison (FLT/FLE signal on any NaN; FEQ handled separately).
 macro_rules! fp_cmp {
     ($s:ident, $d:ident, $op:ident) => {
-        pub(super) fn $s(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $s(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.f32_cmp(rd, rs1, rs2, |a, b| a.$op(b))
         }
-        pub(super) fn $d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $d(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.f64_cmp(rd, rs1, rs2, |a, b| a.$op(b))
         }
     };
@@ -338,6 +369,7 @@ macro_rules! fp_fma {
     ($s:ident, $d:ident, $neg_a:expr, $neg_c:expr) => {
         pub(super) fn $s(
             &mut self,
+            _bus: &mut Bus,
             rd: RVReg,
             rs1: RVReg,
             rs2: RVReg,
@@ -361,6 +393,7 @@ macro_rules! fp_fma {
         }
         pub(super) fn $d(
             &mut self,
+            _bus: &mut Bus,
             rd: RVReg,
             rs1: RVReg,
             rs2: RVReg,
@@ -388,14 +421,28 @@ macro_rules! fp_fma {
 /// Sign-injection (no flags, NaN-boxing checked on read).
 macro_rules! fp_sgnj {
     ($s:ident, $d:ident, $op32:expr, $op64:expr) => {
-        pub(super) fn $s(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $s(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.require_fp()?;
             let r = ($op32)(self.read_f32(rs1).to_bits(), self.read_f32(rs2).to_bits());
             self.write_f32(rd, F32::from_bits(r));
             self.dirty_fp();
             Ok(())
         }
-        pub(super) fn $d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $d(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.require_fp()?;
             let r = ($op64)(self.read_f64(rs1).to_bits(), self.read_f64(rs2).to_bits());
             self.write_f64(rd, F64::from_bits(r));
@@ -408,16 +455,44 @@ macro_rules! fp_sgnj {
 /// FMIN/FMAX pairs.
 macro_rules! fp_minmax {
     ($min_s:ident, $max_s:ident, $min_d:ident, $max_d:ident) => {
-        pub(super) fn $min_s(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $min_s(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.f32_binop(rd, rs1, rs2, 0, |a, b, _| fminmax(a, b, true))
         }
-        pub(super) fn $max_s(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $max_s(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.f32_binop(rd, rs1, rs2, 0, |a, b, _| fminmax(a, b, false))
         }
-        pub(super) fn $min_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $min_d(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.f64_binop(rd, rs1, rs2, 0, |a, b, _| fminmax(a, b, true))
         }
-        pub(super) fn $max_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+        pub(super) fn $max_d(
+            &mut self,
+            _bus: &mut Bus,
+            rd: RVReg,
+            rs1: RVReg,
+            rs2: RVReg,
+            _: u8,
+        ) -> XResult {
             self.f64_binop(rd, rs1, rs2, 0, |a, b, _| fminmax(a, b, false))
         }
     };
@@ -436,10 +511,24 @@ impl RVCore {
     fp_binop!(fdiv_s, fdiv_d, div);
 
     // --- Sqrt (§12.4, unary) ---
-    pub(super) fn fsqrt_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fsqrt_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         self.f32_unary(rd, rs1, rm, |a, rm| a.sqrt(rm, TININESS))
     }
-    pub(super) fn fsqrt_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fsqrt_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         self.f64_unary(rd, rs1, rm, |a, rm| a.sqrt(rm, TININESS))
     }
 
@@ -468,10 +557,24 @@ impl RVCore {
 
     // --- Comparison (§12.8) ---
     // FEQ: quiet — NV only on sNaN (uses Float::eq, not PartialEq::eq)
-    pub(super) fn feq_s(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+    pub(super) fn feq_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        rs2: RVReg,
+        _: u8,
+    ) -> XResult {
         self.f32_cmp(rd, rs1, rs2, |a, b| Float::eq(a, b))
     }
-    pub(super) fn feq_d(&mut self, rd: RVReg, rs1: RVReg, rs2: RVReg, _: u8) -> XResult {
+    pub(super) fn feq_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        rs2: RVReg,
+        _: u8,
+    ) -> XResult {
         self.f64_cmp(rd, rs1, rs2, |a, b| Float::eq(a, b))
     }
     // FLT/FLE: signaling — NV on any NaN
@@ -479,11 +582,25 @@ impl RVCore {
     fp_cmp!(fle_s, fle_d, le);
 
     // --- Classify (§12.7) ---
-    pub(super) fn fclass_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, _: u8) -> XResult {
+    pub(super) fn fclass_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        _: u8,
+    ) -> XResult {
         self.require_fp()?;
         self.set_gpr(rd, classify(&self.read_f32(rs1)))
     }
-    pub(super) fn fclass_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, _: u8) -> XResult {
+    pub(super) fn fclass_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        _: u8,
+    ) -> XResult {
         self.require_fp()?;
         self.set_gpr(rd, classify(&self.read_f64(rs1)))
     }
@@ -495,22 +612,50 @@ impl RVCore {
     fp_fma!(fnmadd_s, fnmadd_d, true, true); // -rs1*rs2 - rs3
 
     // --- Move (§12.10, transfer — raw bits, no NaN-boxing check) ---
-    pub(super) fn fmv_x_w(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, _: u8) -> XResult {
+    pub(super) fn fmv_x_w(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        _: u8,
+    ) -> XResult {
         self.require_fp()?;
         self.set_gpr(rd, self.fpr[rs1 as usize] as u32 as i32 as Word)
     }
-    pub(super) fn fmv_w_x(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, _: u8) -> XResult {
+    pub(super) fn fmv_w_x(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        _: u8,
+    ) -> XResult {
         self.require_fp()?;
         self.fpr[rd as usize] = nan_box(self.gpr[rs1] as u32);
         self.dirty_fp();
         Ok(())
     }
-    pub(super) fn fmv_x_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, _: u8) -> XResult {
+    pub(super) fn fmv_x_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        _: u8,
+    ) -> XResult {
         require_rv64()?;
         self.require_fp()?;
         self.set_gpr(rd, self.fpr[rs1 as usize] as Word)
     }
-    pub(super) fn fmv_d_x(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, _: u8) -> XResult {
+    pub(super) fn fmv_d_x(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        _: u8,
+    ) -> XResult {
         require_rv64()?;
         self.require_fp()?;
         self.fpr[rd as usize] = self.gpr[rs1] as u64;
@@ -519,35 +664,56 @@ impl RVCore {
     }
 
     // --- Load/Store (§12.3) ---
-    pub(super) fn flw(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.fload_op(rd, rs1, imm, 4, |v| nan_box(v as u32))
+    pub(super) fn flw(&mut self, bus: &mut Bus, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
+        self.fload_op(bus, rd, rs1, imm, 4, |v| nan_box(v as u32))
     }
-    pub(super) fn fsw(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.fstore_op(rs1, rs2, imm, 4, |v| v as u32 as Word)
+    pub(super) fn fsw(&mut self, bus: &mut Bus, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
+        self.fstore_op(bus, rs1, rs2, imm, 4, |v| v as u32 as Word)
     }
-    pub(super) fn fld(&mut self, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
-        self.fload_op(rd, rs1, imm, 8, |v| v as u64)
+    pub(super) fn fld(&mut self, bus: &mut Bus, rd: RVReg, rs1: RVReg, imm: SWord) -> XResult {
+        self.fload_op(bus, rd, rs1, imm, 8, |v| v as u64)
     }
-    pub(super) fn fsd(&mut self, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
-        self.fstore_op(rs1, rs2, imm, 8, |v| v as Word)
+    pub(super) fn fsd(&mut self, bus: &mut Bus, rs1: RVReg, rs2: RVReg, imm: SWord) -> XResult {
+        self.fstore_op(bus, rs1, rs2, imm, 8, |v| v as Word)
     }
 
     // --- FCVT float→int (§12.11) ---
-    pub(super) fn fcvt_w_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_w_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let a = self.read_f32(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
             let (r, f) = a.to_i32(rm, true);
             (r as i32 as Word, f)
         })
     }
-    pub(super) fn fcvt_wu_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_wu_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let a = self.read_f32(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
             let (r, f) = a.to_u32(rm, true);
             (r as i32 as Word, f)
         })
     }
-    pub(super) fn fcvt_l_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_l_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let a = self.read_f32(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
@@ -555,7 +721,14 @@ impl RVCore {
             (r as Word, f)
         })
     }
-    pub(super) fn fcvt_lu_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_lu_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let a = self.read_f32(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
@@ -563,21 +736,42 @@ impl RVCore {
             (r as Word, f)
         })
     }
-    pub(super) fn fcvt_w_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_w_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let a = self.read_f64(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
             let (r, f) = a.to_i32(rm, true);
             (r as i32 as Word, f)
         })
     }
-    pub(super) fn fcvt_wu_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_wu_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let a = self.read_f64(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
             let (r, f) = a.to_u32(rm, true);
             (r as i32 as Word, f)
         })
     }
-    pub(super) fn fcvt_l_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_l_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let a = self.read_f64(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
@@ -585,7 +779,14 @@ impl RVCore {
             (r as Word, f)
         })
     }
-    pub(super) fn fcvt_lu_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_lu_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let a = self.read_f64(rs1);
         self.fcvt_f2i(rd, rm, |rm| {
@@ -595,45 +796,108 @@ impl RVCore {
     }
 
     // --- FCVT int→float (§12.11) ---
-    pub(super) fn fcvt_s_w(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_s_w(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let v = self.gpr[rs1] as i32;
         self.fcvt_i2f32(rd, rm, |rm| F32::from_i32(v, rm, TININESS))
     }
-    pub(super) fn fcvt_s_wu(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_s_wu(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let v = self.gpr[rs1] as u32;
         self.fcvt_i2f32(rd, rm, |rm| F32::from_u32(v, rm, TININESS))
     }
-    pub(super) fn fcvt_s_l(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_s_l(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let v = self.gpr[rs1] as i64;
         self.fcvt_i2f32(rd, rm, |rm| F32::from_i64(v, rm, TININESS))
     }
-    pub(super) fn fcvt_s_lu(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_s_lu(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let v = self.gpr[rs1] as u64;
         self.fcvt_i2f32(rd, rm, |rm| F32::from_u64(v, rm, TININESS))
     }
-    pub(super) fn fcvt_d_w(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_d_w(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let v = self.gpr[rs1] as i32;
         self.fcvt_i2f64(rd, rm, |rm| F64::from_i32(v, rm, TININESS))
     }
-    pub(super) fn fcvt_d_wu(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_d_wu(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         let v = self.gpr[rs1] as u32;
         self.fcvt_i2f64(rd, rm, |rm| F64::from_u32(v, rm, TININESS))
     }
-    pub(super) fn fcvt_d_l(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_d_l(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let v = self.gpr[rs1] as i64;
         self.fcvt_i2f64(rd, rm, |rm| F64::from_i64(v, rm, TININESS))
     }
-    pub(super) fn fcvt_d_lu(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_d_lu(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         require_rv64()?;
         let v = self.gpr[rs1] as u64;
         self.fcvt_i2f64(rd, rm, |rm| F64::from_u64(v, rm, TININESS))
     }
 
     // --- Convert between precisions (§12.12) ---
-    pub(super) fn fcvt_s_d(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_s_d(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         self.require_fp()?;
         let rm = self.resolve_rm(rm)?;
         let a = self.read_f64(rs1);
@@ -642,7 +906,14 @@ impl RVCore {
         self.accrue(f);
         Ok(())
     }
-    pub(super) fn fcvt_d_s(&mut self, rd: RVReg, rs1: RVReg, _: RVReg, rm: u8) -> XResult {
+    pub(super) fn fcvt_d_s(
+        &mut self,
+        _bus: &mut Bus,
+        rd: RVReg,
+        rs1: RVReg,
+        _: RVReg,
+        rm: u8,
+    ) -> XResult {
         self.require_fp()?;
         let rm = self.resolve_rm(rm)?;
         let a = self.read_f32(rs1);
@@ -662,6 +933,7 @@ mod tests {
             csr::{CsrAddr, MStatus},
         },
         config::CONFIG_MBASE,
+        device::bus::Bus,
         isa::RVReg,
     };
 
@@ -696,8 +968,9 @@ mod tests {
     const F3: RVReg = RVReg::gp; // ft3
     const F4: RVReg = RVReg::tp; // ft4
 
-    fn setup() -> RVCore {
-        RVCore::new()
+    fn setup() -> (RVCore, Bus) {
+        use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
+        (RVCore::new(), Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1))
     }
 
     fn set_f32(core: &mut RVCore, reg: RVReg, bits: u32) {
@@ -728,7 +1001,7 @@ mod tests {
 
     #[test]
     fn nan_boxing_roundtrip() {
-        let mut core = setup();
+        let (mut core, _bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         assert_eq!(get_f32(&core, F0), F32_ONE);
         assert_eq!(core.fpr[F0 as usize] >> 32, 0xFFFF_FFFF);
@@ -736,7 +1009,7 @@ mod tests {
 
     #[test]
     fn nan_boxing_invalid_yields_canonical_nan() {
-        let mut core = setup();
+        let (mut core, _bus) = setup();
         core.fpr[F0 as usize] = 0x0000_0000_3F80_0000; // not NaN-boxed
         assert_eq!(core.read_f32(F0).to_bits(), CANONICAL_NAN_F32);
     }
@@ -745,45 +1018,45 @@ mod tests {
 
     #[test]
     fn fadd_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_TWO);
-        core.fadd_s(F2, F0, F1, RNE).unwrap();
+        core.fadd_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f32(&core, F2), F32_THREE);
     }
 
     #[test]
     fn fsub_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_THREE);
         set_f32(&mut core, F1, F32_ONE);
-        core.fsub_s(F2, F0, F1, RNE).unwrap();
+        core.fsub_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f32(&core, F2), F32_TWO);
     }
 
     #[test]
     fn fmul_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_THREE);
         set_f32(&mut core, F1, F32_FOUR);
-        core.fmul_s(F2, F0, F1, RNE).unwrap();
+        core.fmul_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f32(&core, F2), F32_TWELVE);
     }
 
     #[test]
     fn fdiv_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_FOUR);
         set_f32(&mut core, F1, F32_TWO);
-        core.fdiv_s(F2, F0, F1, RNE).unwrap();
+        core.fdiv_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f32(&core, F2), F32_TWO);
     }
 
     #[test]
     fn fsqrt_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_FOUR);
-        core.fsqrt_s(F2, F0, RVReg::zero, RNE).unwrap();
+        core.fsqrt_s(&mut bus, F2, F0, RVReg::zero, RNE).unwrap();
         assert_eq!(get_f32(&core, F2), F32_TWO);
     }
 
@@ -791,19 +1064,19 @@ mod tests {
 
     #[test]
     fn fadd_d_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f64(&mut core, F0, F64_ONE);
         set_f64(&mut core, F1, F64_TWO);
-        core.fadd_d(F2, F0, F1, RNE).unwrap();
+        core.fadd_d(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f64(&core, F2), F64_THREE);
     }
 
     #[test]
     fn fmul_d_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f64(&mut core, F0, F64_TWO);
         set_f64(&mut core, F1, F64_FOUR);
-        core.fmul_d(F2, F0, F1, RNE).unwrap();
+        core.fmul_d(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f64(&core, F2), 0x4020_0000_0000_0000); // 8.0
     }
 
@@ -811,31 +1084,31 @@ mod tests {
 
     #[test]
     fn fmadd_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_TWO);
         set_f32(&mut core, F1, F32_THREE);
         set_f32(&mut core, F2, F32_FOUR);
-        core.fmadd_s(F3, F0, F1, F2, RNE).unwrap();
+        core.fmadd_s(&mut bus, F3, F0, F1, F2, RNE).unwrap();
         assert_eq!(get_f32(&core, F3), 0x4120_0000); // 10.0
     }
 
     #[test]
     fn fmadd_d_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f64(&mut core, F0, F64_TWO);
         set_f64(&mut core, F1, F64_THREE);
         set_f64(&mut core, F2, F64_FOUR);
-        core.fmadd_d(F3, F0, F1, F2, RNE).unwrap();
+        core.fmadd_d(&mut bus, F3, F0, F1, F2, RNE).unwrap();
         assert_eq!(get_f64(&core, F3), F64_TEN);
     }
 
     #[test]
     fn fmsub_s_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_THREE);
         set_f32(&mut core, F1, F32_TWO);
         set_f32(&mut core, F2, F32_TWO);
-        core.fmsub_s(F3, F0, F1, F2, RNE).unwrap();
+        core.fmsub_s(&mut bus, F3, F0, F1, F2, RNE).unwrap();
         assert_eq!(get_f32(&core, F3), F32_FOUR); // 3*2-2=4
     }
 
@@ -843,37 +1116,37 @@ mod tests {
 
     #[test]
     fn fsgnj_s_copies_sign() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_NEG_ONE);
-        core.fsgnj_s(F2, F0, F1, 0).unwrap();
+        core.fsgnj_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_NEG_ONE);
     }
 
     #[test]
     fn fsgnjn_s_negates_sign() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_NEG_ONE);
-        core.fsgnjn_s(F2, F0, F1, 0).unwrap();
+        core.fsgnjn_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_ONE); // !neg = pos
     }
 
     #[test]
     fn fsgnjx_s_xors_sign() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_NEG_ONE);
         set_f32(&mut core, F1, F32_NEG_ONE);
-        core.fsgnjx_s(F2, F0, F1, 0).unwrap();
+        core.fsgnjx_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_ONE); // 1^1=0 -> positive
     }
 
     #[test]
     fn fsgnj_s_on_unboxed_uses_canonical_nan() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.fpr[F0 as usize] = 0x0000_0000_3F80_0000; // not NaN-boxed
         set_f32(&mut core, F1, F32_NEG_ONE);
-        core.fsgnj_s(F2, F0, F1, 0).unwrap();
+        core.fsgnj_s(&mut bus, F2, F0, F1, 0).unwrap();
         let r = get_f32(&core, F2);
         assert_eq!(r & 0x7FFF_FFFF, CANONICAL_NAN_F32 & 0x7FFF_FFFF);
         assert_ne!(r & 0x8000_0000, 0, "sign from rs2 must be negative");
@@ -883,17 +1156,17 @@ mod tests {
 
     #[test]
     fn feq_flt_fle_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_TWO);
 
-        core.feq_s(RVReg::t0, F0, F0, 0).unwrap();
+        core.feq_s(&mut bus, RVReg::t0, F0, F0, 0).unwrap();
         assert_eq!(core.gpr[RVReg::t0], 1); // 1==1
 
-        core.flt_s(RVReg::t0, F0, F1, 0).unwrap();
+        core.flt_s(&mut bus, RVReg::t0, F0, F1, 0).unwrap();
         assert_eq!(core.gpr[RVReg::t0], 1); // 1<2
 
-        core.fle_s(RVReg::t0, F1, F0, 0).unwrap();
+        core.fle_s(&mut bus, RVReg::t0, F1, F0, 0).unwrap();
         assert_eq!(core.gpr[RVReg::t0], 0); // !(2<=1)
     }
 
@@ -901,21 +1174,21 @@ mod tests {
 
     #[test]
     fn fmin_fmax_basic() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_THREE);
         set_f32(&mut core, F1, F32_ONE);
-        core.fmin_s(F2, F0, F1, 0).unwrap();
+        core.fmin_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_ONE);
-        core.fmax_s(F2, F0, F1, 0).unwrap();
+        core.fmax_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_THREE);
     }
 
     #[test]
     fn fmin_s_neg_zero_less_than_pos_zero() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_NEG_ZERO);
         set_f32(&mut core, F1, F32_POS_ZERO);
-        core.fmin_s(F2, F0, F1, 0).unwrap();
+        core.fmin_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_NEG_ZERO);
     }
 
@@ -923,70 +1196,70 @@ mod tests {
 
     #[test]
     fn fadd_s_snan_sets_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_SNAN);
         set_f32(&mut core, F1, F32_ONE);
-        core.fadd_s(F2, F0, F1, RNE).unwrap();
+        core.fadd_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_ne!(fflags(&core) & 0x10, 0, "sNaN must set NV");
     }
 
     #[test]
     fn fadd_s_qnan_no_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_QNAN);
         set_f32(&mut core, F1, F32_ONE);
-        core.fadd_s(F2, F0, F1, RNE).unwrap();
+        core.fadd_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert!(F32::from_bits(get_f32(&core, F2)).is_nan());
         assert_eq!(fflags(&core) & 0x10, 0, "qNaN must not set NV");
     }
 
     #[test]
     fn feq_s_qnan_no_nv_snan_sets_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_QNAN);
         set_f32(&mut core, F1, F32_QNAN);
-        core.feq_s(RVReg::t0, F0, F1, 0).unwrap();
+        core.feq_s(&mut bus, RVReg::t0, F0, F1, 0).unwrap();
         assert_eq!(core.gpr[RVReg::t0], 0);
         assert_eq!(fflags(&core) & 0x10, 0, "FEQ(qNaN,qNaN) must not set NV");
 
-        let mut core2 = setup();
+        let (mut core2, mut bus2) = setup();
         set_f32(&mut core2, F0, F32_SNAN);
         set_f32(&mut core2, F1, F32_ONE);
-        core2.feq_s(RVReg::t0, F0, F1, 0).unwrap();
+        core2.feq_s(&mut bus2, RVReg::t0, F0, F1, 0).unwrap();
         assert_ne!(fflags(&core2) & 0x10, 0, "FEQ(sNaN,*) must set NV");
     }
 
     #[test]
     fn flt_s_any_nan_sets_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_QNAN);
         set_f32(&mut core, F1, F32_ONE);
-        core.flt_s(RVReg::t0, F0, F1, 0).unwrap();
+        core.flt_s(&mut bus, RVReg::t0, F0, F1, 0).unwrap();
         assert_ne!(fflags(&core) & 0x10, 0, "FLT with any NaN must set NV");
     }
 
     #[test]
     fn fmin_s_qnan_no_nv_snan_sets_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_QNAN);
         set_f32(&mut core, F1, F32_ONE);
-        core.fmin_s(F2, F0, F1, 0).unwrap();
+        core.fmin_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_ONE);
         assert_eq!(fflags(&core) & 0x10, 0, "FMIN(qNaN,x) must not set NV");
 
-        let mut core2 = setup();
+        let (mut core2, mut bus2) = setup();
         set_f32(&mut core2, F0, F32_SNAN);
         set_f32(&mut core2, F1, F32_ONE);
-        core2.fmin_s(F2, F0, F1, 0).unwrap();
+        core2.fmin_s(&mut bus2, F2, F0, F1, 0).unwrap();
         assert_ne!(fflags(&core2) & 0x10, 0, "FMIN(sNaN,x) must set NV");
     }
 
     #[test]
     fn fmin_s_both_qnan_canonical_no_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_QNAN);
         set_f32(&mut core, F1, F32_QNAN);
-        core.fmin_s(F2, F0, F1, 0).unwrap();
+        core.fmin_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert!(F32::from_bits(get_f32(&core, F2)).is_nan());
         assert_eq!(fflags(&core) & 0x10, 0, "FMIN(qNaN,qNaN) must not set NV");
     }
@@ -995,20 +1268,20 @@ mod tests {
 
     #[test]
     fn fdiv_s_by_zero_sets_dz() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_POS_ZERO);
-        core.fdiv_s(F2, F0, F1, RNE).unwrap();
+        core.fdiv_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(get_f32(&core, F2), F32_POS_INF);
         assert_ne!(fflags(&core) & 0x08, 0, "DZ must be set");
     }
 
     #[test]
     fn fdiv_s_zero_over_zero_sets_nv() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_POS_ZERO);
         set_f32(&mut core, F1, F32_POS_ZERO);
-        core.fdiv_s(F2, F0, F1, RNE).unwrap();
+        core.fdiv_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert!(F32::from_bits(get_f32(&core, F2)).is_nan());
         assert_ne!(fflags(&core) & 0x10, 0, "0/0 must set NV");
     }
@@ -1027,9 +1300,10 @@ mod tests {
             (F32_SNAN, 1 << 8),
             (F32_QNAN, 1 << 9),
         ] {
-            let mut core = setup();
+            let (mut core, mut bus) = setup();
             set_f32(&mut core, F0, bits);
-            core.fclass_s(RVReg::t0, F0, RVReg::zero, 0).unwrap();
+            core.fclass_s(&mut bus, RVReg::t0, F0, RVReg::zero, 0)
+                .unwrap();
             assert_eq!(core.gpr[RVReg::t0], expected, "fclass({bits:#010x})");
         }
     }
@@ -1038,9 +1312,10 @@ mod tests {
 
     #[test]
     fn fmv_x_w_sign_extends() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_NEG_ONE);
-        core.fmv_x_w(RVReg::t0, F0, RVReg::zero, 0).unwrap();
+        core.fmv_x_w(&mut bus, RVReg::t0, F0, RVReg::zero, 0)
+            .unwrap();
         #[cfg(isa64)]
         assert_eq!(core.gpr[RVReg::t0], 0xFFFF_FFFF_BF80_0000);
         #[cfg(isa32)]
@@ -1049,20 +1324,23 @@ mod tests {
 
     #[test]
     fn fmv_w_x_nan_boxes() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.gpr[RVReg::t0] = F32_ONE as Word;
-        core.fmv_w_x(F0, RVReg::t0, RVReg::zero, 0).unwrap();
+        core.fmv_w_x(&mut bus, F0, RVReg::t0, RVReg::zero, 0)
+            .unwrap();
         assert_eq!(core.fpr[F0 as usize], nan_box(F32_ONE));
     }
 
     #[test]
     #[cfg(isa64)]
     fn fmv_d_roundtrip() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.gpr[RVReg::a0] = F64_ONE as Word;
-        core.fmv_d_x(F1, RVReg::a0, RVReg::zero, 0).unwrap();
+        core.fmv_d_x(&mut bus, F1, RVReg::a0, RVReg::zero, 0)
+            .unwrap();
         assert_eq!(core.fpr[F1 as usize], F64_ONE);
-        core.fmv_x_d(RVReg::a1, F1, RVReg::zero, 0).unwrap();
+        core.fmv_x_d(&mut bus, RVReg::a1, F1, RVReg::zero, 0)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::a1] as u64, F64_ONE);
     }
 
@@ -1070,31 +1348,24 @@ mod tests {
 
     #[test]
     fn flw_nan_boxes_and_fsw_roundtrip() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         let addr = CONFIG_MBASE;
-        core.bus
-            .lock()
-            .unwrap()
-            .write(addr, 4, F32_ONE as Word)
-            .unwrap();
+        bus.write(addr, 4, F32_ONE as Word).unwrap();
         core.gpr[RVReg::t0] = addr as Word;
-        core.flw(F0, RVReg::t0, 0).unwrap();
+        core.flw(&mut bus, F0, RVReg::t0, 0).unwrap();
         assert_eq!(core.fpr[F0 as usize], nan_box(F32_ONE));
-        core.fsw(RVReg::t0, F0, 4).unwrap();
-        assert_eq!(
-            core.bus.lock().unwrap().read(addr + 4, 4).unwrap() as u32,
-            F32_ONE
-        );
+        core.fsw(&mut bus, RVReg::t0, F0, 4).unwrap();
+        assert_eq!(bus.read(addr + 4, 4).unwrap() as u32, F32_ONE);
     }
 
     #[test]
     fn f64_register_roundtrip() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f64(&mut core, F0, F64_ONE);
         assert_eq!(get_f64(&core, F0), F64_ONE);
         // fcvt_d_s exercises the D read/write path internally
         set_f32(&mut core, F1, F32_ONE);
-        core.fcvt_d_s(F2, F1, RVReg::zero, RNE).unwrap();
+        core.fcvt_d_s(&mut bus, F2, F1, RVReg::zero, RNE).unwrap();
         assert_eq!(get_f64(&core, F2), F64_ONE);
     }
 
@@ -1102,54 +1373,62 @@ mod tests {
 
     #[test]
     fn fcvt_w_s_and_s_w_roundtrip() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.gpr[RVReg::t0] = 42;
-        core.fcvt_s_w(F0, RVReg::t0, RVReg::zero, RNE).unwrap();
+        core.fcvt_s_w(&mut bus, F0, RVReg::t0, RVReg::zero, RNE)
+            .unwrap();
         assert_eq!(get_f32(&core, F0), 0x4228_0000); // 42.0
-        core.fcvt_w_s(RVReg::t1, F0, RVReg::zero, RNE).unwrap();
+        core.fcvt_w_s(&mut bus, RVReg::t1, F0, RVReg::zero, RNE)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t1] as i64, 42);
     }
 
     #[test]
     fn fcvt_w_s_rtz_truncates_half() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_HALF);
-        core.fcvt_w_s(RVReg::t0, F0, RVReg::zero, RTZ).unwrap();
+        core.fcvt_w_s(&mut bus, RVReg::t0, F0, RVReg::zero, RTZ)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t0] as i64, 0);
     }
 
     #[test]
     fn fcvt_w_s_overflow_saturates() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_POS_INF);
-        core.fcvt_w_s(RVReg::t0, F0, RVReg::zero, RNE).unwrap();
+        core.fcvt_w_s(&mut bus, RVReg::t0, F0, RVReg::zero, RNE)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t0] as i32, i32::MAX);
         assert_ne!(fflags(&core) & 0x10, 0);
 
-        let mut core2 = setup();
+        let (mut core2, mut bus2) = setup();
         set_f32(&mut core2, F0, F32_NEG_INF);
-        core2.fcvt_w_s(RVReg::t0, F0, RVReg::zero, RNE).unwrap();
+        core2
+            .fcvt_w_s(&mut bus2, RVReg::t0, F0, RVReg::zero, RNE)
+            .unwrap();
         assert_eq!(core2.gpr[RVReg::t0] as i32, i32::MIN);
 
-        let mut core3 = setup();
+        let (mut core3, mut bus3) = setup();
         set_f32(&mut core3, F0, F32_QNAN);
-        core3.fcvt_w_s(RVReg::t0, F0, RVReg::zero, RNE).unwrap();
+        core3
+            .fcvt_w_s(&mut bus3, RVReg::t0, F0, RVReg::zero, RNE)
+            .unwrap();
         assert_eq!(core3.gpr[RVReg::t0] as i32, i32::MAX);
     }
 
     #[test]
     fn fcvt_d_s_widens() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
-        core.fcvt_d_s(F1, F0, RVReg::zero, RNE).unwrap();
+        core.fcvt_d_s(&mut bus, F1, F0, RVReg::zero, RNE).unwrap();
         assert_eq!(get_f64(&core, F1), F64_ONE);
     }
 
     #[test]
     fn fcvt_s_d_narrows() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f64(&mut core, F0, F64_ONE);
-        core.fcvt_s_d(F1, F0, RVReg::zero, RNE).unwrap();
+        core.fcvt_s_d(&mut bus, F1, F0, RVReg::zero, RNE).unwrap();
         assert_eq!(get_f32(&core, F1), F32_ONE);
     }
 
@@ -1157,29 +1436,29 @@ mod tests {
 
     #[test]
     fn fs_transitions_initial_to_dirty() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         assert_eq!(fs(&core), 1);
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_TWO);
-        core.fadd_s(F2, F0, F1, RNE).unwrap();
+        core.fadd_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(fs(&core), 3);
         assert_ne!(core.csr.get(CsrAddr::mstatus) & MStatus::SD.bits(), 0);
     }
 
     #[test]
     fn fs_off_traps() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.csr.set(CsrAddr::mstatus, 0); // FS=Off
         set_f32(&mut core, F0, F32_ONE);
-        assert!(core.fadd_s(F2, F0, F0, RNE).is_err());
+        assert!(core.fadd_s(&mut bus, F2, F0, F0, RNE).is_err());
     }
 
     #[test]
     fn feq_dirties_fs() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.csr.set(CsrAddr::mstatus, 1 << 13); // FS=Initial
         set_f32(&mut core, F0, F32_ONE);
-        core.feq_s(RVReg::t0, F0, F0, 0).unwrap();
+        core.feq_s(&mut bus, RVReg::t0, F0, F0, 0).unwrap();
         assert_eq!(fs(&core), 3, "flag-only ops must dirty FS");
     }
 
@@ -1187,7 +1466,7 @@ mod tests {
 
     #[test]
     fn fcsr_composite_views() {
-        let mut core = setup();
+        let (mut core, _bus) = setup();
         core.csr.set(CsrAddr::fcsr, 0xE5);
         assert_eq!(core.csr_read(CsrAddr::fflags as u16).unwrap(), 0x05);
         assert_eq!(core.csr_read(CsrAddr::frm as u16).unwrap(), 0x07);
@@ -1196,15 +1475,15 @@ mod tests {
 
     #[test]
     fn fflags_sticky() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_POS_ZERO);
-        core.fdiv_s(F2, F0, F1, RNE).unwrap();
+        core.fdiv_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_ne!(fflags(&core) & 0x08, 0, "DZ set");
 
         set_f32(&mut core, F0, F32_SNAN);
         set_f32(&mut core, F1, F32_ONE);
-        core.fadd_s(F2, F0, F1, RNE).unwrap();
+        core.fadd_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_ne!(fflags(&core) & 0x08, 0, "DZ must remain (sticky)");
         assert_ne!(fflags(&core) & 0x10, 0, "NV also set");
     }
@@ -1213,7 +1492,7 @@ mod tests {
 
     #[test]
     fn resolve_rm_dynamic() {
-        let mut core = setup();
+        let (mut core, _bus) = setup();
         core.csr.set(CsrAddr::fcsr, 0x02 << 5); // frm=2 (RDN)
         assert!(matches!(
             core.resolve_rm(7).unwrap(),
@@ -1223,7 +1502,7 @@ mod tests {
 
     #[test]
     fn resolve_rm_reserved_rejects() {
-        let core = setup();
+        let (core, _bus) = setup();
         assert!(core.resolve_rm(5).is_err());
         assert!(core.resolve_rm(6).is_err());
     }
@@ -1232,27 +1511,27 @@ mod tests {
 
     #[test]
     fn fmax_s_pos_zero_greater_than_neg_zero() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         // fmax(-0, +0) must return +0
         set_f32(&mut core, F0, F32_NEG_ZERO);
         set_f32(&mut core, F1, F32_POS_ZERO);
-        core.fmax_s(F2, F0, F1, 0).unwrap();
+        core.fmax_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_POS_ZERO);
         // Reversed operand order: fmax(+0, -0) must also return +0
-        core.fmax_s(F2, F1, F0, 0).unwrap();
+        core.fmax_s(&mut bus, F2, F1, F0, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_POS_ZERO);
     }
 
     #[test]
     fn fmin_s_signed_zero_both_orders() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         // fmin(+0, -0) must return -0
         set_f32(&mut core, F0, F32_POS_ZERO);
         set_f32(&mut core, F1, F32_NEG_ZERO);
-        core.fmin_s(F2, F0, F1, 0).unwrap();
+        core.fmin_s(&mut bus, F2, F0, F1, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_NEG_ZERO);
         // fmin(-0, +0) must also return -0
-        core.fmin_s(F2, F1, F0, 0).unwrap();
+        core.fmin_s(&mut bus, F2, F1, F0, 0).unwrap();
         assert_eq!(get_f32(&core, F2), F32_NEG_ZERO);
     }
 
@@ -1260,11 +1539,11 @@ mod tests {
 
     #[test]
     fn sd_clears_when_fs_downgraded() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         // Make FS dirty
         set_f32(&mut core, F0, F32_ONE);
         set_f32(&mut core, F1, F32_TWO);
-        core.fadd_s(F2, F0, F1, RNE).unwrap();
+        core.fadd_s(&mut bus, F2, F0, F1, RNE).unwrap();
         assert_eq!(fs(&core), 3); // Dirty
         assert_ne!(core.csr.get(CsrAddr::mstatus) & MStatus::SD.bits(), 0);
 
@@ -1283,11 +1562,12 @@ mod tests {
 
     #[test]
     fn csrrwi_fflags_writes_and_dirties_fs() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.csr.set(CsrAddr::mstatus, 1 << 13); // FS=Initial
         // csrrwi t0, fflags, 0x1F  (uimm=31 encoded as rs1=x31=t6)
         let fflags_addr = CsrAddr::fflags as SWord;
-        core.csrrwi(RVReg::t0, RVReg::t6, fflags_addr).unwrap();
+        core.csrrwi(&mut bus, RVReg::t0, RVReg::t6, fflags_addr)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t0], 0); // old fflags was 0
         assert_eq!(core.csr_read(CsrAddr::fflags as u16).unwrap(), 31); // new fflags
         assert_eq!(fs(&core), 3, "csrrwi fflags must dirty FS");
@@ -1295,34 +1575,37 @@ mod tests {
 
     #[test]
     fn csrrsi_frm_sets_bits() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.csr.set(CsrAddr::fcsr, 0x20); // frm=1 (RTZ)
         // csrrsi t0, frm, 0x04  (uimm=4 encoded as rs1=x4=tp)
         let frm_addr = CsrAddr::frm as SWord;
-        core.csrrsi(RVReg::t0, RVReg::tp, frm_addr).unwrap();
+        core.csrrsi(&mut bus, RVReg::t0, RVReg::tp, frm_addr)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t0], 1); // old frm=1
         assert_eq!(core.csr_read(CsrAddr::frm as u16).unwrap(), 5); // 1 | 4 = 5
     }
 
     #[test]
     fn csrrci_fcsr_clears_bits() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.csr.set(CsrAddr::fcsr, 0xFF);
         // csrrci t0, fcsr, 0x0F  (uimm=15 encoded as rs1=x15=a5)
         let fcsr_addr = CsrAddr::fcsr as SWord;
-        core.csrrci(RVReg::t0, RVReg::a5, fcsr_addr).unwrap();
+        core.csrrci(&mut bus, RVReg::t0, RVReg::a5, fcsr_addr)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t0] as u8, 0xFF); // old fcsr
         assert_eq!(core.csr_read(CsrAddr::fcsr as u16).unwrap(), 0xF0); // 0xFF & ~0x0F
     }
 
     #[test]
     fn csrrsi_fflags_uimm_zero_no_write() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         core.csr.set(CsrAddr::fcsr, 0x15);
         core.csr.set(CsrAddr::mstatus, 1 << 13); // FS=Initial
         // csrrsi t0, fflags, 0  (uimm=0 encoded as rs1=x0=zero → no write)
         let fflags_addr = CsrAddr::fflags as SWord;
-        core.csrrsi(RVReg::t0, RVReg::zero, fflags_addr).unwrap();
+        core.csrrsi(&mut bus, RVReg::t0, RVReg::zero, fflags_addr)
+            .unwrap();
         assert_eq!(core.gpr[RVReg::t0], 0x15); // reads fflags=0x15
         assert_eq!(fs(&core), 1, "uimm=0 must NOT dirty FS (read-only access)");
     }
@@ -1332,7 +1615,7 @@ mod tests {
     #[test]
     #[cfg(isa32)]
     fn rv64_only_fp_instructions_rejected_on_rv32() {
-        let mut core = setup();
+        let (mut core, mut bus) = setup();
         set_f32(&mut core, F0, F32_ONE);
         set_f64(&mut core, F1, F64_ONE);
         core.gpr[RVReg::t0] = 42;
@@ -1346,7 +1629,7 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    op(&mut core, F2, F0, RVReg::zero, RNE),
+                    op(&mut core, &mut bus, F2, F0, RVReg::zero, RNE),
                     Err(XError::InvalidInst)
                 ),
                 "RV64F instruction must reject on RV32"
@@ -1364,7 +1647,7 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    op(&mut core, F2, F0, RVReg::zero, RNE),
+                    op(&mut core, &mut bus, F2, F0, RVReg::zero, RNE),
                     Err(XError::InvalidInst)
                 ),
                 "RV64D instruction must reject on RV32"

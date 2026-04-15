@@ -1,14 +1,16 @@
 //! CPU lifecycle: boot configuration, step/run loop, and termination handling.
 //!
 //! The generic [`CPU`] wrapper owns one or more arch-specific cores
-//! (`Vec<Core>`) sharing a single [`crate::device::bus::Bus`] via
-//! `Arc<Mutex<Bus>>`. Concrete arch types cross the seam as cfg-gated
-//! `pub type` aliases below.
+//! (`Vec<Core>`) and an inline [`crate::device::bus::Bus`]. Per M-001
+//! (`docs/fix/perfBusFastPath/01_MASTER.md`) the bus is NOT wrapped in a
+//! synchronization primitive — cooperative round-robin hands each step
+//! exactly one `&mut Bus` borrow, which is the exclusion invariant the
+//! borrow checker enforces (see invariant I-10 in `03_PLAN.md`).
 
 pub(crate) mod core;
 pub mod debug;
 
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 use inherit_methods_macro::inherit_methods;
 use memory_addr::VirtAddr;
@@ -52,6 +54,16 @@ pub type PendingTrap = crate::arch::riscv::cpu::trap::PendingTrap;
 pub type Core = crate::arch::loongarch::cpu::LACore;
 
 /// Global singleton CPU instance, initialized by `init_xcore(config)`.
+///
+/// The outer `Mutex` here guards the **CPU-lifecycle handle** — it lets
+/// `xdb`, difftest, and the monitor coordinate `reset` / `boot` /
+/// `step` calls from the single controller thread against background
+/// tasks that occasionally peek at state. It is NOT the bus lock that
+/// M-001 forbade: the bus is owned inline inside `CPU` (see
+/// [`CPU`] docs) and is reached only through the `&mut CPU` obtained
+/// from this mutex, so no per-memory-access locking exists on the
+/// hot path. See `docs/fix/perfBusFastPath/01_MASTER.md` for the
+/// distinction.
 pub static XCPU: OnceLock<Mutex<CPU<Core>>> = OnceLock::new();
 
 /// DRAM base address where the first instruction executes.
@@ -76,12 +88,19 @@ impl State {
     }
 }
 
-/// Generic CPU wrapper: owns one or more arch-specific cores plus a shared
+/// Generic CPU wrapper: owns one or more arch-specific cores plus an inline
 /// bus, and manages boot/run lifecycle.
+///
+/// # M-001: no `Mutex<Bus>`
+///
+/// The `bus` field is owned inline (not `Arc<Mutex<Bus>>`). The cooperative
+/// round-robin scheduler in [`CPU::step`] hands the current hart exactly one
+/// `&mut Bus` borrow per step via a disjoint-field destructure (invariant
+/// I-10); the borrow checker is the exclusion primitive.
 #[allow(clippy::upper_case_acronyms)]
 pub struct CPU<Core: CoreOps> {
     cores: Vec<Core>,
-    bus: Arc<Mutex<Bus>>,
+    bus: Bus,
     current: usize,
     state: State,
     halt_pc: VirtAddr,
@@ -94,11 +113,21 @@ pub struct CPU<Core: CoreOps> {
     uart_line: Option<crate::device::IrqLine>,
 }
 
+// V-UT-3 (R-003): pin `CPU<RVCore>` layout below 4096 B. `cores` is a
+// `Vec<Core>` (24 B header) regardless of hart count; the inline `Bus`
+// contributes under 256 B. The struct as a whole is a few hundred bytes
+// and must not balloon silently.
+#[cfg(riscv)]
+const _: () = assert!(
+    std::mem::size_of::<CPU<Core>>() < 4096,
+    "CPU<RVCore> grew past the 4 KiB layout budget",
+);
+
 impl<Core: CoreOps + DebugOps> CPU<Core> {
-    /// Create a CPU wrapper around `cores` sharing `bus`.
-    pub fn new(cores: Vec<Core>, bus: Arc<Mutex<Bus>>, layout: BootLayout) -> Self {
+    /// Create a CPU wrapper around `cores` that owns `bus` by value.
+    pub fn new(cores: Vec<Core>, bus: Bus, layout: BootLayout) -> Self {
         debug_assert_eq!(
-            bus.lock().unwrap().num_harts(),
+            bus.num_harts(),
             cores.len(),
             "Bus::num_harts must match cores.len()"
         );
@@ -121,9 +150,14 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         self.uart_line.clone()
     }
 
-    /// Lock the shared bus for the duration of the returned guard.
-    pub fn bus(&self) -> MutexGuard<'_, Bus> {
-        self.bus.lock().unwrap()
+    /// Borrow the owned bus for read-only inspection.
+    pub fn bus(&self) -> &Bus {
+        &self.bus
+    }
+
+    /// Borrow the owned bus mutably (used by difftest and test helpers).
+    pub fn bus_mut(&mut self) -> &mut Bus {
+        &mut self.bus
     }
 
     /// Boot from a configuration. Stores the config for subsequent resets.
@@ -138,11 +172,8 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
     pub fn reset(&mut self) -> XResult {
         info!("cpu: reset");
         self.state = State::Idle;
-        {
-            let mut bus = self.bus.lock().unwrap();
-            bus.reset_devices();
-            bus.clear_reservations();
-        }
+        self.bus.reset_devices();
+        self.bus.clear_reservations();
         for core in &mut self.cores {
             core.reset()?;
         }
@@ -165,7 +196,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
         match file {
             None => {
                 let image_bytes: &[u8] = bytemuck::bytes_of(&crate::isa::IMG);
-                self.bus.lock().unwrap().load_ram(RESET_VECTOR, image_bytes)
+                self.bus.load_ram(RESET_VECTOR, image_bytes)
             }
             Some(path) => self.load_file_at(&path, RESET_VECTOR),
         }
@@ -196,7 +227,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
     fn load_file_at(&mut self, path: &str, addr: usize) -> XResult {
         let bytes = std::fs::read(path).map_err(|_| XError::FailedToRead)?;
-        self.bus.lock().unwrap().load_ram(addr, &bytes)?;
+        self.bus.load_ram(addr, &bytes)?;
         info!("Loaded {} ({} bytes @ {:#x})", path, bytes.len(), addr);
         Ok(())
     }
@@ -210,10 +241,23 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
     /// Execute one instruction on the current hart and advance the
     /// round-robin scheduler. The bus is ticked once per `CPU::step`
     /// before the hart steps (matches HW hart-cycle clocking at N>1).
+    ///
+    /// # Invariant I-10: disjoint-field borrow at `CPU::step`
+    ///
+    /// `self` is destructured into disjoint borrows so `bus` and
+    /// `cores[current]` are independent places to the borrow checker.
+    /// A helper method on `&mut self` that reached both fields would
+    /// collapse this disjoint-field path and fail to compile (E0499).
     pub fn step(&mut self) -> XResult {
-        self.bus.lock().unwrap().tick();
-        let result = self.cores[self.current].step();
-        let halted = self.cores[self.current].halted();
+        let CPU {
+            bus,
+            cores,
+            current,
+            ..
+        } = self;
+        bus.tick();
+        let result = cores[*current].step(bus);
+        let halted = cores[*current].halted();
         match result {
             Err(XError::ProgramExit(code)) => {
                 info!("cpu: program exit with code {}", code);
@@ -290,7 +334,7 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
     /// Replace a named MMIO device on the bus (e.g. swap in a PTY-backed UART).
     pub fn replace_device(&mut self, name: &str, dev: Box<dyn crate::device::Device>) {
-        self.bus.lock().unwrap().replace_device(name, dev);
+        self.bus.replace_device(name, dev);
     }
 
     /// Print colored termination message to stdout.
@@ -319,8 +363,8 @@ impl<Core: CoreOps + DebugOps> CPU<Core> {
 
     /// Consume and return the MMIO-accessed flag (for difftest skip).
     #[cfg(feature = "difftest")]
-    pub fn bus_take_mmio_flag(&self) -> bool {
-        self.bus.lock().unwrap().take_mmio_flag()
+    pub fn bus_take_mmio_flag(&mut self) -> bool {
+        self.bus.take_mmio_flag()
     }
 }
 
@@ -382,12 +426,11 @@ impl CPU<Core> {
             );
         }
 
-        let bus_arc = Arc::new(Mutex::new(bus));
         let cores: Vec<Core> = (0..num_harts)
-            .map(|i| Core::with_id(HartId::from(i), bus_arc.clone(), irqs[i].clone()))
+            .map(|i| Core::with_id(HartId::from(i), irqs[i].clone()))
             .collect();
 
-        let mut cpu = Self::new(cores, bus_arc, layout);
+        let mut cpu = Self::new(cores, bus, layout);
         cpu.uart_line = Some(uart_line);
         cpu
     }
@@ -458,7 +501,7 @@ mod tests {
     fn cpu_load_default_image() {
         let mut cpu = new_cpu();
         cpu.load(None).unwrap();
-        let word = cpu.bus().read(RESET_VECTOR, 4).unwrap();
+        let word = cpu.bus_mut().read(RESET_VECTOR, 4).unwrap();
         assert_eq!(word as u32, crate::isa::IMG[0]);
     }
 

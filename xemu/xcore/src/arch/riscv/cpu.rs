@@ -10,8 +10,6 @@ mod inst;
 pub(crate) mod mm;
 pub mod trap;
 
-use std::sync::{Arc, Mutex};
-
 use memory_addr::{MemoryAddr, VirtAddr};
 
 use self::{
@@ -30,7 +28,11 @@ use crate::{
     isa::{DECODER, DecodedInst, RVReg},
 };
 
-/// RISC-V CPU core: registers, CSR file, MMU, PMP, bus, and trap state.
+/// RISC-V CPU core: registers, CSR file, MMU, PMP, and trap state.
+///
+/// The bus is NOT owned by the core. Per P1 (`01_MASTER.md` M-001) every
+/// method that needs guest-memory access receives `bus: &mut Bus` as a
+/// parameter; `CPU::step` is the sole producer of that borrow.
 pub struct RVCore {
     pub(in crate::arch::riscv) id: HartId,
     pub(in crate::arch::riscv) gpr: [Word; 32],
@@ -40,7 +42,6 @@ pub struct RVCore {
     pub(in crate::arch::riscv) csr: CsrFile,
     pub(in crate::arch::riscv) privilege: PrivilegeMode,
     pub(in crate::arch::riscv) pending_trap: Option<PendingTrap>,
-    pub(in crate::arch::riscv) bus: Arc<Mutex<Bus>>,
     pub(in crate::arch::riscv) mmu: Mmu,
     pub(in crate::arch::riscv) pmp: Pmp,
     pub(in crate::arch::riscv) irq: IrqState,
@@ -53,17 +54,17 @@ pub struct RVCore {
 }
 
 impl RVCore {
-    /// Create a default single-hart RVCore around a fresh single-hart bus.
-    /// Convenience for tests; production builds use
-    /// [`crate::cpu::CPU::from_config`].
+    /// Create a default single-hart RVCore. Convenience for tests;
+    /// production builds use [`crate::cpu::CPU::from_config`]. Tests that
+    /// need memory access must construct a `Bus` alongside the core.
     pub fn new() -> Self {
-        use crate::config::{CONFIG_MBASE, CONFIG_MSIZE};
-        let bus = Arc::new(Mutex::new(Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1)));
-        Self::with_id(HartId(0), bus, IrqState::new())
+        Self::with_id(HartId(0), IrqState::new())
     }
 
-    /// Create an RVCore for `id` sharing the given bus and IRQ state.
-    pub fn with_id(id: HartId, bus: Arc<Mutex<Bus>>, irq: IrqState) -> Self {
+    /// Create an RVCore for `id` with the given IRQ state. The bus is no
+    /// longer held on the core — it is threaded in as `&mut Bus` on every
+    /// method that reads or writes guest memory.
+    pub fn with_id(id: HartId, irq: IrqState) -> Self {
         let mut core = Self {
             id,
             gpr: [0; 32],
@@ -73,7 +74,6 @@ impl RVCore {
             csr: CsrFile::new(),
             privilege: PrivilegeMode::Machine,
             pending_trap: None,
-            bus,
             mmu: Mmu::new(),
             pmp: Pmp::new(),
             irq,
@@ -142,11 +142,11 @@ impl RVCore {
         DECODER.decode(raw)
     }
 
-    fn execute(&mut self, inst: DecodedInst) -> XResult {
+    fn execute(&mut self, bus: &mut Bus, inst: DecodedInst) -> XResult {
         trace!("Executing instruction at pc={:#x}: {:?}", self.pc, inst);
         let is_compressed = matches!(&inst, DecodedInst::C { .. });
         self.npc = self.pc.wrapping_add(if is_compressed { 2 } else { 4 });
-        self.dispatch(inst)
+        self.dispatch(bus, inst)
     }
 
     fn retire(&mut self) {
@@ -202,9 +202,9 @@ impl CoreOps for RVCore {
     }
 
     #[allow(clippy::unnecessary_cast)]
-    fn step(&mut self) -> XResult {
+    fn step(&mut self, bus: &mut Bus) -> XResult {
         // Time always advances — rdtime + stimecmp comparisons need it.
-        let mtime = self.bus.lock().unwrap().mtime();
+        let mtime = bus.mtime();
         self.csr.set(CsrAddr::time, mtime as Word);
 
         // Event-driven `mip` sync: redo the merge only when a producer
@@ -235,14 +235,14 @@ impl CoreOps for RVCore {
             return Ok(());
         }
 
-        self.trap_on_err(|core| {
-            let raw = core.fetch()?;
+        self.trap_on_err(bus, |core, bus| {
+            let raw = core.fetch(bus)?;
             let inst = core.decode(raw)?;
 
             #[cfg(feature = "debug")]
             trace!("{:#010x}: {:08x}  {}", core.pc.as_usize(), raw, inst,);
 
-            core.execute(inst)
+            core.execute(bus, inst)
         })?;
 
         self.retire();
@@ -259,27 +259,30 @@ impl CoreOps for RVCore {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::arch::riscv) mod tests {
     use super::*;
     use crate::{
         arch::riscv::cpu::{csr::CsrAddr, trap::Exception},
-        config::CONFIG_MBASE,
+        config::{CONFIG_MBASE, CONFIG_MSIZE},
     };
 
-    fn setup_core() -> RVCore {
-        let mut core = RVCore::new();
+    /// Shared test-harness constructor: a fresh single-hart core + bus.
+    /// Used by other `arch/riscv/cpu/inst/*` tests (see migration table in
+    /// `docs/fix/perfBusFastPath/03_PLAN.md`).
+    pub(in crate::arch::riscv) fn new_core_with_bus() -> (RVCore, Bus) {
+        (RVCore::new(), Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1))
+    }
+
+    fn setup_core() -> (RVCore, Bus) {
+        let (mut core, bus) = new_core_with_bus();
         core.pc = VirtAddr::from(CONFIG_MBASE);
         core.npc = core.pc;
         core.csr.set(CsrAddr::mtvec, 0x8000_0000);
-        core
+        (core, bus)
     }
 
-    fn write_inst(core: &mut RVCore, inst: u32) {
-        core.bus
-            .lock()
-            .unwrap()
-            .write(core.pc.as_usize(), 4, inst as Word)
-            .unwrap();
+    fn write_inst(core: &mut RVCore, bus: &mut Bus, inst: u32) {
+        bus.write(core.pc.as_usize(), 4, inst as Word).unwrap();
     }
 
     #[test]
@@ -311,64 +314,64 @@ mod tests {
 
     #[test]
     fn fetch_distinguishes_standard_and_compressed_instructions() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         for (raw, expected) in [
             (0xCAFEBABF_u32, 0xCAFEBABF_u32),
             (0xCAFEBABE_u32, 0xBABE_u32),
         ] {
-            write_inst(&mut core, raw);
-            assert_eq!(core.fetch().unwrap(), expected);
+            write_inst(&mut core, &mut bus, raw);
+            assert_eq!(core.fetch(&mut bus).unwrap(), expected);
         }
     }
 
     #[test]
     fn step_ebreak_halts_in_direct_mode() {
-        let mut core = setup_core();
-        write_inst(&mut core, 0x0010_0073); // ebreak
-        core.step().unwrap();
+        let (mut core, mut bus) = setup_core();
+        write_inst(&mut core, &mut bus, 0x0010_0073); // ebreak
+        core.step(&mut bus).unwrap();
         assert!(core.halted());
     }
 
     #[test]
     fn step_ebreak_traps_in_firmware_mode() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         core.ebreak_as_trap = true;
-        write_inst(&mut core, 0x0010_0073); // ebreak
-        core.step().unwrap();
+        write_inst(&mut core, &mut bus, 0x0010_0073); // ebreak
+        core.step(&mut bus).unwrap();
         assert!(!core.halted());
         assert_eq!(core.csr.get(CsrAddr::mcause), Exception::Breakpoint as Word);
     }
 
     #[test]
     fn step_normal_instruction_succeeds() {
-        let mut core = setup_core();
-        write_inst(&mut core, 0x0000_0297); // auipc t0, 0
-        core.step().unwrap();
+        let (mut core, mut bus) = setup_core();
+        write_inst(&mut core, &mut bus, 0x0000_0297); // auipc t0, 0
+        core.step(&mut bus).unwrap();
     }
 
     #[test]
     fn cycle_increments_on_trap_instret_does_not() {
-        let mut core = setup_core();
-        write_inst(&mut core, 0x0000_0073); // ecall
-        core.step().unwrap();
+        let (mut core, mut bus) = setup_core();
+        write_inst(&mut core, &mut bus, 0x0000_0073); // ecall
+        core.step(&mut bus).unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 0);
     }
 
     #[test]
     fn cycle_and_instret_both_increment_on_normal_step() {
-        let mut core = setup_core();
-        write_inst(&mut core, 0x0000_0297); // auipc t0, 0
-        core.step().unwrap();
+        let (mut core, mut bus) = setup_core();
+        write_inst(&mut core, &mut bus, 0x0000_0297); // auipc t0, 0
+        core.step(&mut bus).unwrap();
         assert_eq!(core.csr.get(CsrAddr::cycle), 1);
         assert_eq!(core.csr.get(CsrAddr::instret), 1);
     }
 
     #[test]
     fn sswi_edge_delivered_once_and_clearable() {
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         let ssip = Mip::SSIP.bits();
-        write_inst(&mut core, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
+        write_inst(&mut core, &mut bus, 0x0000_0297); // auipc t0, 0 (harmless NOP-like)
 
         // Raise the SSIP edge on the core's IrqState directly (equivalent to
         // a SETSSIP write hitting the hart's edge flag). RVCore::new() in
@@ -376,7 +379,7 @@ mod tests {
         core.irq.raise_ssip_edge();
 
         // Step: SSIP should be set in mip after step
-        core.step().unwrap();
+        core.step(&mut bus).unwrap();
         assert_ne!(
             core.csr.get(CsrAddr::mip) & ssip,
             0,
@@ -393,10 +396,10 @@ mod tests {
         );
 
         // Re-write the instruction for next step
-        write_inst(&mut core, 0x0000_0297);
+        write_inst(&mut core, &mut bus, 0x0000_0297);
 
         // Step again: SSIP should NOT be reasserted (no new SETSSIP write)
-        core.step().unwrap();
+        core.step(&mut bus).unwrap();
         assert_eq!(
             core.csr.get(CsrAddr::mip) & ssip,
             0,
@@ -408,7 +411,7 @@ mod tests {
     fn stip_delivered_in_s_mode_with_sie() {
         use crate::arch::riscv::cpu::{csr::MStatus, trap::Interrupt};
 
-        let mut core = setup_core();
+        let (mut core, mut bus) = setup_core();
         // Switch to S-mode
         core.privilege = PrivilegeMode::Supervisor;
         // Set stvec for trap delivery
@@ -423,10 +426,10 @@ mod tests {
         core.csr.set(CsrAddr::stimecmp, 0);
 
         // Write a NOP at PC
-        write_inst(&mut core, 0x0000_0013); // addi x0, x0, 0 (NOP)
+        write_inst(&mut core, &mut bus, 0x0000_0013); // addi x0, x0, 0 (NOP)
 
         // Step should deliver the timer interrupt
-        core.step().unwrap();
+        core.step(&mut bus).unwrap();
 
         // After delivery: should have trapped to stvec, scause=SupervisorTimer
         let scause = core.csr.get(CsrAddr::scause);

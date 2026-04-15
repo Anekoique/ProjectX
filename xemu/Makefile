@@ -24,6 +24,7 @@ export X_DISK   = $(DISK)
 export X_HARTS  = $(HARTS)
 
 build_args-release := --release
+build_args-perf    := --profile perf
 verbose := $(if $(VERBOSE),--verbose,)
 build_args := \
 	-Z unstable-options \

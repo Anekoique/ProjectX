@@ -1,0 +1,10 @@
+workload,run,real_s,user_s,sys_s,max_rss_kb
+dhrystone,1,8.81,8.02,0.07,41264
+dhrystone,2,8.70,8.10,0.07,41360
+dhrystone,3,8.55,8.15,0.07,41232
+coremark,1,14.49,14.09,0.07,41248
+coremark,2,14.38,14.00,0.07,41296
+coremark,3,15.76,13.97,0.07,41344
+microbench,1,92.00,89.98,0.39,41232
+microbench,2,89.75,88.31,0.33,41312
+microbench,3,82.82,79.17,0.31,41264

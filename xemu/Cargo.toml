@@ -19,3 +19,15 @@ log = "0.4.28"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+# Use with `cargo build --profile perf`. Mirrors release codegen so
+# measurements reflect production performance, but emits line tables so
+# sampling profilers (samply, Apple `sample`, perf) can attribute
+# self-time to source lines. For frame-pointer-based unwinders,
+# additionally export
+#   RUSTFLAGS="-C force-frame-pointers=yes"
+# before building. scripts/perf/ uses this profile by default.
+[profile.perf]
+inherits = "release"
+debug = "line-tables-only"
+strip = false

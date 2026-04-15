@@ -13,6 +13,7 @@ pub use interrupt::Interrupt;
 use crate::{
     arch::riscv::cpu::RVCore,
     config::Word,
+    device::bus::Bus,
     error::{XError, XResult},
 };
 
@@ -34,9 +35,10 @@ impl RVCore {
 
     pub(in crate::arch::riscv) fn trap_on_err(
         &mut self,
-        f: impl FnOnce(&mut Self) -> XResult,
+        bus: &mut Bus,
+        f: impl FnOnce(&mut Self, &mut Bus) -> XResult,
     ) -> XResult {
-        match f(self) {
+        match f(self, bus) {
             Ok(()) => Ok(()),
             Err(XError::Trap(trap)) => {
                 self.raise_trap(trap.cause, trap.tval);

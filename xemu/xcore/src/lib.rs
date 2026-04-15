@@ -42,7 +42,7 @@ pub use cpu::{
     debug::{Breakpoint, DebugOps},
     with_xcpu,
 };
-pub use device::uart::Uart;
+pub use device::{bus::Bus, uart::Uart};
 pub use error::{XError, XResult};
 
 /// Initialize the emulator core from a machine configuration.

@@ -73,12 +73,13 @@ pub fn cmd_continue(sess: &mut Session) -> XResult {
 
 fn check_watchpoints(watch_mgr: &mut WatchManager) -> Option<String> {
     with_xcpu(|cpu| {
+        let bus = cpu.bus();
         let ops = cpu.debug_ops();
         watch_mgr.check(|expr| {
             eval_expr(
                 expr,
                 |name| ops.read_register(name),
-                |addr, sz| ops.read_memory(addr, sz).ok(),
+                |addr, sz| ops.read_memory(bus, addr, sz).ok(),
             )
         })
     })
@@ -127,20 +128,21 @@ pub fn cmd_examine(format: char, count: usize, addr: Option<String>) -> XResult 
             Some(ref s) => parse_addr(s).map_err(|_| xcore::XError::BadAddress)?,
             None => cpu.pc(), // physical address (identity-mapped in bare-metal)
         };
+        let bus = cpu.bus();
         let ops = cpu.debug_ops();
         match format {
-            'i' => examine_inst(ops, base, count),
-            'x' => examine_hex(ops, base, count),
-            'b' => examine_bytes(ops, base, count),
+            'i' => examine_inst(ops, bus, base, count),
+            'x' => examine_hex(ops, bus, base, count),
+            'b' => examine_bytes(ops, bus, base, count),
             _ => println!("Unknown format '{format}'. Use: i(nstr), x(hex), b(yte)"),
         }
         Ok(())
     })
 }
 
-fn examine_inst(ops: &dyn xcore::DebugOps, mut pc: usize, count: usize) {
+fn examine_inst(ops: &dyn xcore::DebugOps, bus: &xcore::Bus, mut pc: usize, count: usize) {
     for _ in 0..count {
-        match ops.fetch_inst(pc) {
+        match ops.fetch_inst(bus, pc) {
             Ok(raw) => {
                 let mn = ops.disasm_raw(raw);
                 let width = ops.inst_size(raw);
@@ -155,10 +157,10 @@ fn examine_inst(ops: &dyn xcore::DebugOps, mut pc: usize, count: usize) {
     }
 }
 
-fn examine_hex(ops: &dyn xcore::DebugOps, base: usize, count: usize) {
+fn examine_hex(ops: &dyn xcore::DebugOps, bus: &xcore::Bus, base: usize, count: usize) {
     for i in 0..count {
         let a = base + i * 8;
-        match ops.read_memory(a, 8) {
+        match ops.read_memory(bus, a, 8) {
             Ok(val) => println!("  {a:#010x}: {val:#018x}"),
             Err(_) => {
                 println!("  {a:#010x}: <not in RAM>");
@@ -168,10 +170,10 @@ fn examine_hex(ops: &dyn xcore::DebugOps, base: usize, count: usize) {
     }
 }
 
-fn examine_bytes(ops: &dyn xcore::DebugOps, base: usize, count: usize) {
+fn examine_bytes(ops: &dyn xcore::DebugOps, bus: &xcore::Bus, base: usize, count: usize) {
     print!("  {base:#010x}: ");
     for i in 0..count {
-        match ops.read_memory(base + i, 1) {
+        match ops.read_memory(bus, base + i, 1) {
             Ok(val) => print!("{val:02x} "),
             Err(_) => {
                 print!("?? ");
@@ -187,11 +189,12 @@ fn examine_bytes(ops: &dyn xcore::DebugOps, base: usize, count: usize) {
 /// Evaluate and print an expression.
 pub fn cmd_print(expr_str: &str) -> XResult {
     with_xcpu(|cpu| {
+        let bus = cpu.bus();
         let ops = cpu.debug_ops();
         match eval_expr(
             expr_str,
             |name| ops.read_register(name),
-            |addr, sz| ops.read_memory(addr, sz).ok(),
+            |addr, sz| ops.read_memory(bus, addr, sz).ok(),
         ) {
             Ok(val) => println!("{val:#x} ({val})"),
             Err(e) => println!("Error: {e}"),
@@ -229,11 +232,12 @@ pub fn cmd_info(what: &str, name: Option<&str>) -> XResult {
 pub fn cmd_watch(expr_str: &str, watch_mgr: &mut WatchManager) -> XResult {
     // Validate expression before creating watchpoint — reject syntax errors
     let result = with_xcpu(|cpu| {
+        let bus = cpu.bus();
         let ops = cpu.debug_ops();
         eval_expr(
             expr_str,
             |name| ops.read_register(name),
-            |addr, sz| ops.read_memory(addr, sz).ok(),
+            |addr, sz| ops.read_memory(bus, addr, sz).ok(),
         )
     });
     match result {
