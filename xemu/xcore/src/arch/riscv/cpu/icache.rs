@@ -1,4 +1,5 @@
-//! Per-hart decoded-instruction cache (Phase P4 of `docs/archived/perf/perfHotPath/`).
+//! Per-hart decoded-instruction cache (Phase P4 of
+//! `docs/archived/perf/perfHotPath/`).
 //!
 //! Memoises the pest-based decoder walk; the post-P1 profile in
 //! `docs/perf/baselines/2026-04-15/REPORT.md` pinned `xdb::main` as 40–47 % of

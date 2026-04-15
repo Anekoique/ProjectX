@@ -1,0 +1,12 @@
+[book]
+title = "xemu"
+description = "A RISC-V system emulator — user manual and internals reference"
+authors = ["Anekoique"]
+language = "en"
+src = "."
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/Anekoique/ProjectX"
+edit-url-template = "https://github.com/Anekoique/ProjectX/edit/main/docs/book/{path}"

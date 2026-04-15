@@ -2,8 +2,8 @@
 //!
 //! The generic [`CPU`] wrapper owns one or more arch-specific cores
 //! (`Vec<Core>`) and an inline [`crate::device::bus::Bus`]. Per M-001
-//! (`docs/archived/perf/perfBusFastPath/01_MASTER.md`) the bus is NOT wrapped in a
-//! synchronization primitive — cooperative round-robin hands each step
+//! (`docs/archived/perf/perfBusFastPath/01_MASTER.md`) the bus is NOT wrapped
+//! in a synchronization primitive — cooperative round-robin hands each step
 //! exactly one `&mut Bus` borrow, which is the exclusion invariant the
 //! borrow checker enforces (see invariant I-10 in `03_PLAN.md`).
 
