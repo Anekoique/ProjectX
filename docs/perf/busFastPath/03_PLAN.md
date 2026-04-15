@@ -1010,7 +1010,7 @@ Checkpoint after the commit:
   ```rust
   /// `Bus` is owned directly by `CPU` and must not be wrapped in a
   /// synchronization primitive on the hot path. See `01_MASTER.md`
-  /// M-001 and `docs/fix/perfBusFastPath/03_PLAN.md`.
+  /// M-001 and `docs/perf/busFastPath/03_PLAN.md`.
   ///
   /// ```compile_fail
   /// use std::sync::{Arc, Mutex};

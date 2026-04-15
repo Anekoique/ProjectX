@@ -34,30 +34,34 @@ All iteration artifacts reside in `docs/<feature>/`.
    never by manual external tooling and never inlined into the main conversation. The
    canonical mapping is:
 
-   | Artifact | Sub-agent |
-   |----------|-----------|
-   | `NN_PLAN.md` | **`plan-executor`** |
-   | `NN_REVIEW.md` | **`plan-reviewer`** |
-   | `NN_IMPL_REVIEW.md` | **`code-reviewer`** (or a language-specific reviewer) |
+   | Artifact | Author |
+   |----------|--------|
+   | `NN_PLAN.md` | **`plan-executor`** sub-agent |
+   | `NN_REVIEW.md` | **External reviewer** (e.g. `codex`, a human reviewer, or any off-session agent the user invokes) |
 
-   MASTER documents (`NN_MASTER.md) are authored by the human user
-   and are the only artifacts the main session may write by hand. Do not invoke
-   `codex`, the `ask-codex` skill, or any other external reviewer for these artifacts;
-   do not write PLAN or REVIEW files from the main session. Each sub-agent runs in
-   isolation, reads the target artifact and repo state, and writes its output file
-   itself.
+   MASTER documents (`NN_MASTER.md`) are authored by the human user
+   and, together with `NN_REVIEW.md`, are the only artifacts the main
+   session does not write. The main session never authors `NN_REVIEW.md`
+   — reviews always come from outside the session — and never authors
+   `NN_PLAN.md` by hand (always via the `plan-executor` sub-agent).
 
 ### Iteration Lifecycle
 
 Round N:
-- Executor dispatches the `plan-executor` sub-agent → `NN_PLAN.md`
-- Executor dispatches the `plan-reviewer` sub-agent → `NN_REVIEW.md`
-- Master directs → `NN_MASTER.md` (optional)
+1. Executor dispatches the `plan-executor` sub-agent → `NN_PLAN.md`
+2. Executor **stops**. The user (or an external agent invoked by the user)
+   writes `NN_REVIEW.md`.
+3. Master may direct → `NN_MASTER.md` (optional).
+4. The user signals the main session to dispatch round N+1's plan-executor
+   (or to begin implementation).
 
 Repeat until:
 - no unresolved CRITICAL issues remain,
 - HIGH issues are resolved or waived,
 - and the plan is approved for implementation.
+
+The main session does not self-chain PLAN → REVIEW → next PLAN. The
+review step is out-of-session; each round therefore pauses after PLAN.
 
 ### Response Rules
 

@@ -966,6 +966,7 @@ mod tests {
     const F1: RVReg = RVReg::ra; // ft1
     const F2: RVReg = RVReg::sp; // ft2
     const F3: RVReg = RVReg::gp; // ft3
+    #[allow(dead_code)]
     const F4: RVReg = RVReg::tp; // ft4
 
     fn setup() -> (RVCore, Bus) {

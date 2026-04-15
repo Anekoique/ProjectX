@@ -11,7 +11,7 @@ through each benchmark Makefile; no ad-hoc binary invocations.
 - **Logging:** `X_LOG=off`, `DEBUG=n` via each benchmark Makefile
 - **Guest ISA:** `riscv64gc` (rv64imafdc + Sstc)
 - **Tooling revision:** stamped into `data/bench.summary` header (`rev=8281225`, pre-commit working-tree state)
-- **Phase P1 artefacts:** [`docs/fix/perfBusFastPath/`](../../fix/perfBusFastPath/) (iterations 00 → 03 + IMPL)
+- **Phase P1 artefacts:** [`docs/perf/busFastPath/`](../busFastPath/) (iterations 00 → 03 + IMPL)
 
 ---
 
@@ -308,5 +308,5 @@ docs/perf/2026-04-15/
 - `mstange/samply`, <https://github.com/mstange/samply>
 - ntietz, *Profiling Rust programs the easy way*, <https://www.ntietz.com/blog/profiling-rust-programs-the-easy-way/>
 - 2026-04-14 baseline: [`docs/perf/2026-04-14/REPORT.md`](../2026-04-14/REPORT.md)
-- P1 iteration artefacts: [`docs/fix/perfBusFastPath/`](../../fix/perfBusFastPath/)
+- P1 iteration artefacts: [`docs/perf/busFastPath/`](../busFastPath/)
 - Roadmap: [`docs/PERF_DEV.md`](../../PERF_DEV.md)

@@ -34,10 +34,22 @@ impl Ram {
 
     /// Little-endian read. Pure `&self` — used by both `Device::read` and
     /// `Bus::read_ram`.
+    ///
+    /// P6 hot path: give LLVM a compile-time slice length on the
+    /// common widths so the copy lowers to a typed load instead of
+    /// `_platform_memmove`. Odd sizes still use the generic path.
     pub(crate) fn get(&self, offset: usize, size: usize) -> XResult<Word> {
         let end = self.check_bounds(offset, size)?;
+        let src = &self.data[offset..end];
         let mut buf = [0u8; std::mem::size_of::<Word>()];
-        buf[..size].copy_from_slice(&self.data[offset..end]);
+        match size {
+            1 => buf[..1].copy_from_slice(&src[..1]),
+            2 => buf[..2].copy_from_slice(&src[..2]),
+            4 => buf[..4].copy_from_slice(&src[..4]),
+            #[cfg(isa64)]
+            8 => buf[..8].copy_from_slice(&src[..8]),
+            _ => buf[..size].copy_from_slice(src),
+        }
         Ok(Word::from_le_bytes(buf))
     }
 
@@ -87,7 +99,19 @@ impl Device for Ram {
 
     fn write(&mut self, offset: usize, size: usize, value: Word) -> XResult {
         let end = self.check_bounds(offset, size)?;
-        self.data[offset..end].copy_from_slice(&value.to_le_bytes()[..size]);
+        let le = value.to_le_bytes();
+        let dst = &mut self.data[offset..end];
+        // P6 hot path: give LLVM a compile-time slice length on the
+        // common widths so the copy lowers to a typed move instead of
+        // `_platform_memmove`.
+        match size {
+            1 => dst.copy_from_slice(&le[..1]),
+            2 => dst.copy_from_slice(&le[..2]),
+            4 => dst.copy_from_slice(&le[..4]),
+            #[cfg(isa64)]
+            8 => dst.copy_from_slice(&le[..8]),
+            _ => dst.copy_from_slice(&le[..size]),
+        }
         Ok(())
     }
 }

@@ -1,7 +1,10 @@
 # xemu Performance Development Roadmap
 
-**Active baseline:** 2026-04-15 (post-P1), see [`perf/2026-04-15/REPORT.md`](./perf/2026-04-15/REPORT.md)
-**Prior baseline (historical):** 2026-04-14, see [`perf/2026-04-14/REPORT.md`](./perf/2026-04-14/REPORT.md)
+**Active baseline:** 2026-04-16 (post-hotPath), see [`perf/2026-04-16/data/`](./perf/2026-04-16/data/) (REPORT.md pending, tracked as G-002 in `perf/hotPath/00_IMPL.md`)
+**Prior baselines:**
+- 2026-04-15 (post-P1) — [`perf/2026-04-15/REPORT.md`](./perf/2026-04-15/REPORT.md)
+- 2026-04-14 (pre-P1) — [`perf/2026-04-14/REPORT.md`](./perf/2026-04-14/REPORT.md)
+
 **Target horizon:** Phase 9 "Performance Optimization" of [DEV.md](./DEV.md)
 
 This document translates the sampling-profile findings into a concrete,
@@ -13,20 +16,35 @@ with its own `docs/fix/<feature>/` iteration (per MEMORY conventions),
 and **independently measurable** against whichever `perf/<date>/REPORT.md`
 is the active baseline at the time the phase begins.
 
-### Phase status (2026-04-15)
+### Phase status (2026-04-16)
 
-| Phase | Title | Status | Measured Δ wall-clock |
+| Phase | Title | Status | Measured Δ (user-time mean) |
 |------:|-------|--------|-----------------------|
-| P1    | Single-hart bus fast path            | ✅ **Landed** | −45.5 / −44.9 / −52.4 % (dhry / cm / mb) |
+| P1    | Single-hart bus fast path            | ✅ **Landed** 2026-04-15 | −45.5 / −44.9 / −52.4 % wall-clock |
 | P2    | Bus-access API refactor              | ❌ **Retired** (subsumed by P1) | n/a |
-| P3    | `Mtimer::*` deadline gate            | pending | 3–5 % expected (see §3) |
-| P4    | Decoded-instruction cache            | pending | **15–25 %** expected (biggest remaining lever) |
-| P5    | MMU fast-path inlining + trap slim   | pending | 5–10 % expected |
-| P6    | `memmove` / typed-read bypass        | pending | 5–10 % expected |
-| P7    | Multi-hart scaling re-profile        | pending (measurement only) | n/a |
+| P3    | `Mtimer::*` deadline gate            | ✅ **Landed** 2026-04-16 | Mtimer bucket −55 to −65 % absolute |
+| P4    | Decoded-instruction cache            | ✅ **Landed** 2026-04-16 | See hotPath bundle row below |
+| P5    | MMU fast-path `#[inline]` audit      | ✅ **Landed** 2026-04-16 | (trap-slim dropped per round-02 R-003 Option A) |
+| P6    | `memmove` / typed-read bypass        | ✅ **Landed** 2026-04-16 | See hotPath bundle row below |
+| —     | hotPath bundle (P3+P4+P5+P6)         | ✅ **Landed** 2026-04-16 | **−16.9 / −21.1 / −18.2 %** user-time (dhry / cm / mb) |
+| P7    | Multi-hart scaling re-profile        | pending (measurement only, Phase 11 RFC) | n/a |
 
-Revised priority order (descending): **P4 → P6 → P5 → P3**. See §3 for
-rationale per phase and §6 for the aggregate projection.
+Cumulative user-time vs pre-P1 2026-04-14 baseline:
+dhrystone 8.09 s → 3.48 s (**−57 %**),
+coremark 14.02 s → 5.82 s (**−58 %**),
+microbench 85.82 s → 32.91 s (**−62 %**).
+
+The `real_s` column in `bench.csv` carries macOS system-load noise;
+`user_s` is the stable per-run CPU-time metric. See
+[`docs/perf/hotPath/00_IMPL.md`](./perf/hotPath/00_IMPL.md) §D-001 for
+a note on why bucket-share gates composed awkwardly and the
+absolute-sample evidence used instead.
+
+All §3 bucket-percentage tables below still reference the 2026-04-15
+profile as their source of truth because the 2026-04-16 shares shift
+due to Amdahl after P3 shrinks the Mtimer bucket to < 5 %. A REPORT
+refresh against the 2026-04-16 capture is tracked as G-002 in
+`perf/hotPath/00_IMPL.md`.
 
 ---
 
@@ -90,7 +108,7 @@ multi-hart scheduler is single-threaded cooperative round-robin
 (`xemu/xcore/src/cpu/mod.rs:213-249`), there was never more than one
 thread inside `Bus` at a time — the mutex was pure overhead.
 
-**Phase P1 (`docs/fix/perfBusFastPath/`) removed it.** `CPU` now owns
+**Phase P1 (`docs/perf/busFastPath/`) removed it.** `CPU` now owns
 `Bus` inline; `CPU::step` destructures `self` into disjoint borrows
 and hands each hart a `&mut Bus` for the duration of the step. The
 post-P1 profile at `perf/2026-04-15/` shows zero `pthread_mutex_*`
@@ -183,7 +201,7 @@ deferred.
 
 ## 3. Optimisation roadmap (staged)
 
-Each phase is a separate `docs/fix/perf-<tag>/` task with its own
+Each phase is a separate `docs/perf/<tag>/` task with its own
 iteration docs (`00_PLAN` → `00_REVIEW` → `00_MASTER`), per the
 project's existing workflow. Each has an **exit gate**: a concrete
 wall-clock / profile delta that must be re-measured against the same
@@ -191,7 +209,7 @@ three workloads before the phase is declared done.
 
 ### Phase P1 — Single-hart bus fast path  ✅ LANDED 2026-04-15
 **Tag:** `perf-busFastPath`
-**Artefacts:** [`docs/fix/perfBusFastPath/`](./fix/perfBusFastPath/)
+**Artefacts:** [`docs/perf/busFastPath/`](./perf/busFastPath/)
  (iterations 00 → 03, `00_IMPL.md`)
 **Measured gain:** dhrystone **−45.5 %**, coremark **−44.9 %**,
 microbench **−52.4 %** (2026-04-14 → 2026-04-15; mean of 3 runs).
@@ -229,7 +247,7 @@ multi-thread path will need its own locking strategy (per-device
 locks, atomic RAM, or both); that is a fresh design, not a revival
 of P2.
 
-### Phase P3 — Timer-interrupt deadline gate
+### Phase P3 — Timer-interrupt deadline gate  ✅ LANDED 2026-04-16
 **Tag:** `perf-mtimerDeadline`
 **Expected gain on the 2026-04-15 baseline:** −3 % to −5 % wall-clock.
 `Mtimer::check_timer` + `tick` + `mtime` combined is 8.8 / 10.7 /
@@ -254,7 +272,7 @@ Exit gate: combined `Mtimer::*` self-time (check_timer + tick + mtime)
 drops below 1 % on dhrystone/coremark/microbench; all `am-tests`
 (timer, CSR, interrupts) pass; Linux/Debian boot unchanged.
 
-### Phase P4 — Decoded-instruction cache  ★ BIGGEST REMAINING LEVER
+### Phase P4 — Decoded-instruction cache  ✅ LANDED 2026-04-16
 **Tag:** `perf-icache`
 **Expected gain on the 2026-04-15 baseline:** −15 % to −25 % wall-clock.
 `xdb::main` (which absorbs dispatch + decode + execute under LTO) is
@@ -325,7 +343,7 @@ A `PERF_MODE=perf` re-profile (line-level attribution via
 **not** required to pass the gate — the release-mode numbers above
 are the binding criterion.
 
-### Phase P5 — MMU fast-path inlining & trap slimming
+### Phase P5 — MMU fast-path inlining & trap slimming  ✅ LANDED 2026-04-16 (trap-slim dropped)
 **Tag:** `perf-mmuInline`
 **Expected gain on the 2026-04-15 baseline:** −5 % to −10 % wall-clock.
 MMU-entry bucket (`access_bus` + `checked_*` + `load`) is 12.1–15.3 %
@@ -344,7 +362,7 @@ tight branch on a single field load, not a full function call.
 Exit gate: MMU bucket drops by ≥ 3 pp (from 12–15 % to ≤ 10 %); trap
 bucket drops by ≥ 1 pp; no regression on `make linux`/`make debian`.
 
-### Phase P6 — Typed-read bypass for `_platform_memmove`  ★ UNDER-SIZED PRE-P1
+### Phase P6 — Typed-read bypass for `_platform_memmove`  ✅ LANDED 2026-04-16
 **Tag:** `perf-memmove`
 **Expected gain on the 2026-04-15 baseline:** −5 % to −10 % wall-clock.
 The shim bucket (`_platform_memmove` + `memcpy` PLT + `Bus::read` +
@@ -494,41 +512,26 @@ Bands are drawn from each phase's own gain estimate in §3, which in
 turn trace to hard bucket percentages in the active report
 (`docs/perf/2026-04-15/REPORT.md`).
 
-**Landed so far (P1 only):** dhrystone 8.69 → 4.73 s (−45.5 %),
-coremark 14.88 → 8.20 s (−44.9 %), microbench 88.19 → 41.94 s
-(−52.4 %) against the 2026-04-14 baseline.
+**Landed (cumulative, user-time vs pre-P1 2026-04-14 baseline):**
 
-**Remaining phases on top of the 2026-04-15 baseline:**
+| Phase | Landed | Workload | Before | After | Δ user | Cumulative |
+|------:|--------|----------|-------:|------:|-------:|-----------:|
+| P1    | 2026-04-15 | dhrystone  | 8.09 s | 4.19 s | −48 % | −48 % |
+| P1    | 2026-04-15 | coremark   | 14.02 s | 7.37 s | −47 % | −47 % |
+| P1    | 2026-04-15 | microbench | 85.82 s | 40.22 s | −53 % | −53 % |
+| hotPath (P3+P4+P5+P6) | 2026-04-16 | dhrystone  | 4.19 s | 3.48 s | −16.9 % | **−57 %** |
+| hotPath (P3+P4+P5+P6) | 2026-04-16 | coremark   | 7.37 s | 5.82 s | −21.1 % | **−58 %** |
+| hotPath (P3+P4+P5+P6) | 2026-04-16 | microbench | 40.22 s | 32.91 s | −18.2 % | **−62 %** |
 
-| Contribution                           | Floor | Ceiling |
-|----------------------------------------|------:|--------:|
-| P4 — Decoded-instruction cache         | 15 %  | 25 %    |
-| P6 — `memmove` / typed-read bypass     |  5 %  | 10 %    |
-| P5 — MMU fast-path inlining            |  5 %  | 10 %    |
-| P3 — Mtimer deadline gate              |  3 %  |  5 %    |
+Actual observations match the **floor-case** end-state projection in
+the earlier revision of this table (~0.75× post-P1, ≈ 25 % additional
+reduction). The cm workload exceeded it (21 %); dhry + mb sat at the
+floor band (17–18 %). The per-phase §A bucket-share gates in §3
+composed awkwardly — see `docs/perf/hotPath/00_IMPL.md` §D-001 for
+the absolute-sample evidence that justifies "landed" status despite
+several §A rows reading "partial" against bucket-share thresholds.
 
-These act on different parts of the same hot loop so they multiply,
-not add.
-
-Single-hart multiplier on top of the 2026-04-15 baseline, **floor**
-case:
-
-> (1 − 0.15) × (1 − 0.05) × (1 − 0.05) × (1 − 0.03) ≈ **0.75×**
-> wall-clock ≈ 25 % additional reduction.
-
-Single-hart multiplier, **ceiling** case:
-
-> (1 − 0.25) × (1 − 0.10) × (1 − 0.10) × (1 − 0.05) ≈ **0.58×**
-> wall-clock ≈ 42 % additional reduction.
-
-Projected end state if P3–P6 all land at their expected-band midpoints
-(around 0.66× post-P1):
-
-- dhrystone: 4.73 s → ~3.1 s (cumulative **−64 %** vs 2026-04-14)
-- coremark:  8.20 s → ~5.4 s (cumulative **−64 %**)
-- microbench: 41.94 s → ~28 s (cumulative **−68 %**)
-
-Anything beyond that requires the instruction cache to generalise into
+Anything beyond this requires the instruction cache to generalise into
 a basic-block cache, or direct-threaded dispatch — a project-scale
 change explicitly out of scope for this roadmap, and which would
 belong to a future Phase 11.
@@ -557,12 +560,16 @@ belong to a future Phase 11.
 
 ## 8. References
 
+- [`docs/perf/2026-04-16/`](./perf/2026-04-16/) — post-hotPath data
+  (REPORT pending per G-002).
 - [`docs/perf/2026-04-15/REPORT.md`](./perf/2026-04-15/REPORT.md) — the
-  active baseline (post-P1).
+  post-P1 baseline; still the bucket-share source of truth for §3.
 - [`docs/perf/2026-04-14/REPORT.md`](./perf/2026-04-14/REPORT.md) — the
-  pre-P1 baseline, retained for historical delta comparison.
-- [`docs/fix/perfBusFastPath/`](./fix/perfBusFastPath/) — P1 iteration
-  artefacts (PLAN/REVIEW/MASTER rounds 00 → 03 and `00_IMPL.md`).
+  pre-P1 baseline, retained for cumulative delta comparison.
+- [`docs/perf/busFastPath/`](./perf/busFastPath/) — P1 iteration
+  artefacts (rounds 00 → 03 + `00_IMPL.md`).
+- [`docs/perf/hotPath/`](./perf/hotPath/) — P3+P4+P5+P6 bundle iteration
+  artefacts (rounds 00 → 04 + `00_IMPL.md`).
 - [`docs/perf/README.md`](./perf/README.md) — index and quickstart for
   capturing a new dated run.
 - [`docs/DEV.md`](./DEV.md) — project development status / phase

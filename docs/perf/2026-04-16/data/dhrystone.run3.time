@@ -1,0 +1,23 @@
+    Finished `release` profile [optimized] target(s) in 0.01s
+   Compiling xcore v0.1.0 (/Users/anekoique/ProjectX/xemu/xcore)
+   Compiling xdb v0.1.0 (/Users/anekoique/ProjectX/xemu/xdb)
+    Finished `release` profile [optimized] target(s) in 4.81s
+     Running `target/release/xdb`
+        8.58 real         3.45 user         0.08 sys
+            42254336  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               16261  page reclaims
+                  61  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  11  signals received
+                  24  voluntary context switches
+                 987  involuntary context switches
+            80546448  instructions retired
+            37707169  cycles elapsed
+             1540312  peak memory footprint

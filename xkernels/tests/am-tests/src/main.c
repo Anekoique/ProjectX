@@ -22,6 +22,7 @@ static const char *descriptions[256] = {
     ['R'] = "rtc:         clock accuracy (interactive)",
     ['k'] = "keyboard:    UART RX echo (interactive)",
     ['f'] = "float:       F/D floating-point",
+    ['m'] = "smc:         self-modifying code + fence.i",
     ['a'] = "Run all tests",
     ['h'] = "Show this help",
 };
@@ -43,6 +44,7 @@ int main(const char *args) {
         CASE('R', test_rtc);
         CASE('k', test_keyboard);
         CASE('f', test_float);
+        CASE('m', test_smc);
     case 'a':
         printf("=== am-tests ===\n");
         test_uart_putc();

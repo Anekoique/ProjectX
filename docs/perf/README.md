@@ -1,16 +1,45 @@
 # xemu Performance Runs
 
-Each subdirectory is one complete profile captured on a single day:
+This directory holds two kinds of content:
+
+- **Dated-run subdirectories** (`YYYY-MM-DD/`) — one complete profile
+  captured on a single day: `REPORT.md` + raw `data/` + rendered
+  `graphics/`.
+- **Iteration-task subdirectories** (camelCase `<tag>/`) — RLCR
+  iteration artefacts (PLAN / REVIEW / MASTER / IMPL) for the
+  performance phases defined in [`../PERF_DEV.md`](../PERF_DEV.md).
 
 ```
 docs/perf/
 ├── README.md                  # this file
-├── 2026-04-14/
-│   ├── REPORT.md              # human-readable writeup for the run
-│   ├── data/                  # raw: bench.csv, sample text, per-run time files
+├── 2026-04-14/                # pre-P1 baseline
+│   ├── REPORT.md
+│   ├── data/                  # bench.csv, sample text, per-run time files
 │   └── graphics/              # SVG charts re-generable from data/
-└── <YYYY-MM-DD>/...
+├── 2026-04-15/                # post-P1 baseline (busFastPath landed)
+├── 2026-04-16/                # post-hotPath (P3+P4+P5+P6 landed)
+├── busFastPath/               # Phase P1 iteration artefacts
+│   ├── 00_PLAN.md … 03_PLAN.md
+│   ├── 00_REVIEW.md … 03_REVIEW.md
+│   ├── 00_MASTER.md … 03_MASTER.md
+│   └── 00_IMPL.md
+└── hotPath/                   # Phases P3+P4+P5+P6 bundle iteration
+    ├── 00_PLAN.md … 04_PLAN.md
+    ├── 00_REVIEW.md … 04_REVIEW.md
+    ├── 00_MASTER.md … 04_MASTER.md
+    └── 00_IMPL.md
 ```
+
+## Timeline
+
+| Date | What landed | Run directory |
+|------|-------------|---------------|
+| 2026-04-14 | Pre-P1 baseline capture | [`2026-04-14/`](./2026-04-14/) |
+| 2026-04-15 | **P1** — single-hart bus fast path ([`busFastPath/`](./busFastPath/)) | [`2026-04-15/`](./2026-04-15/) |
+| 2026-04-16 | **hotPath** — P3 Mtimer + P4 icache + P5 MMU inline + P6 memmove ([`hotPath/`](./hotPath/)) | [`2026-04-16/`](./2026-04-16/) (REPORT pending) |
+
+Cumulative user-time vs pre-P1: dhrystone **−57 %**, coremark
+**−58 %**, microbench **−62 %**.
 
 ## Quickstart — capture a new run
 

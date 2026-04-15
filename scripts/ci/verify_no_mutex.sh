@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# verify_no_mutex.sh — M-001 sentinel (R-002 in docs/fix/perfBusFastPath/03_REVIEW.md).
+# verify_no_mutex.sh — M-001 sentinel (R-002 in docs/perf/busFastPath/03_REVIEW.md).
 #
 # Rejects any attempt to wrap `Bus` in `Mutex`, `RwLock`, `parking_lot::{Mutex,RwLock}`,
 # or `Arc<Mutex<Bus>>` anywhere under xemu/xcore/src/. The check is a *type-shape*
@@ -52,7 +52,7 @@ done
 
 if [[ $violations -gt 0 ]]; then
   echo "verify_no_mutex: M-001 violation — Bus must not be wrapped in a synchronization primitive." >&2
-  echo "verify_no_mutex: see docs/fix/perfBusFastPath/01_MASTER.md" >&2
+  echo "verify_no_mutex: see docs/perf/busFastPath/01_MASTER.md" >&2
   exit 1
 fi
 

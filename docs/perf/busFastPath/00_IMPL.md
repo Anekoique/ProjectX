@@ -100,7 +100,7 @@ No benchmark-targeted tricks were applied. The change is structural: every workl
 - `scripts/ci/verify_no_mutex.sh` — new CI sentinel (type-shape regex, `//` comment filter, exit 1 on violation).
 - `docs/DEV.md` — Phase 11 RFC added; Phase 9 "Lock-free bus" bullet restored to `[x]`; line 23 "Performance" bullet updated to cite the P1 restoration.
 - `AGENTS.md` — pre-existing edits in the working tree (not introduced by P1; carried through the same diff because the file was already modified when P1 implementation began).
-- `docs/fix/perfBusFastPath/` — `00_PLAN` … `03_PLAN` + `00_REVIEW` … `03_REVIEW` + `01_MASTER` (binding M-001), plus this `00_IMPL.md`.
+- `docs/perf/busFastPath/` — `00_PLAN` … `03_PLAN` + `00_REVIEW` … `03_REVIEW` + `01_MASTER` (binding M-001), plus this `00_IMPL.md`.
 - `docs/perf/2026-04-15/` — captured post-P1 data and graphics.
 
 [**Core Logic**]

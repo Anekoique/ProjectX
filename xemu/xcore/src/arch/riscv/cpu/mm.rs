@@ -251,6 +251,7 @@ impl RVCore {
         })
     }
 
+    #[inline]
     fn access_bus(
         &mut self,
         bus: &mut Bus,
@@ -268,6 +269,7 @@ impl RVCore {
             .map_err(|e| Self::to_trap(e, addr, op))
     }
 
+    #[inline]
     fn checked_read(
         &mut self,
         bus: &mut Bus,
@@ -279,6 +281,7 @@ impl RVCore {
         bus.read(pa, size).map_err(|e| Self::to_trap(e, addr, op))
     }
 
+    #[inline]
     fn checked_write(
         &mut self,
         bus: &mut Bus,

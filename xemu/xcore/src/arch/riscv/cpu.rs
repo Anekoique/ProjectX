@@ -6,6 +6,7 @@
 pub mod context;
 pub mod csr;
 pub mod debug;
+pub(in crate::arch::riscv) mod icache;
 mod inst;
 pub(crate) mod mm;
 pub mod trap;
@@ -51,6 +52,11 @@ pub struct RVCore {
     pub(in crate::arch::riscv) breakpoints: Vec<crate::cpu::debug::Breakpoint>,
     pub(in crate::arch::riscv) next_bp_id: u32,
     pub(in crate::arch::riscv) skip_bp_once: bool,
+    /// Per-hart decoded-instruction cache (Phase P4).
+    ///
+    /// Memoises the pest decoder walk; keyed on `(pc, raw)`. See
+    /// [`icache::ICache`] for invariants I-11 / I-12.
+    pub(in crate::arch::riscv) icache: Box<icache::ICache>,
 }
 
 impl RVCore {
@@ -82,6 +88,7 @@ impl RVCore {
             breakpoints: Vec::new(),
             next_bp_id: 1,
             skip_bp_once: false,
+            icache: icache::ICache::new(),
         };
         core.csr.set(CsrAddr::mhartid, id.0 as Word);
         core
@@ -138,8 +145,19 @@ impl RVCore {
         self.pending_trap = Some(PendingTrap { cause, tval });
     }
 
-    fn decode(&self, raw: u32) -> XResult<DecodedInst> {
-        DECODER.decode(raw)
+    /// Decode with per-hart icache (Phase P4). On a `(pc, raw)` hit,
+    /// return the cached `DecodedInst`; on a miss, re-decode through
+    /// the pest walker and overwrite the slot.
+    #[inline]
+    fn decode_cached(&mut self, raw: u32) -> XResult<DecodedInst> {
+        let pc = self.pc;
+        let line = &mut self.icache.lines[icache::ICache::index(pc)];
+        if line.pc == pc && line.raw == raw {
+            return Ok(line.decoded);
+        }
+        let decoded = DECODER.decode(raw)?;
+        *line = icache::ICacheLine { pc, raw, decoded };
+        Ok(decoded)
     }
 
     fn execute(&mut self, bus: &mut Bus, inst: DecodedInst) -> XResult {
@@ -237,7 +255,7 @@ impl CoreOps for RVCore {
 
         self.trap_on_err(bus, |core, bus| {
             let raw = core.fetch(bus)?;
-            let inst = core.decode(raw)?;
+            let inst = core.decode_cached(raw)?;
 
             #[cfg(feature = "debug")]
             trace!("{:#010x}: {:08x}  {}", core.pc.as_usize(), raw, inst,);
@@ -268,7 +286,7 @@ pub(in crate::arch::riscv) mod tests {
 
     /// Shared test-harness constructor: a fresh single-hart core + bus.
     /// Used by other `arch/riscv/cpu/inst/*` tests (see migration table in
-    /// `docs/fix/perfBusFastPath/03_PLAN.md`).
+    /// `docs/perf/busFastPath/03_PLAN.md`).
     pub(in crate::arch::riscv) fn new_core_with_bus() -> (RVCore, Bus) {
         (RVCore::new(), Bus::new(CONFIG_MBASE, CONFIG_MSIZE, 1))
     }

@@ -13,11 +13,11 @@ COLOR_NONE  = \033[0m
 TIMEOUT ?= 60
 TEST    ?=
 SRCS     = $(shell find src/ -name "*.[cS]")
-ALL      = u r t s p c e f
+ALL      = u r t s p c e f m
 
 name = $(patsubst u,uart-putc,$(patsubst r,timer-read,$(patsubst t,timer-irq,\
        $(patsubst s,soft-irq,$(patsubst p,plic-access,$(patsubst c,csr-warl,\
-       $(patsubst e,trap-ecall,$(patsubst f,float,$(1)))))))))
+       $(patsubst e,trap-ecall,$(patsubst f,float,$(patsubst m,smc,$(1))))))))))
 
 all: $(addprefix .run., $(if $(TEST),$(TEST),$(ALL)))
 

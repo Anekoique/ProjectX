@@ -158,7 +158,13 @@ impl RVDecoder {
 }
 
 /// Decoded instruction with extracted operands, one variant per encoding format.
-#[derive(Clone, PartialEq, Eq)]
+///
+/// `Copy` is required by P4 (decoded-instruction cache) — each cache line
+/// must be memcpy-safe so the fetch/decode path can populate an
+/// `ICacheLine` without allocation. All inner types (`InstKind`, `RVReg`,
+/// `SWord`, `u8`, `u32`) are themselves `Copy`, so this is a zero-cost
+/// derive.
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[rustfmt::skip]
 pub enum DecodedInst {
     R  { kind: InstKind, rd: RVReg, rs1: RVReg, rs2: RVReg },

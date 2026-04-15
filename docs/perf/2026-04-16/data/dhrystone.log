@@ -1,0 +1,30 @@
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+Dhrystone Benchmark, Version C, Version 2.2
+Trying 500000 runs through Dhrystone.
+Finished in 3507 ms
+==================================================
+Dhrystone PASS         251 Marks
+                   vs. 100000 Marks (i7-7700K @ 4.20GHz)
+[32mHIT GOOD TRAP at pc=VA:0x8000295a[m
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+Dhrystone Benchmark, Version C, Version 2.2
+Trying 500000 runs through Dhrystone.
+Finished in 3447 ms
+==================================================
+Dhrystone PASS         255 Marks
+                   vs. 100000 Marks (i7-7700K @ 4.20GHz)
+[32mHIT GOOD TRAP at pc=VA:0x8000295a[m
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/xemu.toml -w arch=riscv64 -w platform=xemu -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+cargo run -Z unstable-options --release  
+Dhrystone Benchmark, Version C, Version 2.2
+Trying 500000 runs through Dhrystone.
+Finished in 3396 ms
+==================================================
+Dhrystone PASS         259 Marks
+                   vs. 100000 Marks (i7-7700K @ 4.20GHz)
+[32mHIT GOOD TRAP at pc=VA:0x8000295a[m

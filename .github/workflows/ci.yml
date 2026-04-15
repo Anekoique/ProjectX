@@ -86,9 +86,9 @@ jobs:
           key: test-unit-${{ runner.os }}-${{ hashFiles('xemu/Cargo.lock') }}
           restore-keys: test-unit-${{ runner.os }}-
 
-      - name: cargo test -p xcore
+      - name: Run unit-test
         working-directory: xemu
-        run: cargo test -p xcore
+        run: make test
 
   test-cpu-rs:
     name: CPU Tests (Rust)

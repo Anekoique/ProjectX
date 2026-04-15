@@ -36,15 +36,15 @@ cd resource && make debian         # single-hart
 cd resource && make debian-2hart   # 2 harts
 ```
 
-## Benchmark 
+## Benchmark
 
 Platform: MacBook Air M4
 
 | Benchmark | Marks |
 |-----------|-------|
-| MicroBench | 687 |
-| CoreMark | 446 |
-| DhryStone | 248 |
+| MicroBench | 718 |
+| CoreMark | 499 |
+| DhryStone | 255 |
 
 ## OS Boot
 

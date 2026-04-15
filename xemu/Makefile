@@ -51,7 +51,7 @@ fmt:
 	cargo fmt --all
 
 test:
-	cargo test -p xcore
+	cargo test
 
 clean:
 	cargo clean
