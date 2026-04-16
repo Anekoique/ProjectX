@@ -1,0 +1,84 @@
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/riscv64-qemu-virt.toml -w arch=riscv64 -w platform=riscv64-qemu-virt -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 18.431 ms [23894]
+[queen] Queen placement: * Passed.
+  min time: 20.501 ms [19847]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 463.139 ms [3630]
+[fib] Fibonacci number: * Passed.
+  min time: 149.692 ms [13472]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 156.581 ms [22239]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 43.777 ms [12243]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 40.715 ms [20095]
+[lzip] Lzip compression: * Passed.
+  min time: 45.266 ms [15011]
+[ssort] Suffix sort: * Passed.
+  min time: 22.238 ms [17996]
+[md5] MD5 digest: * Passed.
+  min time: 160.142 ms [9490]
+==================================================
+MicroBench PASS        15791 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 1120.482 ms
+Total  time: 1634.396 ms
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/riscv64-qemu-virt.toml -w arch=riscv64 -w platform=riscv64-qemu-virt -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 18.240 ms [24144]
+[queen] Queen placement: * Passed.
+  min time: 20.559 ms [19791]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 495.853 ms [3391]
+[fib] Fibonacci number: * Passed.
+  min time: 149.258 ms [13512]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 154.767 ms [22500]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 46.040 ms [11642]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 41.541 ms [19696]
+[lzip] Lzip compression: * Passed.
+  min time: 45.482 ms [14939]
+[ssort] Suffix sort: * Passed.
+  min time: 21.885 ms [18286]
+[md5] MD5 digest: * Passed.
+  min time: 160.798 ms [9452]
+==================================================
+MicroBench PASS        15735 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 1154.423 ms
+Total  time: 1696.011 ms
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/riscv64-qemu-virt.toml -w arch=riscv64 -w platform=riscv64-qemu-virt -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+======= Running MicroBench [input *ref*] =======
+[qsort] Quick sort: * Passed.
+  min time: 18.328 ms [24028]
+[queen] Queen placement: * Passed.
+  min time: 20.319 ms [20025]
+[bf] Brainf**k interpreter: * Passed.
+  min time: 514.038 ms [3271]
+[fib] Fibonacci number: * Passed.
+  min time: 151.265 ms [13332]
+[sieve] Eratosthenes sieve: * Passed.
+  min time: 154.848 ms [22488]
+[15pz] A* 15-puzzle search: * Passed.
+  min time: 45.216 ms [11854]
+[dinic] Dinic's maxflow algorithm: * Passed.
+  min time: 40.624 ms [20140]
+[lzip] Lzip compression: * Passed.
+  min time: 46.216 ms [14702]
+[ssort] Suffix sort: * Passed.
+  min time: 21.917 ms [18259]
+[md5] MD5 digest: * Passed.
+  min time: 160.875 ms [9447]
+==================================================
+MicroBench PASS        15754 Marks
+                   vs. 100000 Marks (i9-9900K @ 3.60GHz)
+Scored time: 1173.646 ms
+Total  time: 1692.696 ms

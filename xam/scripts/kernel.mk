@@ -39,10 +39,17 @@ disasm: $(OUT_ELF)
 
 kernel: $(OUT_BIN) disasm
 
-run: kernel
-	@$(MAKE) -C $(XEMU_HOME) run FILE=$(OUT_BIN)
+PLATFORM_RUNNER := $(AM_HOME)/scripts/platforms/$(PLATFORM).mk
+
+ifeq ($(wildcard $(PLATFORM_RUNNER)),)
+  $(error No runner for PLATFORM=$(PLATFORM) (expected $(PLATFORM_RUNNER)))
+endif
+
+include $(PLATFORM_RUNNER)
+
+run: run-platform
 
 clean::
 	@rm -rf $(BUILD_DIR)
 
-.PHONY: kernel clean
+.PHONY: run kernel clean

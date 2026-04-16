@@ -1,0 +1,19 @@
+    Finished `release` profile [optimized] target(s) in 0.03s
+        0.28 real         0.20 user         0.05 sys
+            42270720  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               11332  page reclaims
+                 132  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  11  signals received
+                  18  voluntary context switches
+                 256  involuntary context switches
+            78098338  instructions retired
+            32747475  cycles elapsed
+             1589464  peak memory footprint

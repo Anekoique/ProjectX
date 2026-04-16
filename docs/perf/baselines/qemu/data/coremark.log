@@ -1,0 +1,51 @@
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/riscv64-qemu-virt.toml -w arch=riscv64 -w platform=riscv64-qemu-virt -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+Running CoreMark for 1000 iterations
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total time (ms)  : 170
+Iterations       : 1000
+Compiler version : GCC13.3.0
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xd340
+Finised in 170 ms.
+==================================================
+CoreMark PASS       17184 Marks
+                vs. 100000 Marks (i7-7700K @ 4.20GHz)
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/riscv64-qemu-virt.toml -w arch=riscv64 -w platform=riscv64-qemu-virt -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+Running CoreMark for 1000 iterations
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total time (ms)  : 171
+Iterations       : 1000
+Compiler version : GCC13.3.0
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xd340
+Finised in 171 ms.
+==================================================
+CoreMark PASS       17084 Marks
+                vs. 100000 Marks (i7-7700K @ 4.20GHz)
+[37maxconfig-gen[0m [90m/Users/anekoique/ProjectX/xam/xconfig/configs/defconfig.toml /Users/anekoique/ProjectX/xam/xconfig/configs/platforms/riscv64-qemu-virt.toml -w arch=riscv64 -w platform=riscv64-qemu-virt -o "/Users/anekoique/ProjectX/xam/.axconfig.toml" -c "/Users/anekoique/ProjectX/xam/.axconfig.toml"[0m
+[37mcargo build[0m [90m--manifest-path /Users/anekoique/ProjectX/xam/Cargo.toml -Z unstable-options --target riscv64gc-unknown-none-elf --release [0m
+Running CoreMark for 1000 iterations
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total time (ms)  : 170
+Iterations       : 1000
+Compiler version : GCC13.3.0
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0xd340
+Finised in 170 ms.
+==================================================
+CoreMark PASS       17184 Marks
+                vs. 100000 Marks (i7-7700K @ 4.20GHz)
