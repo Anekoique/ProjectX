@@ -15,7 +15,7 @@ static void radixPass(int* a, int* b, int* r, int n, int K)
 { // count occurrences
   int* c = (int*)bench_alloc(sizeof(int)*(K+1));
   for (int i = 0;  i <= K;  i++) c[i] = 0;         // reset counters
-  for (int i = 0;  i < n;  i++) c[r[a[i]]]++;    // count occurences
+  for (int i = 0;  i < n;  i++) c[r[a[i]]]++;    // count occurrences
   for (int i = 0, sum = 0;  i <= K;  i++) { // exclusive prefix sums
      int t = c[i];  c[i] = sum;  sum += t;
   }

@@ -1,0 +1,9 @@
+id = "xemu-init-logo"
+title = "add beautiful logo design for xemu when core init run"
+tier = "standard"
+phase = "archived"
+status = "completed"
+iteration = 0
+created_at = "2026-04-22T10:38:43Z"
+updated_at = "2026-04-22T10:54:06Z"
+archived_at = "2026-04-22T10:54:06Z"

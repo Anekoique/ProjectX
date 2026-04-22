@@ -49,6 +49,7 @@ pub use error::{XError, XResult};
 /// Must be called exactly once before any `with_xcpu` access.
 pub fn init_xcore(config: MachineConfig) -> XResult {
     use std::sync::Mutex;
+    utils::print_logo();
     info!("Hello xcore!");
     let layout = BootLayout {
         fdt_addr: config.fdt_addr(),

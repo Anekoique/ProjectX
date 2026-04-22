@@ -1,0 +1,8 @@
+id = "typo-check-project"
+title = "Check typos across the project"
+tier = "quick"
+phase = "archived"
+status = "completed"
+created_at = "2026-04-22T10:27:58Z"
+updated_at = "2026-04-22T10:34:45Z"
+archived_at = "2026-04-22T10:34:45Z"
