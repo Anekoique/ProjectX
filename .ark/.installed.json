@@ -1,0 +1,23 @@
+{
+  "version": "0.1.1",
+  "installed_at": "2026-04-22T10:25:59.019139Z",
+  "files": [
+    ".ark/workflow.md",
+    ".ark/templates/PLAN.md",
+    ".ark/templates/PRD.md",
+    ".ark/templates/REVIEW.md",
+    ".ark/templates/SPEC.md",
+    ".ark/templates/VERIFY.md",
+    ".ark/specs/INDEX.md",
+    ".ark/specs/project/INDEX.md",
+    ".ark/specs/features/INDEX.md",
+    ".claude/commands/ark/design.md",
+    ".claude/commands/ark/quick.md"
+  ],
+  "managed_blocks": [
+    {
+      "file": "CLAUDE.md",
+      "marker": "ARK"
+    }
+  ]
+}
