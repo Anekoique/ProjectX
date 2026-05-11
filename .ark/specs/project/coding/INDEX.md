@@ -11,10 +11,13 @@ Use `INDEX.md` when a spec area contains multiple sub-specs and needs its own hi
 
 ## Index
 
-| Spec                   | Scope                     |
-| ---------------------- | ------------------------- |
-| `organization/SPEC.md` | `Organization Guidelines` |
-| `coding/INDEX.md`      | `Coding Guidelines`       |
+| Spec              | Scope                 |
+| ----------------- | --------------------- |
+| `general/SPEC.md` | `General Guidelines`  |
+| `asm/SPEC.md`     | `Assembly Guidelines` |
+| `git/SPEC.md`     | `Git Guidelines`      |
+| `testing/SPEC.md` | `Testing Guidelines`  |
+| `rust/INDEX.md`   | `Rust Guidelines`     |
 
 ---
 
