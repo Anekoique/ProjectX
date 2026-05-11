@@ -4,8 +4,6 @@
 *.map
 **/.axconfig.*
 **/build/
-/.claude
-/.trellis
 .DS_Store
 .result
 __pycache__/

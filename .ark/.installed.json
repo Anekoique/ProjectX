@@ -1,7 +1,9 @@
 {
-  "version": "0.1.1",
-  "installed_at": "2026-04-22T10:25:59.019139Z",
+  "version": "0.1.5",
+  "installed_at": "2026-05-11T02:31:24.259700Z",
   "files": [
+    ".ark/.gitignore",
+    ".ark/config.toml",
     ".ark/workflow.md",
     ".ark/templates/PLAN.md",
     ".ark/templates/PRD.md",
@@ -11,13 +13,68 @@
     ".ark/specs/INDEX.md",
     ".ark/specs/project/INDEX.md",
     ".ark/specs/features/INDEX.md",
+    ".claude/commands/ark/commit.md",
     ".claude/commands/ark/design.md",
-    ".claude/commands/ark/quick.md"
+    ".claude/commands/ark/discard.md",
+    ".claude/commands/ark/extract-spec.md",
+    ".claude/commands/ark/quick.md",
+    ".claude/commands/ark/record.md",
+    ".claude/commands/ark/resume.md",
+    ".claude/agents/ark-researcher.md",
+    ".claude/agents/ark-reviewer.md",
+    ".claude/agents/ark-verifier.md",
+    ".codex/skills/ark-resume/SKILL.md",
+    ".codex/skills/ark-record/SKILL.md",
+    ".codex/skills/ark-quick/SKILL.md",
+    ".codex/skills/ark-extract-spec/SKILL.md",
+    ".codex/skills/ark-discard/SKILL.md",
+    ".codex/skills/ark-design/SKILL.md",
+    ".codex/skills/ark-commit/SKILL.md",
+    ".codex/agents/ark-researcher.toml",
+    ".codex/agents/ark-reviewer.toml",
+    ".codex/agents/ark-verifier.toml"
   ],
   "managed_blocks": [
     {
       "file": "CLAUDE.md",
       "marker": "ARK"
+    },
+    {
+      "file": "AGENTS.md",
+      "marker": "ARK"
     }
-  ]
+  ],
+  "hashes": {
+    ".ark/.gitignore": "be619e7da0436ad2054164edae1960361e431d8e69a6e4e00c54c7545d1b9afb",
+    ".ark/config.toml": "678f94870125005326e91ed4f6c5ccdd969eb7b5cee13720d72f2e47c77fe46a",
+    ".ark/specs/INDEX.md": "04926b580be21fc0ca5553254e2fff40136ac3fda507052edf41b9c96ff906f3",
+    ".ark/specs/features/INDEX.md": "813c734dc6bc354da179e611fc47d464d435c85b3c0b2aeebaf19299d8dbc4d2",
+    ".ark/specs/project/INDEX.md": "44f4a84b964a7bda4aafc5f0a8ecc9c5918b640e374d9383b876f662a815b340",
+    ".ark/templates/PLAN.md": "02f71fceba992ad44ffc2e3cabbd11e91bc87f405e946fee813cc2b9454ea9d5",
+    ".ark/templates/PRD.md": "f53893dce5c5706e05b568e5c2066d44127085a97e9bf3056951b44983a33807",
+    ".ark/templates/REVIEW.md": "b9991316a1f0c8a4208f2ffd37ad59a2eff6febaed17eb8ad1512d886390300e",
+    ".ark/templates/SPEC.md": "eb0a8a3fb37deef4d854ab766cac0417a7b69ab337fea1a1eadd7482a402d793",
+    ".ark/templates/VERIFY.md": "942a03ff59e444e4702e0de6e21d26c4f75be482b0f1521729bcb0fae45d07c6",
+    ".ark/workflow.md": "e9bb3d51b65d32c4cd333b26c6b3cec0ffb05a57d373c36f311095e0c87dfd00",
+    ".claude/agents/ark-researcher.md": "eb03fd90d3bb126b5e0a62fb1b1c701d7b8fdd1b19570c030d6deb62b0427b44",
+    ".claude/agents/ark-reviewer.md": "2d08cad7f91fcad28e9444ee6270dff48449895c08cca95c73026f764e512c72",
+    ".claude/agents/ark-verifier.md": "1d730e7bc20da5cfc27876266b36355d718cff66b439b7aaae644e4b6310c591",
+    ".claude/commands/ark/commit.md": "a6122808a9bd3b0a8e09020f85d8b7ec01af599617d8990e3fd63f1e1cbe89df",
+    ".claude/commands/ark/design.md": "9b182bc7779e5e591c8fee9226ff4390aaba9db0524912abd88c2f99bf1d7112",
+    ".claude/commands/ark/discard.md": "d4a9e41129f068b9496d3bca59dd0155ce39f67d87e71697e9dca0110ada8ec4",
+    ".claude/commands/ark/extract-spec.md": "57ea601d53adb33559e0e9c74f08a21b5da7cc3aef50e87e0ae0b220433a5a09",
+    ".claude/commands/ark/quick.md": "79e643cf260fc1aa891bfbd1b6e9a1df31fbf11e38d423c8c61b0df8915f8402",
+    ".claude/commands/ark/record.md": "b5df88aa70007194b61e96cd5852b1326ff929b53f30033270c42affa3cfe93b",
+    ".claude/commands/ark/resume.md": "47bcdd70e475948cc3b2539012857e98f8a4dcabda762e272e415562e430be77",
+    ".codex/agents/ark-researcher.toml": "382eba24b967244ae930ded42f003352028426eb3b1cbdbbad29f04a5acf5edf",
+    ".codex/agents/ark-reviewer.toml": "ed3fe2c08941300572ad543fd79e6f1325a41706869ee8523e0fde7e5762a13a",
+    ".codex/agents/ark-verifier.toml": "68dceeb4d4486302b8f547890601fedd3928794ce188132a13433a165938de59",
+    ".codex/skills/ark-commit/SKILL.md": "61c76b145b935b847c6a055bee3b256d69a7070d2cebd13186ddfe1f39a320fe",
+    ".codex/skills/ark-design/SKILL.md": "c50fbf7e6f2480670897461b407ebfdd822fa2348f3c85ff92faefc8686d97d8",
+    ".codex/skills/ark-discard/SKILL.md": "5fd1cc0d37a152dde064737869b7bfb30fc2a6bc1a0d529d0b7b78b8adb2c4e6",
+    ".codex/skills/ark-extract-spec/SKILL.md": "43b8056ad48456fdf822d2559de3af4efdcae25a6515a4438311d9ebe11eacd0",
+    ".codex/skills/ark-quick/SKILL.md": "a74b943806c72a942f0335cfa57a9c1db4f15ca3dd78ffe8f61e1fb181e8a37f",
+    ".codex/skills/ark-record/SKILL.md": "1ac50dee6a4463418409febc5e72feb428a2c567196463ae1de3615b6d5bce4c",
+    ".codex/skills/ark-resume/SKILL.md": "42d1e5ed6a359124824e3c0c2d91439bbae4a89bd2581e09de2b291d20915372"
+  }
 }

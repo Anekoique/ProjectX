@@ -1,18 +1,26 @@
 # Project Specs
 
-Project-level conventions. User-authored. Layout: `<name>/SPEC.md`.
+Project-level conventions. **User-authored, user-maintained.** Agents may read these but must never create or modify SPEC / INDEX files unless explicitly instructed.
+
+A spec entry is either:
+
+- `<name>/SPEC.md` — a concrete spec for a specific scope.
+- `<name>/INDEX.md` — a nested index that recursively points to more specs.
+
+Use `INDEX.md` when an area has multiple sub-specs that need their own hierarchy.
 
 ## Index
 
-| Spec | Scope |
-|------|-------|
-| `{e.g. rust/SPEC.md}` | `{e.g. language style, error handling, module layout}` |
+| Spec                            | Scope                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `<e.g. <language>/SPEC.md>`     | <e.g. language-specific style, error-handling, naming conventions>       |
+| `<e.g. <area>/INDEX.md>`        | <e.g. an area with several child SPECs (architecture, security, …)>      |
 
-`{Add one row per spec. Keep the Scope column terse — agents scan this to decide what to read.}`
+<one row per spec or nested index. Keep the Scope column terse — agents scan this table to decide what to read.>
 
 ---
 
-## How to Use
+## How to use
 
-**When reading:** scan the table, open the SPEC relevant to the files you'll touch.
-**When adding:** create `<name>/SPEC.md` using the `SPEC.md` template, then append a row here.
+- **Read:** scan the table; open the relevant `SPEC.md`. If the entry is an `INDEX.md`, follow it recursively until you reach the concrete specs that apply to the files you'll touch.
+- **Add:** create either `<name>/SPEC.md` (single focused spec) or `<name>/INDEX.md` (area with multiple child specs). Append a row here, or in the nearest parent `INDEX.md`.

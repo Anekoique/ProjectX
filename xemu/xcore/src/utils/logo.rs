@@ -19,8 +19,8 @@ const ENV_NO_LOGO: &str = "X_NO_LOGO";
 /// Print the xemu startup banner to stdout.
 ///
 /// - Writes nothing when `X_NO_LOGO` is set to a non-empty value.
-/// - Wraps the banner with ANSI color when `std::io::stdout().is_terminal()`
-///   is true; otherwise emits the banner unchanged (no escape bytes).
+/// - Wraps the banner with ANSI color when `std::io::stdout().is_terminal()` is
+///   true; otherwise emits the banner unchanged (no escape bytes).
 /// - Swallows broken-pipe / closed-stdout errors; never panics.
 pub(crate) fn print_logo() {
     let no_logo = std::env::var(ENV_NO_LOGO).ok();

@@ -118,3 +118,11 @@ After the final approved PLAN:
 - `MUST` directives are binding.
 - `SHOULD` directives require explicit response if rejected.
 - If an implementation deviation changes architecture, API semantics, invariants, or constraints, a new PLAN iteration must be opened.
+
+<!-- ARK:START -->
+Ark is installed in this project. Use `/ark:quick` or `/ark:design` to start tasks.
+
+See `.ark/workflow.md` for the full workflow.
+
+@.ark/specs/INDEX.md
+<!-- ARK:END -->
