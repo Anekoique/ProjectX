@@ -1,65 +1,73 @@
 # Workflow overview
 
-ProjectX uses a **spec- and doc-driven iteration workflow**. The
-canonical rules live in [`/AGENTS.md`](../../../AGENTS.md); this page
-explains the shape at a glance.
+ProjectX uses the **Ark** CLI to drive a spec-driven iteration
+workflow. The canonical rules live in
+[`/.ark/workflow.md`](../../../.ark/workflow.md); this page is a quick
+orientation.
 
 ## Three locations per feature
 
-1. **`docs/tasks/<feature>/`** — in-flight workspace. Holds
-   `NN_PLAN.md` / `NN_REVIEW.md` / `NN_MASTER.md` rounds as the design
-   converges.
-2. **`docs/spec/<feature>/SPEC.md`** — landed canonical spec.
-   Authored by extracting the final PLAN's `## Spec` section
-   (Goals / Architecture / Invariants / Data Structure / API Surface /
-   Constraints).
-3. **`docs/archived/<category>/<feature>/`** — iteration history,
-   moved out of `tasks/` once the feature lands.
+1. **`.ark/tasks/<slug>/`** — in-flight workspace. Holds `PRD.md`,
+   `NN_PLAN.md`, `NN_REVIEW.md` (and optional human-authored
+   `NN_MASTER.md`-style overrides via `task.toml`) as the design
+   converges. Deep-tier tasks run inside their own git worktree at
+   `.ark/worktrees/<branch>/`.
+2. **`.ark/specs/features/<slug>/SPEC.md`** — landed canonical spec.
+   On deep-tier `ark agent task commit`, the latest PLAN's `## Spec`
+   block is extracted verbatim (Goals / Non-goals / Architecture /
+   Data Structure / API Surface / Constraints / CHANGELOG).
+3. **`.ark/tasks/archive/YYYY-MM/<slug>/`** — iteration history,
+   relocated by `ark archive` once the task is `Committed`.
 
-## Iteration loop
+Legacy iteration history from before Ark adoption lives at
+`.ark/tasks/archive/legacy/<slug>/` and stays there permanently.
 
-Per feature, up to 5 rounds (`00` – `04`):
+## Tiers
+
+| Tier | When | Artifacts |
+|------|------|-----------|
+| Quick | Trivial, reversible (typo, version bump) | `PRD.md` only |
+| Standard | Feature work, testable scope, no API/architecture break | `PRD.md`, `PLAN.md`, `VERIFY.md` |
+| Deep | Architectural, cross-cutting, new subsystem | `PRD.md`, `NN_PLAN.md` ⇄ `NN_REVIEW.md` loop, `VERIFY.md`, promoted `SPEC.md` |
+
+Pick the smallest tier that fits. Promote mid-flight with
+`ark agent task promote --to <tier>` if scope grows.
+
+## Iteration loop (deep tier)
 
 ```
-plan-executor  → NN_PLAN.md
+ark agent task new --slug <s> --title "<t>" --tier deep --worktree
+ark agent task plan       → NN_PLAN.md
 (main session stops)
-external reviewer (codex / human) → NN_REVIEW.md
-(optional) user → NN_MASTER.md
-→ next plan-executor, or → implementation
+external reviewer         → NN_REVIEW.md
+(optional) user           → MASTER directive in task.toml
+ark agent task plan       → next round, OR
+ark agent task execute    → implementation
 ```
 
-**Loop cap.** If the reviewer returns APPROVED earlier (no
-CRITICAL / HIGH findings) or after round 04, proceed to
-implementation. Any surviving MEDIUM / LOW findings are addressed
-inline during implementation.
+**Loop cap.** `task.toml.max_iterations` (typically 3–5). If
+exhausted, halt and surface to the user. Any surviving MEDIUM / LOW
+findings are addressed inline during implementation.
 
 ## Implementation
 
-- Implementation (code **and** `NN_IMPL.md`) is authored by the
-  **main session directly** — not by a sub-agent.
-- There is **no** post-implementation review artifact. Audit findings
-  are applied inline in the same session.
+- Implementation (code **and** updates to the latest PLAN if the design
+  needs adjustment) is authored by the **main session directly** —
+  not by a sub-agent.
+- VERIFY produces an auto-populated checklist; resolve every item
+  before `ark agent task commit`.
 
-## Categories at landing
+## Slash commands
 
-When a feature lands, choose the archive category that matches the
-dominant intent:
-
-| Category | Trigger |
-|----------|---------|
-| `feat` | New user-visible or API-visible capability |
-| `fix` | Bug or MANUAL_REVIEW finding that isn't a reorg |
-| `refactor` | Reshape code without changing behavior |
-| `perf` | Measurable speedup under a published exit gate |
-| `review` | Audit / retrospective not tied to one feature |
-
-When a task has mixed intent, split it.
+- `/ark:quick "<title>"` — start a quick-tier task.
+- `/ark:design "<title>"` — start a standard-tier task.
+- `/ark:design --deep "<title>"` — start a deep-tier task with worktree.
+- `/ark:commit -m "<msg>"` — atomic VERIFY-gated commit.
 
 ## Continuing reading
 
 - [Opening a new feature](./new-feature.md)
 - [Writing a SPEC](./writing-spec.md)
 - [Adding a benchmark](./adding-benchmark.md)
-- [`/AGENTS.md`](../../../AGENTS.md) — canonical workflow spec
-- [`docs/tasks/README.md`](../../tasks/README.md) — active-feature
-  lifecycle and category heuristics
+- [`/.ark/workflow.md`](../../../.ark/workflow.md) — canonical Ark workflow
+- [`/AGENTS.md`](../../../AGENTS.md) — project standards

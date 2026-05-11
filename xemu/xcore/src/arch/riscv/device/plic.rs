@@ -6,7 +6,7 @@
 //!   drive.
 //! - `Plic` (this module) — MMIO decode, orchestration, and signal-plane drain.
 //!   Devices signal via [`IrqLine`] (see `device::irq`); `Plic::tick` drains
-//!   the plane and feeds gateway FSMs (directIrq 02_PLAN).
+//!   the plane and feeds gateway FSMs (direct-irq 02_PLAN).
 
 mod core;
 mod gateway;
@@ -23,7 +23,7 @@ use crate::{
     error::XResult,
 };
 
-// Width of the level bitmap in `PlicSignals` (directIrq I-D12).
+// Width of the level bitmap in `PlicSignals` (direct-irq I-D12).
 const _: () = assert!(
     NUM_SRC <= 32,
     "PlicSignals bitmap is u32; NUM_SRC must be <= 32"
@@ -43,7 +43,7 @@ pub struct Plic {
     core: Core,
     /// Shared atomic signal plane — see `device::irq`. The `Arc` identity is
     /// stable across [`Plic::reset`] so device-held [`IrqLine`] handles
-    /// remain valid for the lifetime of the PLIC (directIrq I-D8 / I-D8a).
+    /// remain valid for the lifetime of the PLIC (direct-irq I-D8 / I-D8a).
     signals: Arc<PlicSignals>,
 }
 
@@ -140,7 +140,7 @@ impl Device for Plic {
 
     /// Drain the signal plane and feed gateway FSMs. `Bus::tick` calls this
     /// after every other device's `tick`, so raises that happen inside this
-    /// same slow-tick are observed in one pass (directIrq I-D16). Fast path:
+    /// same slow-tick are observed in one pass (direct-irq I-D16). Fast path:
     /// one `Acquire` swap and zero per-source work when no raise is pending.
     fn tick(&mut self) {
         let Some(level) = self.signals.drain() else {

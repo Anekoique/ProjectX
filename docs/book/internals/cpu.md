@@ -73,7 +73,7 @@ icache: [ICacheLine; 4096]   // per-hart, direct-mapped
 Self-modifying code: every guest store invalidates the whole icache
 (simple, correct, loses the icache effect only on code-writing
 guests — rare). See
-[`../spec/perfHotPath/SPEC.md`](../../spec/perfHotPath/SPEC.md) for
+[`features/perf-hot-path/SPEC.md`](../../../.ark/specs/features/perf-hot-path/SPEC.md) for
 the full invariant set.
 
 ## Trace

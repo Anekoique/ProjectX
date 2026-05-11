@@ -60,4 +60,4 @@ model, across both RV32 and RV64 via `cfg_if`.
 ## Instruction table
 
 For the full per-mnemonic implementation status, see
-[`../../spec/inst/SPEC.md`](../../spec/inst/SPEC.md).
+[`features/inst/SPEC.md`](../../../.ark/specs/features/inst/SPEC.md).

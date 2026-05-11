@@ -65,7 +65,7 @@ vaddr ─► align check ─► MMU.translate ─► paddr ─► PMP.check ─�
 ```
 
 Responsibility split (see
-[`../spec/mm/SPEC.md`](../../spec/mm/SPEC.md) for the canonical table):
+[`features/mm/SPEC.md`](../../../.ark/specs/features/mm/SPEC.md) for the canonical table):
 
 | Layer | Knows about | Does NOT know about |
 |-------|-------------|---------------------|

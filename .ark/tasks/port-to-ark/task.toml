@@ -1,0 +1,14 @@
+id = "port-to-ark"
+title = "Port project workflow to Ark"
+tier = "deep"
+phase = "committed"
+iteration = 2
+max_iterations = 3
+created_at = "2026-05-11T02:41:19.001911Z"
+updated_at = "2026-05-11T06:14:59.255536Z"
+committed_at = "2026-05-11T06:14:59.255536Z"
+branch = "feat/port-to-ark"
+worktree_path = ".ark/worktrees/feat/port-to-ark"
+base_branch = "main"
+start_head = "ae44a017cad2af6ebf2634eff664953a985a69c6"
+journal_path = ".ark/workspace/anekoique/journal-1.md"

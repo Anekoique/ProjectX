@@ -4,7 +4,7 @@ Freestanding C library for programs built by `xam` and run on xemu.
 Modelled after NEMU's abstract-machine klib — minimal, deterministic,
 platform-independent.
 
-See [`../../spec/klib/SPEC.md`](../../spec/klib/SPEC.md) for the
+See [`features/klib/SPEC.md`](../../../.ark/specs/features/klib/SPEC.md) for the
 design.
 
 ## What's included

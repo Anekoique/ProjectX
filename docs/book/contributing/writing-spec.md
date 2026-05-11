@@ -1,112 +1,99 @@
 # Writing a SPEC
 
-The `SPEC.md` is the landed, canonical description of a feature.
-It's extracted from the final PLAN's `## Spec` section after the
-feature implementation lands.
+The `SPEC.md` is the landed, canonical description of a feature. For
+deep-tier tasks, it is extracted from the final PLAN's `## Spec`
+section automatically by `ark agent task commit`.
 
-See [`../../template/SPEC.template`](../../template/SPEC.template)
-for the canonical shape.
+The canonical template lives at
+[`/.ark/templates/SPEC.md`](../../../.ark/templates/SPEC.md). The
+seven sections are:
 
-## Sections
-
-### `[**Goals**]`
+## `[**Goals**]`
 
 What the feature provides, numbered `G-1`, `G-2`, ... Each goal is a
-one-sentence claim about observable behaviour or a measurable
-threshold.
+one-sentence verb-led claim about user-visible capability. Soft cap
+of 5 goals.
 
 ```
 - G-1: All 31 cpu-tests-rs pass with the new MMU implementation.
 - G-2: Linux boots to initramfs shell in ≤ 5 seconds on the M4 host.
 ```
 
-Follow Goals with Non-Goals `NG-1`, `NG-2`, ... — what the feature
-explicitly does **not** cover.
+## `[**Non-goals**]`
 
-### `[**Architecture**]`
-
-A prose + diagram description of the component's shape. ASCII
-diagrams are fine; keep them under 80 columns. Show the
-data-flow arrows, not just boxes.
-
-### `[**Invariants**]`
-
-Numbered `I-1`, `I-2`, ... Properties that must hold at all times
-across all execution paths.
+Numbered `NG-1`, `NG-2`, ... Only list a non-goal when a reasonable
+reader would assume it is in scope. Soft cap of 3.
 
 ```
-- I-1: mip hardware bits are modified only via irq_state merge.
-- I-2: Tick order: bus.tick → sync → check → fetch → execute → retire.
-- I-3: Claimed PLIC sources are excluded from re-pending until complete.
+- NG-1: No A/D-bit emulation under `senvcfg.ADUE` (hardware A/D only).
 ```
 
-### `[**Data Structure**]`
+## `[**Architecture**]`
 
-Core types — structs, enums, traits — with real Rust syntax. This
-is the type-level signature of the feature.
+Module / file layout with a one-line note per file. Prefer a tree or
+diagram; avoid prose narration. Keep diagrams under 80 columns.
+
+## `[**Data Structure**]`
+
+Public types only — `struct`, `enum`, `trait`. Field names + types +
+a one-line comment when meaning is non-obvious.
 
 ```rust
-pub struct Aclint {
-    epoch: Instant,
-    mtime: u64,
-    msip: u32,
-    mtimecmp: u64,
-    irq_state: Arc<AtomicU64>,
-}
+pub struct Aclint { /* see device/aclint.rs */ }
 ```
 
-### `[**API Surface**]`
+## `[**API Surface**]`
 
-Public function signatures and their contracts.
+Public function signatures and one-line semantics. No bodies.
 
 ```rust
-/// Read a word at `addr`. Returns `BadAddress` for unmapped paddrs
-/// or `PageFault` for unmapped vaddrs.
 pub fn checked_read(&mut self, addr: VirtAddr, size: usize) -> XResult<Word>;
 ```
 
-### `[**Constraints**]`
+## `[**Constraints**]`
 
-Numbered `C-1`, `C-2`, ... Things that would look like bugs but are
-intentional design boundaries.
+Numbered `C-1`, `C-2`, ... Invariants the implementation must hold.
+One declarative sentence each, ≤120 chars. Cite a source of truth
+(file path, test, constant) inline with an em-dash:
 
 ```
-- C-1: xemu internal layout matches QEMU-virt in shape; ACLINT replaces CLINT.
-- C-2: Single hart (cooperative scheduler).
-- C-3: UART byte-access only; word writes raise SizeMismatch.
+- C-1: mip hardware bits are modified only via irq_state merge — `xemu/xcore/src/device/irq.rs`.
+- C-2: UART byte-access only; word writes raise SizeMismatch — `tests/uart_byte_access.rs`.
 ```
 
-## Extraction from PLAN
+## `[**CHANGELOG**]`
 
-When a feature lands:
+Appended only when a later task modifies this SPEC. New SPECs
+(extracted from a deep-tier PLAN at commit) start with this section
+empty (or with the migration / promotion pointer if the SPEC was
+ported from a pre-workflow source).
 
-1. Read the final `NN_PLAN.md`.
-2. Locate its `## Spec` section.
-3. Copy everything between `## Spec` and the next `##` heading into
-   `docs/spec/<feature>/SPEC.md`.
-4. Prepend a banner:
-
-```markdown
-# `<feature>` SPEC
-
-> Source: [`/docs/archived/<cat>/<feature>/NN_PLAN.md`](...) —
-> iteration history lives under `docs/archived/<cat>/<feature>/`.
-
----
+```
+- 2026-05-11 port-to-ark: migrated from running-notes SPEC; full original preserved at `.ark/tasks/archive/legacy/<slug>/SPEC_LEGACY.md`.
 ```
 
-5. Commit the SPEC in the same PR as the IMPL.
+## Extraction from PLAN (deep tier)
+
+`ark agent task commit` does this automatically: it locates the
+latest `NN_PLAN.md`, extracts everything between `## Spec` and the
+next `##` heading, and writes it verbatim to
+`.ark/specs/features/<slug>/SPEC.md`. It also appends a row to
+`.ark/specs/features/INDEX.md` between the `ARK:FEATURES` markers.
+All of this lands in the closing commit.
 
 ## Pre-workflow features
 
-Some features (e.g. `csr`, `klib`, `mm`) predate the template. Their
-SPEC.md contains the original pre-workflow design verbatim with a
-banner flagging it. **Do not rewrite** until the feature next sees
-meaningful iteration — the rewrite is its own task.
+A handful of features predate the seven-section template (the
+running-notes SPECs for `csr`, `klib`, `mm`, `mem-opt`, `err2trap`).
+Their migrated SPECs collapse the long-form prose into the template;
+the original is preserved verbatim at
+`.ark/tasks/archive/legacy/<slug>/SPEC_LEGACY.md` and referenced from
+the migrated CHANGELOG.
 
-## Updating a SPEC
+## Updating an existing SPEC
 
-When a feature iterates, the new PLAN's Response Matrix addresses
-all prior CRITICAL / HIGH findings; the implementation lands; the
-SPEC is **replaced** with the new round's `## Spec`. Never hand-edit
-the SPEC in isolation.
+A later deep-tier task touching the same slug iterates the SPEC by
+landing a new PLAN whose `## Spec` block re-states everything in
+full. `ark agent task commit` then overwrites the existing
+`SPEC.md` and appends a `[**CHANGELOG**]` entry describing what
+changed. Never hand-edit a SPEC in isolation.

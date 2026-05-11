@@ -261,7 +261,7 @@ impl Bus {
     /// Tick devices. MTIMER ticks every step; slow devices (UART, PLIC)
     /// tick every `SLOW_TICK_DIVISOR` steps to reduce overhead.
     ///
-    /// PLIC-last ordering (directIrq I-D16): every non-PLIC device ticks
+    /// PLIC-last ordering (direct-irq I-D16): every non-PLIC device ticks
     /// before the PLIC so a raise produced inside a device's own `tick` is
     /// observed in the same slow-tick drain.
     pub fn tick(&mut self) {

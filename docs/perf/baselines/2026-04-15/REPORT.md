@@ -11,7 +11,7 @@ through each benchmark Makefile; no ad-hoc binary invocations.
 - **Logging:** `X_LOG=off`, `DEBUG=n` via each benchmark Makefile
 - **Guest ISA:** `riscv64gc` (rv64imafdc + Sstc)
 - **Tooling revision:** stamped into `data/bench.summary` header (`rev=8281225`, pre-commit working-tree state)
-- **Phase P1 artefacts:** [`docs/archived/perf/perfBusFastPath/`](../busFastPath/) (iterations 00 → 03 + IMPL)
+- **Phase P1 artefacts:** [`legacy/perf-bus-fast-path/`](../../../.ark/tasks/archive/legacy/perf-bus-fast-path/) (iterations 00 → 03 + IMPL)
 
 ---
 
@@ -308,5 +308,5 @@ docs/perf/baselines/2026-04-15/
 - `mstange/samply`, <https://github.com/mstange/samply>
 - ntietz, *Profiling Rust programs the easy way*, <https://www.ntietz.com/blog/profiling-rust-programs-the-easy-way/>
 - 2026-04-14 baseline: [`docs/perf/baselines/2026-04-14/REPORT.md`](../2026-04-14/REPORT.md)
-- P1 iteration artefacts: [`docs/archived/perf/perfBusFastPath/`](../busFastPath/)
+- P1 iteration artefacts: [`legacy/perf-bus-fast-path/`](../../../.ark/tasks/archive/legacy/perf-bus-fast-path/)
 - Roadmap: [`docs/PROGRESS.md#phase-9-performance-optimization`](../../PROGRESS.md#phase-9-performance-optimization)

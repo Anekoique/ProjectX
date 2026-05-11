@@ -5,7 +5,7 @@ scheduler** in `CPU::step`. N harts are no faster than 1. The
 abstraction exists so the ISA code can reason about per-hart state,
 not because the host is running them in parallel.
 
-See [`../spec/multiHart/SPEC.md`](../../spec/multiHart/SPEC.md) for
+See [`features/multi-hart/SPEC.md`](../../../.ark/specs/features/multi-hart/SPEC.md) for
 the Hart abstraction design.
 
 ## What's shared, what's per-hart

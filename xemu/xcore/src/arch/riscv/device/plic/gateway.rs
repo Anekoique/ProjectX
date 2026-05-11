@@ -2,7 +2,7 @@
 //!
 //! Converts raw line-level samples into core pend/clear decisions, gated by
 //! the current claim in-flight state. Level-triggered with the SiFive
-//! pre-claim-clear variant (plicGateway I-8) — the only triggering
+//! pre-claim-clear variant (plic-gateway I-8) — the only triggering
 //! discipline needed by the in-tree device set.
 
 /// Emitted by [`Gateway::sample`] / [`Gateway::on_complete`] to instruct the

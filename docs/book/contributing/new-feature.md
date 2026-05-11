@@ -3,83 +3,132 @@
 Step-by-step guide for starting a new feature. Assumes you've read
 [Workflow overview](./workflow.md).
 
-## 1. Pick a name
+## 1. Pick a slug
 
 A short `camelCase` identifier — no spaces, no slashes. Examples:
 `vgaConsole`, `perfIcacheV2`, `rvv`, `sbiDebug`.
 
-## 2. Create the task workspace
+## 2. Create the task
+
+Pick the tier (Quick / Standard / Deep — see [workflow.md](./workflow.md))
+and run the matching slash command:
 
 ```bash
-mkdir -p docs/tasks/<feature>
-cp docs/template/PLAN.template   docs/tasks/<feature>/00_PLAN.md
-cp docs/template/REVIEW.template docs/tasks/<feature>/00_REVIEW.md
-cp docs/template/MASTER.template docs/tasks/<feature>/00_MASTER.md
+/ark:quick "<title>"               # trivial, reversible — PRD only
+/ark:design "<title>"              # standard — PRD + PLAN + VERIFY
+/ark:design --deep "<title>"       # deep — adds REVIEW loop + promoted SPEC
 ```
 
-Create all three files at the **start** of the round, even if some
-are empty. Reviewer and user fill them in turn.
+For deep tier, Ark creates a git worktree at
+`.ark/worktrees/<branch>/` and switches focus to it. `cd` into the
+worktree before any further `ark` command.
 
-## 3. Author `00_PLAN.md`
+## 3. Author `PRD.md`
 
-Dispatch `plan-executor` sub-agent from the main session. The
-sub-agent produces the plan — the main session never authors it
-directly.
+The PRD answers four questions:
 
-The PLAN must include:
+- **What** — one-line description of the change.
+- **Why** — bug, cleanup, policy, user request, architectural need.
+- **Outcome** — observable success criteria. For quick tier this is
+  the verification checklist.
+- **Related Specs** — feature specs from `.ark/specs/features/`
+  this task touches. List paths + one line on how each interacts.
+
+For standard / deep tier, advance to PLAN:
+
+```bash
+ark agent task plan
+```
+
+## 4. Author `PLAN.md` (or `00_PLAN.md` for deep)
+
+Dispatch the `plan-executor` sub-agent. The PLAN must include:
 
 - `## Summary` — one paragraph.
-- `## Log` — reviewer-facing changelog. Start empty for round 00.
-- `## Spec` with `[**Goals**]` / `[**Architecture**]` /
-  `[**Invariants**]` / `[**Data Structure**]` / `[**API Surface**]` /
-  `[**Constraints**]`.
-- `## Implement` — step-by-step engineering plan.
-- `## Trade-offs` — what was considered and rejected.
-- `## Validation` — test plan with real code sketches.
+- `## Log` — reviewer-facing changelog. `None in 00_PLAN` for the
+  first deep-tier round; subsequent rounds list Added / Changed /
+  Removed / Unresolved + a **Response Matrix** for prior findings.
+- `## Spec` with `[**Goals**]` / `[**Non-goals**]` /
+  `[**Architecture**]` / `[**Data Structure**]` / `[**API Surface**]` /
+  `[**Constraints**]` / `[**CHANGELOG**]`. **Self-contained every
+  iteration** — promoted verbatim to
+  `.ark/specs/features/<slug>/SPEC.md` on commit.
+- `## Runtime` — main / failure flow.
+- `## Implementation` — phased steps.
+- `## Trade-offs` — options with adv. / disadv.
+- `## Validation` — Unit / Integration / Failure / Edge tests +
+  Acceptance Mapping.
 
-## 4. Get `NN_REVIEW.md`
+## 5. Deep-tier REVIEW loop
 
-The main session **stops** after round 00's PLAN. You invoke an
-external reviewer (codex / human) to produce `00_REVIEW.md`.
+For deep tier:
 
-Classify findings: `CRITICAL` / `HIGH` / `MEDIUM` / `LOW`.
+```bash
+ark agent task review     # transitions phase → review
+```
 
-## 5. Optional `NN_MASTER.md`
+The main session **stops**. Invoke an external reviewer (codex /
+human / a different agent) to produce `NN_REVIEW.md`. Classify
+findings as `CRITICAL` / `HIGH` / `MEDIUM` / `LOW`.
 
-If you want to override the review or add binding directives, write
-`00_MASTER.md` yourself. `MUST` directives are binding on the next
-PLAN; `SHOULD` directives need explicit response if rejected.
+If verdict is *Rejected* or *Approved with Revisions*:
 
-## 6. Iterate
+```bash
+cp .ark/tasks/<slug>/NN_PLAN.md   .ark/tasks/<slug>/$(printf '%02d' $((NN+1)))_PLAN.md
+cp .ark/tasks/<slug>/NN_REVIEW.md .ark/tasks/<slug>/$(printf '%02d' $((NN+1)))_REVIEW.md
+# edit task.toml: bump iteration, set phase = "plan"
+ark agent task review     # transitions back after the new PLAN is filled
+```
 
-Signal the main session to dispatch round `01`. The next PLAN must:
+The new PLAN's `## Log` must map every prior CRITICAL / HIGH finding
+to Accepted / Rejected / Deferred + reasoning.
 
-- Have a **Response Matrix** mapping every prior CRITICAL / HIGH
-  finding + MASTER directive to a resolution.
-- Address all MASTER `MUST` directives unconditionally.
+Repeat until verdict is **Approved** or `max_iterations` is reached.
 
-## 7. Implement
+## 6. EXECUTE
 
-After the final approved PLAN (up to round 04), the main session
-authors the code changes **and** `NN_IMPL.md` directly. Include:
+```bash
+ark agent task execute
+```
 
-- **What shipped** vs what was planned.
-- **Deviations** from the plan, with justification.
-- **Validation results** — tests run, exit gates met.
+Implementation happens in the main session directly. Follow the
+latest PLAN's `## Implementation` phases. If implementation reveals
+design gaps, **update the latest PLAN's `## Spec`** — do not silently
+diverge.
 
-## 8. Land
+## 7. VERIFY
 
-- **Extract SPEC.** Copy the final PLAN's `## Spec` section into
-  `docs/spec/<feature>/SPEC.md`.
-- **Archive.** `git mv docs/tasks/<feature>  docs/archived/<category>/<feature>`.
-- **Update PROGRESS.md** — add the landed feature to the appropriate
-  phase or task table.
+```bash
+ark agent task verify
+```
+
+`VERIFY.md` is seeded with auto-populated sections (Project Spec
+Compliance, Related Feature Spec Compliance, PRD Constraints, Plan
+Fidelity, SPEC Drift). Resolve every item to PASS / FAIL / N/A with
+explanation. Quality bar covers plan fidelity, correctness, code
+quality, abstraction, SPEC drift — not just "does it work".
+
+## 8. COMMIT
+
+Stage your work first, then commit atomically:
+
+```bash
+git add <files>
+/ark:commit -m "<message>"
+```
+
+For deep tier, the commit extracts the final PLAN's `## Spec` to
+`.ark/specs/features/<slug>/SPEC.md` and appends a row to
+`.ark/specs/features/INDEX.md` — all in one commit.
+
+Later, `ark archive` relocates committed tasks to
+`.ark/tasks/archive/YYYY-MM/<slug>/`.
 
 ## Do-nots
 
 - Don't edit previous iteration documents. Always create the next
   numbered file.
-- Don't silently deviate during implementation. If the design
-  changes meaningfully, open a new iteration.
-- Don't dispatch reviewer sub-agents for the PLAN review — reviews
-  are external, out-of-session.
+- Don't silently deviate during implementation. If the design changes
+  meaningfully, open a new iteration.
+- Don't dispatch reviewer sub-agents for the deep-tier PLAN review —
+  reviews are external, out-of-session.

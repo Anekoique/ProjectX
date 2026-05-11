@@ -1,5 +1,5 @@
 //! Structural isolation test — locks in invariants I-1 and I-2 from
-//! `docs/archived/refactor/archModule/03_PLAN.md`.
+//! `.ark/tasks/archive/legacy/arch-module/03_PLAN.md`.
 //!
 //! Verifies that no source file outside `src/arch/` imports from
 //! `crate::arch::riscv::` or `crate::arch::loongarch::` directly, except
@@ -49,7 +49,7 @@ const SEAM_ALLOWED_SYMBOLS: &[&str] = &[
     // device/intc/mod.rs seam re-exports
     "Aclint",
     "Plic",
-    // device/mod.rs seam re-exports — directIrq handle (arch-neutral) +
+    // device/mod.rs seam re-exports — direct-irq handle (arch-neutral) +
     // mip bits
     "IrqLine",
     "SSIP",
@@ -72,7 +72,7 @@ const SEAM_ALLOWED_SYMBOLS: &[&str] = &[
 /// residual-risk note and R-024, the `add_mmio("aclint", …)` /
 /// `add_mmio("plic", …)` sites survive as string literals and must be counted
 /// so a broad string scan doesn't flag them. These are Bus-level NG-5 residuals
-/// queued under `aclintSplit` / `plicGateway` / `directIrq`.
+/// queued under `aclint-split` / `plic-gateway` / `direct-irq`.
 const BUS_DEBUG_STRING_PINS: &[(&str, usize)] = &[
     (r#""aclint""#, 0),
     (r#""plic""#, 1), // one `add_mmio("plic", …)` unit-test call site

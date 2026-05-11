@@ -76,7 +76,7 @@ return Ok(());
 Never return `Err(XError)` from a trap — reserve `Err` for host
 failures (I/O error) and emulator invariant violations. This is the
 "`err2trap`" refactor pattern; see
-[`../spec/err2trap/SPEC.md`](../../spec/err2trap/SPEC.md).
+[`features/csr/SPEC.md`](../../../.ark/specs/features/csr/SPEC.md) (the trap pipe is documented under the consolidated `csr` SPEC; see also the [legacy `err2trap` archive](../../../.ark/tasks/archive/legacy/err2trap/)).
 
 ## Difftest whitelist
 

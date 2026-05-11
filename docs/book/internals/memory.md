@@ -9,7 +9,7 @@ vaddr → align check → MMU.translate(vaddr, op, priv) → paddr → PMP.check
 ```
 
 Four layers, each with a narrow responsibility. See
-[`../spec/mm/SPEC.md`](../../spec/mm/SPEC.md) for the full design.
+[`features/mm/SPEC.md`](../../../.ark/specs/features/mm/SPEC.md) for the full design.
 
 ## MMU
 
@@ -79,4 +79,4 @@ if op.aligned() && size ∈ {1,2,4,8} {
 Drops the `_platform_memmove` + `Bus::{read,write}` combined bucket
 from ~18 % to sub-2 % on the dhrystone / coremark / microbench
 profile. See
-[`../spec/perfHotPath/SPEC.md`](../../spec/perfHotPath/SPEC.md).
+[`features/perf-hot-path/SPEC.md`](../../../.ark/specs/features/perf-hot-path/SPEC.md).

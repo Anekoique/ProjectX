@@ -9,7 +9,7 @@ Platform-Level Interrupt Controller at `0x0C00_0000`, 64 MiB region.
 - Claim / complete with **claimed-exclusion** — a claimed source
   does not re-pend until its `complete` write.
 
-See [`../spec/plicGateway/SPEC.md`](../../spec/plicGateway/SPEC.md)
+See [`features/plic-gateway/SPEC.md`](../../../.ark/specs/features/plic-gateway/SPEC.md)
 for the Gateway + Core split design and the level-trigger invariants.
 
 ## Register layout (offsets within the PLIC base)
@@ -53,4 +53,4 @@ above `threshold[ctx]`. If one exists, it sets MEIP/SEIP in
 
 Devices like UART hold a reference to their PLIC source slot and
 signal state changes directly — no Bus round-trip. See
-[`../spec/directIrq/SPEC.md`](../../spec/directIrq/SPEC.md).
+[`features/direct-irq/SPEC.md`](../../../.ark/specs/features/direct-irq/SPEC.md).

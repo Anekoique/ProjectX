@@ -20,7 +20,7 @@ xemu is a RISC-V emulator in a multi-crate Rust workspace (xcore, xdb, xlogger) 
 - **Tests**: 336 unit tests passing, 31 cpu-tests-rs, 8 am-tests (bare-metal: UART, ACLINT, PLIC, CSR, trap, interrupts, float), keyboard test (interactive PTY echo), alu-tests (22k+ arithmetic checks), rtc clock test
 - **OS Boot**: OpenSBI v1.3.1 (M-mode firmware), xv6-riscv (ramdisk, interactive shell), Linux 6.1.44 (initramfs, boots to interactive shell in ~3s), **Debian 13 Trixie** (4 GB ext4 root via VirtIO-blk, 288 dpkg packages, Python3 verified)
 - **Benchmarks**: coremark (1000 iterations), dhrystone (500k runs), microbench (10 sub-benchmarks including C++)
-- **Performance**: Lock-free bus restored (owned inline by `CPU`; see [`docs/archived/perf/perfBusFastPath/`](./archived/perf/perfBusFastPath/) and the 2026-04-14 → 2026-04-15 deltas under `docs/perf/baselines/`), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
+- **Performance**: Lock-free bus restored (owned inline by `CPU`; see [`legacy/perf-bus-fast-path/`](../.ark/tasks/archive/legacy/perf-bus-fast-path/) and the 2026-04-14 → 2026-04-15 deltas under `docs/perf/baselines/`), amortized ACLINT wall-clock (sync every 512 ticks), PMP M-mode fast-path, split bus tick (fast ACLINT / slow UART+PLIC), direct mtime accessor
 - **CI**: GitHub Actions pipeline (fmt, clippy, unit tests, cpu-tests-rs, cpu-tests-c, am-tests, alu-tests, benchmarks)
 - **xam HAL**: `_putch` (UART console), `mtime`/`set_mtimecmp` (ACLINT timer), `uptime()` (microseconds), `init_trap`/`TrapFrame` (trap entry), `mainargs` (compile-time argument passing), `_heap_start`/`_heap_end` (linker symbols)
 - **xlib**: printf/sprintf, string ops, `assert.h` (C/C++-safe), `extern "C"` guards for C++ compatibility
@@ -187,7 +187,7 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 
 **Goal**: Run each guest hart on its own host OS thread for actual parallel execution. Today (post-`5e66d51`) multi-hart is single-threaded cooperative round-robin in `CPU::step` (`xemu/xcore/src/cpu/mod.rs:213-249`); N harts are no faster than 1.
 
-**Why this is its own phase, not part of P1.** P1 ([`docs/archived/perf/perfBusFastPath/`](./archived/perf/perfBusFastPath/)) drops `Arc<Mutex<Bus>>` because the cooperative scheduler makes it dead weight today. Going to real SMP requires a separate, larger redesign: shared RAM under atomics or `unsafe` typed access with explicit fences; per-hart `AtomicUsize` LR/SC reservations; per-device fine-grained sync (or a "BQL on MMIO only" model); and a runtime that joins/cancels hart threads cleanly. None of that fits in a perf-roadmap iteration.
+**Why this is its own phase, not part of P1.** P1 ([`legacy/perf-bus-fast-path/`](../.ark/tasks/archive/legacy/perf-bus-fast-path/)) drops `Arc<Mutex<Bus>>` because the cooperative scheduler makes it dead weight today. Going to real SMP requires a separate, larger redesign: shared RAM under atomics or `unsafe` typed access with explicit fences; per-hart `AtomicUsize` LR/SC reservations; per-device fine-grained sync (or a "BQL on MMIO only" model); and a runtime that joins/cancels hart threads cleanly. None of that fits in a perf-roadmap iteration.
 
 **Reference designs to evaluate before opening this phase:**
 
@@ -203,7 +203,7 @@ All RISC-V Linux distributions compile userspace with `lp64d` ABI (double-float)
 
 **Pre-conditions before opening this phase:**
 
-- P1 (`perfBusFastPath`) shipped — owned-bus baseline on single-hart.
+- P1 (`perf-bus-fast-path`) shipped — owned-bus baseline on single-hart.
 - P2 (bus-access API) and P5 (MMU/trap inlining) shipped — keeps the per-access cost low so Amdahl doesn't flatten the SMP win.
 - A reproducible 2-hart Linux benchmark in `docs/perf/` showing how much time is *actually* available to parallelise.
 
@@ -257,7 +257,7 @@ P7 (multi-hart re-profile) is pending and feeds into Phase 11.
 
 - [x] **Lock-free bus** (P1) — `Arc<Mutex<Bus>>` → owned `Bus`, zero
   per-instruction lock overhead. Spec and trade-offs:
-  [`spec/perfBusFastPath/SPEC.md`](./spec/perfBusFastPath/SPEC.md).
+  [`features/perf-bus-fast-path/SPEC.md`](../.ark/specs/features/perf-bus-fast-path/SPEC.md).
 - [x] **Amortized timer** — ACLINT wall-clock sync every 512 ticks.
 - [x] **Mtimer deadline gate** (P3) — cached `next_fire_mtime` short-circuit.
 - [x] **Decoded-instruction cache** (P4) — per-hart direct-mapped, PC +
@@ -266,7 +266,7 @@ P7 (multi-hart re-profile) is pending and feeds into Phase 11.
   `checked_read` / `checked_write` / `access_bus`.
 - [x] **Typed RAM access** (P6) — 1/2/4/8-byte aligned accesses bypass
   `_platform_memmove`. Spec and trade-offs:
-  [`spec/perfHotPath/SPEC.md`](./spec/perfHotPath/SPEC.md).
+  [`features/perf-hot-path/SPEC.md`](../.ark/specs/features/perf-hot-path/SPEC.md).
 - [x] **Split bus tick** — ACLINT every step, UART/PLIC every 64.
 - [x] **Direct mtime accessor** — `Bus::mtime()` via `Device` trait.
 - [x] **PMP fast-path** — skip 16-entry scan in M-mode with no locked entries.
@@ -325,25 +325,27 @@ The critical path to OS boot is:
 
 ## Manual Review TODOs
 
-Architectural issues captured in [MANUAL_REVIEW.md](./archived/review/MANUAL_REVIEW.md) were split
-into independent feature tasks. Each task's landed spec lives under
-[`docs/spec/<feature>/SPEC.md`](./spec/); iteration history lives under
-[`docs/archived/<feature>/`](./archived/).
+Architectural issues captured in [MANUAL_REVIEW.md](../.ark/tasks/archive/legacy/MANUAL_REVIEW.md)
+were split into independent tasks. Each task's landed spec lives under
+[`.ark/specs/features/<slug>/SPEC.md`](../.ark/specs/features/);
+iteration history lives under
+[`.ark/tasks/archive/legacy/<slug>/`](../.ark/tasks/archive/legacy/).
 
-| # | Task | Spec | Archive | MANUAL_REVIEW items | Status |
-|---|------|------|---------|---------------------|--------|
-| 1 | Consolidate arch into `arch/` module | [`spec/archModule/SPEC.md`](./spec/archModule/SPEC.md) | [`archived/refactor/archModule/`](./archived/refactor/archModule/) | #3, #4 | Implemented (rounds 00–03, 5 PRs) |
-| 1b | Reorganise `arch/<name>/` internal layout | [`spec/archLayout/SPEC.md`](./spec/archLayout/SPEC.md) | [`archived/refactor/archLayout/`](./archived/refactor/archLayout/) | follow-up to #1 | Implemented (rounds 00–04, 2 PRs + cleanup — commit `a6d4009`) |
-| 2 | Split ACLINT into MSWI / MTIMER / SSWI | [`spec/aclintSplit/SPEC.md`](./spec/aclintSplit/SPEC.md) | [`archived/refactor/aclintSplit/`](./archived/refactor/aclintSplit/) | #2 | Implemented (rounds 00–01, 1 PR) |
-| 3 | Hart abstraction for multi-hart support | [`spec/multiHart/SPEC.md`](./spec/multiHart/SPEC.md) | [`archived/feat/multiHart/`](./archived/feat/multiHart/) | #1 | Implemented (rounds 00–07, 1 PR) |
-| 4 | PLIC redesign: Gateway + Core split (level-triggered) | [`spec/plicGateway/SPEC.md`](./spec/plicGateway/SPEC.md) | [`archived/fix/plicGateway/`](./archived/fix/plicGateway/) | #7 | Implemented (rounds 00–02, 1 PR) |
-| 5 | Direct device → PLIC async signaling; event-driven interrupt delivery to CPU | [`spec/directIrq/SPEC.md`](./spec/directIrq/SPEC.md) | [`archived/fix/directIrq/`](./archived/fix/directIrq/) | #5, #6 | Implemented (rounds 00–02, 1 PR) |
+| # | Task | Spec | Archive | Items | Status |
+|---|------|------|---------|-------|--------|
+| 1 | Consolidate arch into `arch/` module | (no live spec; refactor) | [`legacy/arch-module/`](../.ark/tasks/archive/legacy/arch-module/) | #3, #4 | Landed (rounds 00–03, 5 PRs) |
+| 1b | Reorganise `arch/<name>/` internal layout | (no live spec; refactor) | [`legacy/arch-layout/`](../.ark/tasks/archive/legacy/arch-layout/) | follow-up to #1 | Landed (rounds 00–04, commit `a6d4009`) |
+| 2 | Split ACLINT into MSWI / MTIMER / SSWI | folded into [`features/devices/SPEC.md`](../.ark/specs/features/devices/SPEC.md) | [`legacy/aclint-split/`](../.ark/tasks/archive/legacy/aclint-split/) | #2 | Landed (rounds 00–01, 1 PR) |
+| 3 | Hart abstraction for multi-hart support | [`features/multi-hart/SPEC.md`](../.ark/specs/features/multi-hart/SPEC.md) | [`legacy/multi-hart/`](../.ark/tasks/archive/legacy/multi-hart/) | #1 | Landed (rounds 00–07, 1 PR) |
+| 4 | PLIC redesign: Gateway + Core split (level-triggered) | [`features/plic-gateway/SPEC.md`](../.ark/specs/features/plic-gateway/SPEC.md) | [`legacy/plic-gateway/`](../.ark/tasks/archive/legacy/plic-gateway/) | #7 | Landed (rounds 00–02, 1 PR) |
+| 5 | Direct device → PLIC async signaling; event-driven interrupt delivery to CPU | [`features/direct-irq/SPEC.md`](../.ark/specs/features/direct-irq/SPEC.md) | [`legacy/direct-irq/`](../.ark/tasks/archive/legacy/direct-irq/) | #5, #6 | Landed (rounds 00–02, 1 PR) |
 
-All seven MANUAL_REVIEW items are now addressed. Subsequent work opens new
-features under [`docs/tasks/<feature>/`](./tasks/), lands the final spec under
-`docs/spec/<feature>/SPEC.md`, and archives iteration history under
-`docs/archived/<category>/<feature>/` per the categories in
-[`/AGENTS.md`](../AGENTS.md) and [`docs/tasks/README.md`](./tasks/README.md).
+All seven MANUAL_REVIEW items are now addressed. Subsequent work uses Ark —
+`/ark:design --deep "<title>"` opens the task, `ark agent task commit` lands the
+spec under `.ark/specs/features/<feature>/SPEC.md`, and `ark archive` moves
+iteration history under `.ark/tasks/archive/YYYY-MM/<feature>/`. Read
+[`/AGENTS.md`](../AGENTS.md) for development standards and `.ark/workflow.md`
+for the full lifecycle.
 
 ---
 

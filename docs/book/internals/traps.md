@@ -62,14 +62,14 @@ into the PLIC.
 
 Device-to-PLIC is **direct**: the UART holds a reference to the
 PLIC's source slot (`PlicSource`) and flips it on state change. No
-Bus-mediated round-trip. This is the `directIrq` fix; see
-[`../spec/directIrq/SPEC.md`](../../spec/directIrq/SPEC.md).
+Bus-mediated round-trip. This is the `direct-irq` fix; see
+[`features/direct-irq/SPEC.md`](../../../.ark/specs/features/direct-irq/SPEC.md).
 
 ## Edge vs level
 
 - **ACLINT MSIP / MTIP / SSIP** — level-triggered by bit state.
 - **UART** — level; `!rx_fifo.is_empty() && (ier & 1)`.
 - **PLIC** — level on its external sources; claim/complete exclusion
-  prevents re-pending until the handler completes. `plicGateway`
+  prevents re-pending until the handler completes. `plic-gateway`
   fixed a prior edge/level confusion; see
-  [`../spec/plicGateway/SPEC.md`](../../spec/plicGateway/SPEC.md).
+  [`features/plic-gateway/SPEC.md`](../../../.ark/specs/features/plic-gateway/SPEC.md).

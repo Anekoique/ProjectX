@@ -5,7 +5,7 @@ sharing the `0x0200_0000` / `0x1_0000` region. Wire-compatible with
 the CLINT layout for software that expects one.
 
 See the split spec at
-[`../spec/aclintSplit/SPEC.md`](../../spec/aclintSplit/SPEC.md).
+[`features/devices/SPEC.md`](../../../.ark/specs/features/devices/SPEC.md) (ACLINT split is documented under the consolidated `devices` SPEC; see also the [legacy `aclint-split` archive](../../../.ark/tasks/archive/legacy/aclint-split/)).
 
 ## MSWI — Machine Software Interrupt
 

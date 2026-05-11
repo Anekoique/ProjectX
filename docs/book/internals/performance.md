@@ -12,8 +12,8 @@ dropped by ~57–62 % vs the pre-P1 baseline:
 | MicroBench | 85.82 s | 32.91 s | **−62 %** |
 
 See [`../PROGRESS.md`](../../PROGRESS.md) §Phase 9 for the full table
-and [`../spec/perfBusFastPath/SPEC.md`](../../spec/perfBusFastPath/SPEC.md),
-[`../spec/perfHotPath/SPEC.md`](../../spec/perfHotPath/SPEC.md) for
+and [`features/perf-bus-fast-path/SPEC.md`](../../../.ark/specs/features/perf-bus-fast-path/SPEC.md),
+[`features/perf-hot-path/SPEC.md`](../../../.ark/specs/features/perf-hot-path/SPEC.md) for
 per-phase design.
 
 ## Where time goes today

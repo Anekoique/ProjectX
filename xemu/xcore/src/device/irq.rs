@@ -3,9 +3,10 @@
 //! A device holds an [`IrqLine`] for its source and calls `raise` / `lower`
 //! the moment an event occurs. The signal plane is a lock-free atomic
 //! bitmap inside the PLIC; the CPU thread drains it at the next bus tick via
-//! `Plic::tick`. See `docs/archived/fix/directIrq/02_PLAN.md` §Async Posture.
+//! `Plic::tick`. See `.ark/tasks/archive/legacy/direct-irq/02_PLAN.md` §Async
+//! Posture.
 //!
-//! Memory ordering (directIrq 01_PLAN I-D14):
+//! Memory ordering (direct-irq 01_PLAN I-D14):
 //! - Producers publish with `Release`; the drain acquires with `Acquire`. This
 //!   establishes happens-before from the device's pre-raise state to the CPU's
 //!   post-drain observation.
@@ -23,7 +24,7 @@ use std::sync::{
 
 /// Shared atomic signal plane: one bit per source for level, plus a
 /// single-bit epoch flag that gates the drain. The width pins
-/// `NUM_SRC <= 32` (directIrq I-D12 / C-12).
+/// `NUM_SRC <= 32` (direct-irq I-D12 / C-12).
 pub struct PlicSignals {
     level: AtomicU32,
     pending_raises: AtomicBool,
@@ -54,7 +55,7 @@ impl PlicSignals {
     }
 
     /// Clear all plane state. Sets `pending_raises = true` so the next drain
-    /// is forced to run and de-assert IRQ lines (directIrq F-6).
+    /// is forced to run and de-assert IRQ lines (direct-irq F-6).
     pub fn reset(&self) {
         self.level.store(0, Release);
         self.pending_raises.store(true, Release);
@@ -68,7 +69,7 @@ impl Default for PlicSignals {
 }
 
 /// Arch-neutral handle a device holds to signal its PLIC source directly.
-/// Clones alias the same source (directIrq I-D7 coalesce).
+/// Clones alias the same source (direct-irq I-D7 coalesce).
 #[derive(Clone)]
 pub struct IrqLine {
     signals: Arc<PlicSignals>,

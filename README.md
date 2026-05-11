@@ -59,7 +59,8 @@ Platform: MacBook Air M4
 
 - **[User manual + internals reference](docs/book/introduction.md)** — start here for usage, architecture, and contribution guide.
 - [docs/PROGRESS.md](docs/PROGRESS.md) — development roadmap, phase status, perf baselines.
-- [docs/spec/](docs/spec/) — per-feature landed specifications.
+- [.ark/specs/features/](.ark/specs/features/) — per-feature landed specifications (managed by Ark).
+- [.ark/workflow.md](.ark/workflow.md) — task workflow lifecycle (DESIGN → PLAN → REVIEW → EXECUTE → VERIFY → COMMIT).
 
 ## License
 

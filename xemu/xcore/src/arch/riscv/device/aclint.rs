@@ -19,7 +19,7 @@ pub struct Aclint {
 
 impl Aclint {
     /// Build all three sub-devices with per-hart IRQ state. SSIP edge
-    /// signals route through `IrqState::raise_ssip_edge` (directIrq Task 5).
+    /// signals route through `IrqState::raise_ssip_edge` (direct-irq Task 5).
     pub fn new(num_harts: usize, irqs: Vec<IrqState>) -> Self {
         debug_assert_eq!(irqs.len(), num_harts);
         Self {

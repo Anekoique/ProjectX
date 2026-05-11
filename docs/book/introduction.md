@@ -37,4 +37,4 @@ execution core of the ProjectX computer system project.
 
 For the development roadmap and landed-phase status, see
 [`../PROGRESS.md`](../PROGRESS.md). For feature-level specifications,
-see [`../spec/`](../spec/).
+see [`/.ark/specs/features/`](../../.ark/specs/features/).
