@@ -1,27 +1,26 @@
 # Project Specs
 
-Project-level conventions. User-authored.
+Project-level conventions. **User-authored, user-maintained.** Agents may read these but must never create or modify SPEC / INDEX files unless explicitly instructed.
 
-A spec entry may be either:
+A spec entry is either:
 
-- `<name>/SPEC.md`: a concrete spec for a specific scope.
-- `<name>/INDEX.md`: a nested spec index that recursively points to more specs.
+- `<name>/SPEC.md` — a concrete spec for a specific scope.
+- `<name>/INDEX.md` — a nested index that recursively points to more specs.
 
-Use `INDEX.md` when a spec area contains multiple sub-specs and needs its own hierarchy.
+Use `INDEX.md` when an area has multiple sub-specs that need their own hierarchy.
 
 ## Index
 
-| Spec                   | Scope                     |
-| ---------------------- | ------------------------- |
-| `organization/SPEC.md` | `Organization Guidelines` |
-| `coding/INDEX.md`      | `Coding Guidelines`       |
+| Spec                            | Scope                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `<e.g. <language>/SPEC.md>`     | <e.g. language-specific style, error-handling, naming conventions>       |
+| `<e.g. <area>/INDEX.md>`        | <e.g. an area with several child SPECs (architecture, security, …)>      |
+
+<one row per spec or nested index. Keep the Scope column terse — agents scan this table to decide what to read.>
 
 ---
 
-## How to Use
+## How to use
 
-**When reading:** scan this table first. Open the relevant `SPEC.md`; if the entry is an `INDEX.md`, follow it recursively until you reach the concrete specs that apply to the files you will touch.
-
-**When adding:** create either `<name>/SPEC.md` for a single focused spec, or `<name>/INDEX.md` when the area needs multiple child specs. Then append a row here or in the nearest parent `INDEX.md`.
-
-**Ownership:** these files are user-authored and user-maintained. Agents may read them, but must never create, edit, or modify `SPEC.md` or `INDEX.md` files unless explicitly instructed by the user.
+- **Read:** scan the table; open the relevant `SPEC.md`. If the entry is an `INDEX.md`, follow it recursively until you reach the concrete specs that apply to the files you'll touch.
+- **Add:** create either `<name>/SPEC.md` (single focused spec) or `<name>/INDEX.md` (area with multiple child specs). Append a row here, or in the nearest parent `INDEX.md`.
