@@ -20,7 +20,7 @@
 
 [**Architecture**]
 
-> Module / file layout, with a one-line note per file describing its role. Diagrams are welcome; prose narration is not. If the diagram says everything, no prose is needed.
+> Diagram or Module/file layout, with a one-line note per file describing its role. For complex mechanisms, using a diagram is more appropriate. If the diagram says everything, no prose is needed.
 
 ```
 <directory tree or component diagram>

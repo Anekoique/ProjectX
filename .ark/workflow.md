@@ -62,7 +62,7 @@ When in doubt, pick lower. Promotion is cheap; demotion is awkward.
 ├── tasks/archive/YYYY-MM/    # closed tasks
 └── specs/
     ├── project/<name>/SPEC.md     # user-authored
-    └── features/<name>/SPEC.md    # promoted on deep commit
+    └── features/<...>/<name>/SPEC.md    # promoted on deep commit (recursive tree)
 ```
 
 ---
@@ -85,10 +85,12 @@ ark agent task new --slug <slug> --title "<title>" --tier <quick|standard|deep> 
 
 - Read every project SPEC and any related feature SPECs from the context output.
 - Brainstorm: quick = none; standard ≤3 questions; deep = thorough.
-- Fill `PRD.md`: **What** / **Why** / **Outcome** / **Related Specs**.
+- Fill `PRD.md`: **What** / **Why** / **Outcome** / **Related Specs** / **SPEC Path** (deep only).
 - Deep tier: `--worktree` is required; then `cd .ark/worktrees/<branch>/`.
 
-**Gate:** PRD has What, Why, Outcome filled. Quick → EXECUTE; standard/deep → PLAN.
+**SPEC Path (deep only):** body is a single `/`-separated path relative to `specs/features/`, ending in the task slug. Examples: `xemu/csr`, `klib`, `core/runtime/scheduler`. `task commit` extracts the deep-tier `## Spec` to `features/<path>/SPEC.md` and upserts INDEX rows from leaf to root. Missing or malformed block → `FeaturePathMissing` / `InvalidFeaturePath` at commit time. Quick / standard tiers ignore the block.
+
+**Gate:** PRD has What, Why, Outcome filled (deep also requires SPEC Path). Quick → EXECUTE; standard/deep → PLAN.
 
 ### PLAN — elaborate how
 
@@ -120,7 +122,9 @@ ark agent task review    # deep → REVIEW
 ark context --scope phase --for review --format json
 ```
 
-Reviewer (ideally a fresh agent or different model) fills `NN_REVIEW.md`:
+**STOP. Ask the user which reviewer to use: `ark-reviewer` subagent, a different model, or self-review.** Do not pick on the user's behalf.
+
+The chosen reviewer fills `NN_REVIEW.md`:
 
 - Verdict: Approved / Approved with Revisions / Rejected.
 - Findings (`R-NNN`): Severity, Section, Problem, Why it matters, Recommendation.
@@ -154,6 +158,7 @@ ark context --scope phase --for execute --format json
 - Work through the latest PLAN's Implementation phases.
 - Follow project SPECs and related feature SPECs.
 - If implementation reveals design gaps, **update the latest PLAN's `## Spec`**. Do not silently diverge.
+- Keep Ark workflow context (SPEC-rule labels, task slugs, iteration numbers, finding IDs) out of shipped source — comments, identifiers, tests, errors, logs.
 - Run project checks (tests, lints, builds).
 
 ```bash
@@ -165,6 +170,8 @@ ark agent task verify    # → VERIFY (seeds VERIFY.md)
 ```bash
 ark context --scope phase --for verify --format json
 ```
+
+**STOP. Ask the user which verifier to use: `ark-verifier` subagent, a different model, or self-verify.** Do not pick on the user's behalf.
 
 `VERIFY.md` is seeded with auto-populated checklist sections. Resolve each item:
 
@@ -222,7 +229,7 @@ Do not write `**Date**`, `**Slug**`, `**Branch**`, etc. — `task commit` stamps
 
 **The CLI does, in order:**
 1. VERIFY gate.
-2. Deep: extract `## Spec` to `specs/features/<slug>/SPEC.md`; upsert features INDEX.
+2. Deep: parse PRD `[**SPEC Path**]`; extract `## Spec` to `specs/features/<path>/SPEC.md`; upsert every INDEX along the leaf-to-root path (seeding missing subtree INDEXes from the template).
 3. Save `task.toml` with `phase = Committed`, `committed_at = now`.
 4. Stage exactly the Ark-managed files (no `git add -A`).
 5. `git commit -m "<message>"`.
@@ -282,9 +289,9 @@ Two layers, opposite ownership rules.
 
 **Project specs** — `specs/project/<name>/SPEC.md`. User-authored conventions. Apply to every task. **Read every entry in `specs/project/INDEX.md` before any task.** Agents never edit project SPECs without explicit instruction.
 
-**Feature specs** — `specs/features/<name>/SPEC.md`. Auto-extracted from deep-tier PLANs at commit. Scan `specs/features/INDEX.md`; read only the SPECs your task touches. **List them in the PRD's `[**Related Specs**]` block** so VERIFY can check adherence.
+**Feature specs** — `specs/features/<...>/<name>/SPEC.md`. Auto-extracted from deep-tier PLANs at commit. Scan `specs/features/INDEX.md`; read only the SPECs your task touches. **List them in the PRD's `[**Related Specs**]` block** so VERIFY can check adherence. The features tree is recursive — leaves may live at any depth, parent `INDEX.md` files at each level row their immediate children (leaves as `<seg>/SPEC.md`, subtree branches as `<seg>/INDEX.md`), mirroring `specs/project/`.
 
-**SPEC promotion (deep commit, automatic):** `task commit` extracts the final PLAN's `## Spec` to `specs/features/<slug>/SPEC.md` and appends a row to `specs/features/INDEX.md`. Both land in the closing commit. Modifying an existing SPEC appends a `[**CHANGELOG**]` entry instead.
+**SPEC promotion (deep commit, automatic):** `task commit` reads the PRD's `[**SPEC Path**]` block (required on deep tier), extracts the final PLAN's `## Spec` to `specs/features/<path>/SPEC.md`, and upserts a row in every `INDEX.md` along the path from leaf to root. Missing intermediate INDEXes are seeded from the shipped subtree template. Both the SPEC and every touched INDEX land in the closing commit. Modifying an existing SPEC appends a `[**CHANGELOG**]` entry instead. Single-segment paths reproduce the pre-recursive flat layout bit-for-bit.
 
 **Divergence:** REVIEW must flag a PLAN that contradicts an existing feature SPEC as CRITICAL. The PLAN either conforms or explicitly updates the SPEC.
 

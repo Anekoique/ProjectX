@@ -55,7 +55,7 @@ Scaffolds `.ark/tasks/<slug>/{PRD.md, task.toml}`, registers the slug, sets this
 
 Edit `.ark/tasks/<slug>/PRD.md`: **What**, **Why**, **Outcome**, **Related Specs** (one bullet per touched feature SPEC + how it interacts).
 
-**Deep — dispatch `ark-researcher`** when PRD authoring hits a third-party library, prior-art comparison, or cross-cutting pattern map. Findings land at `<task>/research/<topic>.md`. After dispatch, run `git status`; `git restore` any out-of-scope edits and `git clean -fd` any out-of-scope new files (the researcher's allowed write scope is `<task>/research/` only).
+**Deep — STOP and ask the user before drafting** if any topic needs research (third-party library, prior art, cross-cutting pattern). Offer `ark-researcher` and wait for their answer; do not decide silently. On dispatch, findings land at `<task>/research/<topic>.md`. After: `git status`, `git restore` out-of-scope edits, `git clean -fd` out-of-scope new files.
 
 **Gate:** PRD complete → Phase 2.
 
@@ -86,7 +86,7 @@ Per the template: `## Summary`, `## Log` (*None in 00_PLAN*), `## Spec` (Goals/N
 - Constraints: one declarative sentence each, ≤120 chars. The *why* goes in Trade-offs, not the Constraint body.
 - If a goal sounds like a procedure ("Two flags control X..."), it is a Constraint, not a Goal.
 
-**Deep — dispatch `ark-researcher`** for library/API choices or pattern comparisons that PLAN authoring cannot resolve from training. Same post-check: `git status`, `git restore` out-of-scope edits, `git clean -fd` out-of-scope new files.
+**Deep — STOP and ask the user before drafting** if PLAN authoring needs library/API or pattern comparison research. Offer `ark-researcher` and wait. Same post-check: `git status`, `git restore` out-of-scope edits, `git clean -fd` out-of-scope new files.
 
 **Gate:** every Goal `G-N` mapped to ≥1 Validation `V-*-N` in the Acceptance Mapping table.
 
@@ -108,12 +108,12 @@ ark agent task review    # → Phase 3
 ark context --scope phase --for review --format json
 ```
 
-### Step 3.2: Act as reviewer `[AI]` (preferably a fresh agent)
+### Step 3.2: Pick the reviewer `[AI]` `[USER]`
 
-Ask the user: *"Should I self-review, or will you run the reviewer?"*
+**STOP. Ask the user: `ark-reviewer` subagent, a different model, or self-review?** Wait for the answer; do not pick.
 
-- **Self:** switch framing — *you are now the reviewer*. Read the latest `NN_PLAN.md` against the PRD and project specs; fill `NN_REVIEW.md` with verdict, findings (`R-NNN`), trade-off advice (`TR-N`).
-- **Agent:** dispatch `ark-reviewer`. `git status` after; `git restore` edits outside `NN_REVIEW.md` and `git clean -fd` any new files.
+- **`ark-reviewer`:** dispatch it. `git status` after; `git restore` edits outside `NN_REVIEW.md` and `git clean -fd` any new files.
+- **Self-review:** switch framing — *you are now the reviewer*. Read the latest `NN_PLAN.md` against the PRD and project specs; fill `NN_REVIEW.md` with verdict, findings (`R-NNN`), trade-off advice (`TR-N`).
 
 **Reject (HIGH)** if the latest PLAN's `## Spec` references prior iterations instead of restating in full.
 
@@ -165,12 +165,12 @@ Seeds `VERIFY.md` with auto-populated sections.
 ark context --scope phase --for verify --format json
 ```
 
-### Step 5.2: Maintain VERIFY.md `[AI]` (preferably a fresh agent)
+### Step 5.2: Pick the verifier `[AI]` `[USER]`
 
-Ask the user: *"Should I self-verify, or will you run the verifier?"*
+**STOP. Ask the user: `ark-verifier` subagent, a different model, or self-verify?** Wait for the answer; do not pick.
 
-- **Self:** apply the higher quality bar — plan fidelity, correctness, code quality, abstraction, SPEC drift. Resolve every item PASS / FAIL / N/A; capture cross-cutting observations as Findings (`V-NNN`) with a Resolution.
-- **Agent:** dispatch `ark-verifier`. Runs the project's build / test / lint / format-check; fills `VERIFY.md`. Does not self-fix — FAIL items return to the main session. `git status` after; `git restore` edits outside `VERIFY.md` and `git clean -fd` any new files.
+- **`ark-verifier`:** dispatch it. Runs the project's build / test / lint / format-check; fills `VERIFY.md`. Does not self-fix — FAIL items return to the main session. `git status` after; `git restore` edits outside `VERIFY.md` and `git clean -fd` any new files.
+- **Self-verify:** apply the higher quality bar — plan fidelity, correctness, code quality, abstraction, SPEC drift. Resolve every item PASS / FAIL / N/A; capture cross-cutting observations as Findings (`V-NNN`) with a Resolution.
 
 **No verdict line — completion = no `PENDING`.**
 
