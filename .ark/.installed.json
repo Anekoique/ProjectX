@@ -1,6 +1,5 @@
 {
   "version": "0.1.5",
-  "installed_at": "2026-05-18T13:57:15.110225Z",
   "files": [
     ".ark/.gitignore",
     ".ark/config.toml",
@@ -48,7 +47,7 @@
     ".ark/.gitignore": "be619e7da0436ad2054164edae1960361e431d8e69a6e4e00c54c7545d1b9afb",
     ".ark/config.toml": "678f94870125005326e91ed4f6c5ccdd969eb7b5cee13720d72f2e47c77fe46a",
     ".ark/specs/INDEX.md": "04926b580be21fc0ca5553254e2fff40136ac3fda507052edf41b9c96ff906f3",
-    ".ark/specs/features/INDEX.md": "b2000ac42bd9f48a18db6cca7be4c1446486762f83dfca547ae835ab5ad6adc0",
+    ".ark/specs/features/INDEX.md": "480b5856d528695b4006b94c719a0cbfad728a91009fbe5b5aef0cc5b84e904f",
     ".ark/specs/project/INDEX.md": "44f4a84b964a7bda4aafc5f0a8ecc9c5918b640e374d9383b876f662a815b340",
     ".ark/templates/PLAN.md": "02f71fceba992ad44ffc2e3cabbd11e91bc87f405e946fee813cc2b9454ea9d5",
     ".ark/templates/PRD.md": "f95b14d683aed0992949b51de159067640dbf195d777beddc250e07cb8e18d8f",

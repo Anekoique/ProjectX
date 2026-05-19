@@ -1,0 +1,21 @@
+[package]
+name = "xvisor"
+version = "0.1.0"
+edition = "2024"
+authors = ["Anekoique <ctolu01@gmail.com>"]
+repository = "https://github.com/Anekoique/ProjectX/tree/main/xvisor"
+
+[features]
+default = ["platform-qemu"]
+platform-qemu = []
+platform-xemu = []
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+debug = false
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

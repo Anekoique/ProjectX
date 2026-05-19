@@ -1,0 +1,14 @@
+id = "framework"
+title = "add xvisor basic framework"
+tier = "deep"
+phase = "committed"
+iteration = 2
+max_iterations = 3
+created_at = "2026-05-18T14:21:31.192615Z"
+updated_at = "2026-05-19T11:52:47.907364Z"
+committed_at = "2026-05-19T11:52:47.907364Z"
+branch = "feat/xvisor-framework"
+worktree_path = ".ark/worktrees/feat/xvisor-framework"
+base_branch = "main"
+start_head = "2c5c22c4b62d4fb307fdd87e45f0fd171030deab"
+journal_path = ".ark/workspace/anekoique/journal-1.md"

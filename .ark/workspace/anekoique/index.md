@@ -8,6 +8,7 @@
 | # | Date | Title | Slug | Branch | Closing Commit | Journal |
 |---|------|-------|------|--------|----------------|---------|
 | 1 | 2026-05-11 | Port ProjectX workflow to Ark | `port-to-ark` | `feat/port-to-ark` | <PENDING:port-to-ark> | `journal-1.md` |
+| 2 | 2026-05-19 | Add xvisor basic framework | `framework` | `feat/xvisor-framework` | <PENDING:framework> | `journal-1.md` |
 
 <!-- ARK:SESSIONS:END -->
 

@@ -27,3 +27,31 @@ Retire docs/-based workflow; consolidate task / archive / feature-spec under .ar
 | Hash | Message |
 |------|---------|
 | _(none)_ |   |
+
+## Session 2: Add xvisor basic framework
+
+**Date**: 2026-05-19
+**Slug**: framework
+**Branch**: `feat/xvisor-framework`
+**Base Branch**: `main`
+**Start Head**: `2c5c22c`
+**Closing Commit**: <PENDING:framework>
+
+### Summary
+
+Boot a HS-mode Rust hypervisor under QEMU virt + OpenSBI fw_jump; print banner, halt via SiFive-test finisher.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| xvisor crate | New no_std bin: naked _start, PerCpu via tp, DTB capture, stvec wfi trampoline. |
+| HAL | hal::{arch::riscv, platform::qemu} with cfg_attr-selected backends + loongarch/xemu stubs. |
+| Build | xvisor/Makefile, build.rs, linker.ld; root rust-toolchain.toml adds riscv64gc target. |
+| Tooling | .vscode/settings.json links xvisor; xemu/feature SPECs untouched. |
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| _(none)_ |   |
