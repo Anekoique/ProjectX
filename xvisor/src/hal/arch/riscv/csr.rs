@@ -7,8 +7,7 @@
 /// # Safety
 ///
 /// `addr` must be a 4-byte-aligned address of executable HS-mode code that
-/// implements a valid trap handler (or, for the boot-time installation,
-/// the `wfi` parking pad).
+/// implements a valid trap handler.
 #[inline]
 pub unsafe fn write_stvec(addr: usize) {
     // SAFETY: writing `stvec` is privileged but supported in HS-mode; the

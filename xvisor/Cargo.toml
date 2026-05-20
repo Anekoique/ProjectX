@@ -9,6 +9,9 @@ repository = "https://github.com/Anekoique/ProjectX/tree/main/xvisor"
 default = ["platform-qemu"]
 platform-qemu = []
 platform-xemu = []
+# Fires an `ebreak` from `rust_main` to demo the trap round-trip.
+# Off by default; enabled via `make trap-test`.
+trap-canary = []
 
 [profile.release]
 lto = true

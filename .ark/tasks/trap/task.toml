@@ -1,0 +1,14 @@
+id = "trap"
+title = "add xvisor trap"
+tier = "deep"
+phase = "committed"
+iteration = 1
+max_iterations = 3
+created_at = "2026-05-20T02:10:14.025264Z"
+updated_at = "2026-05-20T08:56:56.419129Z"
+committed_at = "2026-05-20T08:56:56.419129Z"
+branch = "feat/xvisor-trap"
+worktree_path = ".ark/worktrees/feat/xvisor-trap"
+base_branch = "feat/xvisor"
+start_head = "13515a66719e60d41f002b94395f6fc3e606d0b2"
+journal_path = ".ark/workspace/anekoique/journal-1.md"

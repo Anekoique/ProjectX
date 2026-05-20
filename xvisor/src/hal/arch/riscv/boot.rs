@@ -3,11 +3,11 @@
 //! On entry: `a0` = hartid, `a1` = dtb-ptr, privilege = HS-mode. `_start`
 //! establishes the per-hart stack, zeroes BSS, captures the DTB pointer into
 //! [`DTB_ADDR`], installs `tp` to point at the per-hart [`PerCpu`] slot,
-//! installs a `wfi` parking pad in `stvec`, and tail-calls [`rust_main`].
+//! installs the real [`trap_entry`] in `stvec`, and tail-calls [`rust_main`].
 
 use core::{ptr::addr_of_mut, sync::atomic::Ordering};
 
-use super::{DTB_ADDR, MAX_HARTS, PER_CPU, PerCpu, STACK_SIZE_PER_HART, csr};
+use super::{DTB_ADDR, MAX_HARTS, PER_CPU, PerCpu, STACK_SIZE_PER_HART, csr, trap::trap_entry};
 
 /// Total boot-time stack reservation in `.bss.stack`.
 const STACK_BYTES: usize = STACK_SIZE_PER_HART * MAX_HARTS;
@@ -42,8 +42,8 @@ pub unsafe extern "C" fn _start() -> ! {
         "mv     a1, s1",
         "call   {arch_setup}",
 
-        // install the wfi parking pad in stvec
-        "call   {install_trap_trampoline}",
+        // install the HS-mode trap vector in stvec
+        "call   {install_trap_vector}",
 
         // restore the handoff and call rust_main(hartid, dtb)
         "mv     a0, s0",
@@ -54,12 +54,12 @@ pub unsafe extern "C" fn _start() -> ! {
         "1:",
         "wfi",
         "j      1b",
-        stack                   = sym STACK,
-        stack_bytes             = const STACK_BYTES,
-        clear_bss               = sym clear_bss,
-        arch_setup              = sym arch_setup,
-        install_trap_trampoline = sym install_trap_trampoline,
-        rust_main               = sym crate::rust_main,
+        stack                = sym STACK,
+        stack_bytes          = const STACK_BYTES,
+        clear_bss            = sym clear_bss,
+        arch_setup           = sym arch_setup,
+        install_trap_vector  = sym install_trap_vector,
+        rust_main            = sym crate::rust_main,
     );
 }
 
@@ -112,24 +112,15 @@ unsafe extern "C" fn arch_setup(hartid: usize, dtb_ptr: usize) {
     }
 }
 
-/// Install a single-instruction `wfi` parking pad in `stvec` so unintended
-/// traps loop visibly instead of triple-bouncing through whatever value
-/// OpenSBI left in the CSR.
-unsafe extern "C" fn install_trap_trampoline() {
-    // SAFETY: `trap_trampoline` is a real code symbol with 4-byte alignment;
-    // writing `stvec` to point at it is the documented HS-mode setup step.
+/// Install the HS-mode trap vector in `stvec`. Direct mode (the low two
+/// bits of the written value are zero).
+unsafe extern "C" fn install_trap_vector() {
+    // SAFETY: `trap_entry` is a real code symbol exported by the trap
+    // module with the natural 4-byte instruction alignment; writing `stvec`
+    // to point at it is the documented HS-mode setup step.
     unsafe {
-        csr::write_stvec(trap_trampoline as *const () as usize);
+        csr::write_stvec(trap_entry as *const () as usize);
     }
-}
-
-/// Single-instruction parking pad. `stvec` points here pre-trap-handler;
-/// any unintended trap loops on `wfi` and is operator-visible. Placed in
-/// the regular `.text` section so it never precedes `_start` at the binary
-/// entry point.
-#[unsafe(naked)]
-unsafe extern "C" fn trap_trampoline() -> ! {
-    core::arch::naked_asm!("1:", "wfi", "j 1b");
 }
 
 unsafe extern "C" {

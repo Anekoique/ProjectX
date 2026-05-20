@@ -55,3 +55,31 @@ Boot a HS-mode Rust hypervisor under QEMU virt + OpenSBI fw_jump; print banner, 
 | Hash | Message |
 |------|---------|
 | _(none)_ |   |
+
+## Session 3: Add xvisor trap framework
+
+**Date**: 2026-05-20
+**Slug**: trap
+**Branch**: `feat/xvisor-trap`
+**Base Branch**: `feat/xvisor`
+**Start Head**: `13515a6`
+**Closing Commit**: <PENDING:trap>
+
+### Summary
+
+HS-mode trap entry + Rust dispatcher; ebreak round-trip via `trap-canary` cargo feature; wfi parking-pad retired.
+
+### Main Changes
+
+| Area | Description |
+|------|-------------|
+| trap | trap.S save/restore (global_asm!) + Rust dispatcher; sepc advance via instruction_width. |
+| boot | `install_trap_vector` writes real `trap_entry` into stvec; wfi trampoline deleted. |
+| build | `trap-canary` cargo feature gates ebreak demo; build.rs reruns on trap.S edits. |
+| harness | `make trap-test` (tee + grep) under bash pipefail; `cause` arch-local, host tests deferred. |
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| _(none)_ |   |

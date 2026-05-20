@@ -10,5 +10,6 @@ are auto-maintained.
 | Feature | Scope | Promoted |
 |---------|-------|----------|
 | `framework` | add xvisor basic framework | 2026-05-19 from task `framework` |
+| `trap` | add xvisor trap | 2026-05-20 from task `trap` |
 
 <!-- ARK:FEATURES:END -->

@@ -28,6 +28,18 @@ use hal::{
 pub extern "C" fn rust_main(_hartid: usize, _dtb_ptr: usize) -> ! {
     let hartid = hal::arch::percpu().hartid;
     let dtb_ptr = DTB_ADDR.load(Ordering::Acquire);
+
+    // Trap-canary demo: fire `ebreak` so the freshly installed trap entry
+    // saves the frame, the dispatcher logs the trap, and `sret` lands on
+    // the banner below. Off by default; gated by the `trap-canary` feature.
+    #[cfg(feature = "trap-canary")]
+    // SAFETY: `ebreak` is a documented HS-mode breakpoint instruction; the
+    // resulting synchronous trap is routed to `hal::arch::trap::trap_entry`,
+    // installed by `_start`, which advances `sepc` past the instruction.
+    unsafe {
+        core::arch::asm!("ebreak", options(nomem, nostack, preserves_flags));
+    }
+
     let _ = writeln!(
         writer(),
         "xvisor: hello from HS-mode (hartid={}, dtb=0x{:x})",
